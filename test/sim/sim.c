@@ -25,6 +25,7 @@ static int clk_y = 2026, clk_m = 11, clk_d = 2, clk_h = 12, clk_mi = 0;
 
 void lcd_clear_buf(void) { memset(fb, 0, sizeof fb); }
 void lcd_refresh(void) {}
+void lcd_refresh_wait(void) {}
 void lcd_refresh_lines(int ln, int cnt) { (void)ln; (void)cnt; }
 void lcd_forced_refresh(void) {}
 void lcd_set_buf_cleared(int v) { (void)v; }

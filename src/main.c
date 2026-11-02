@@ -909,6 +909,7 @@ static void redraw(void) {
   MENUS[2][4] = usbview_is_on() ? "USB*" : "USB";
   lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0) ? EDIT_MENU : MENUS[menu_page]);
   lcd_refresh();
+  lcd_refresh_wait();        /* the LCD goes out by DMA: done before the next frame clears the buffer (no flicker) */
   usbview_send();
 }
 
