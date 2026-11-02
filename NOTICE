@@ -1,0 +1,22 @@
+NAV47 - Almanac 47 + Zones 47 + Tide 47 for the SwissMicros DM42n
+Copyright (C) 2026 Victor Valdes <valdes.vj@gmail.com>
+
+This program is free software: you can redistribute it and/or modify it under the terms of the GNU General Public
+License as published by the Free Software Foundation, either version 3 of the License, or (at your option) any later
+version. See LICENSE.
+
+Exceptions and third-party material:
+  - dmcp/, stm32_program.ld: SwissMicros DMCP5 SDK, BSD 3-Clause (LICENSE.DMCP5_SDK), released "NOMAS".
+  - src/fonts.c: the C47 standardFont and tinyFont, (c) the C43/C47 authors, GPL v3.
+  - src/zonedata.c: IANA tz database (public domain); map land mask from global-land-mask (GLOBE, NOAA).
+  - src/tidedata_pub.c: NOAA CO-OPS harmonic constants (public domain); TICON-3 (CC-BY 4.0).
+No Admiralty (UKHO), Aramco or GEOSA data is in this repository: private data is compiled from your own computer
+(make TIDE47=...) into build/ only, or loaded from files on your calculator.
+
+Written with the help of AI (Claude by Anthropic). I reviewed and checked the results and take full responsibility
+for this project, its correctness and any mistakes in it.
+
+SwissMicros, C47, R47, DM42 and HP are trademarks of their owners. This project is not affiliated with or endorsed
+by them.
+
+DOES NOT REPLACE THE NAUTICAL ALMANAC OR OFFICIAL TIDE TABLES. Not for use as the primary means of navigation.
