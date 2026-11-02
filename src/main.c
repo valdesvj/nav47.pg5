@@ -711,6 +711,10 @@ static void draw_info(void) {
   draw_text(&TINY, 2, y + 4, s, 0);
   sprintf(s, "CPU %s", usb_powered() ? "160 MHz (USB)" : "80 MHz (battery)");
   draw_text(&TINY, 2, y + 4 + LH, s, 0);
+  char u[64];
+  usbview_state(s, u, 64);
+  nt_inv(4, 176, s);
+  nt(4, 192, u);
 }
 
 /* ------------------------------------------------------------------ */
@@ -961,7 +965,7 @@ static void softkey(int fn) {
   case 13: go(PG_FILES); N->msg[0] = 0; break;
   case 14: go(PG_INFO); break;
   case 15: toff = 0; flow_hw_step = flow_day_step = 0; N->valid = 0; break;
-  case 16: if (usbview_is_on()) usbview_off(); else usbview_on(); break;
+  case 16: if (usbview_is_on()) usbview_off(); else usbview_on(); go(PG_INFO); break;   /* INFO shows the state */
   case 18: route_insert(N->nwp ? N->wlat[wp_cur] : N->cfg.lat, N->nwp ? N->wlon[wp_cur] : N->cfg.lon); wp_start_edit(); break;
   case 19: wp_start_edit(); break;
   case 20: route_delete(); route_save(); break;

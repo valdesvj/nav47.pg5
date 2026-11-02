@@ -6,6 +6,7 @@
 void usbview_on(void);       /* the USB port as a serial port; learns the LCD buffer's layout */
 void usbview_off(void);
 int  usbview_is_on(void);
-void usbview_send(void);     /* the whole LCD (as shown, menu bar too) as one text frame */
+void usbview_send(void);
+void usbview_state(char *a, char *b, int n);   /* a line for INFO: the USB state, for checking on the calculator */     /* the whole LCD (as shown, menu bar too) as one text frame */
 
 #endif

@@ -5,11 +5,13 @@
  * Copyright (C) 2026 Victor Valdes - GPL-3.0-or-later. */
 #include <main.h>
 #include <dmcp.h>
+#include <stdio.h>
 #include <string.h>
 #include "usbview.h"
 
 #define SCAN 54                       /* look at the whole line buffer (command and dummy bytes too) */
-static int on, ok;
+static int on, ok, frames, tries;
+static char state[48];
 static int b0, bstep, k0, kstep, ink;   /* x -> byte b0 + bstep*(x/8), bit k0 + kstep*(x%8); ink = the bit value */
 
 static int find(int x, int y, int *byte, int *bit, int *val) {
@@ -38,8 +40,23 @@ static void learn(void) {
   ok = (kstep == 1 || kstep == -1) && (bstep == 1 || bstep == -1);
 }
 
-void usbview_on(void) { usb_acm_on(); on = 1; learn(); }
-void usbview_off(void) { if (on) usb_turn_off(); on = 0; }
+/* on: needs USB power; any other USB use (the disk) is switched off first, then the serial port on */
+void usbview_on(void) {
+  tries++;
+  if (!usb_powered()) { strcpy(state, "NO USB POWER: connect the cable"); on = 0; return; }
+  if (usb_is_on()) { usb_turn_off(); sys_delay(100); }
+  usb_acm_on();
+  sys_delay(300);
+  on = 1;
+  learn();
+  acm_puts("\r\nNAV47 USB hello\r\n");
+  strcpy(state, usb_is_on() ? "ON (usb_is_on = 1)" : "ON requested, usb_is_on = 0");
+}
+void usbview_off(void) { if (on) usb_turn_off(); on = 0; strcpy(state, "OFF"); }
+void usbview_state(char *a, char *b, int n) {
+  snprintf(a, (size_t)n, "USB: %s", state[0] ? state : "OFF");
+  snprintf(b, (size_t)n, "power %d  layout %s  frames %d  tries %d", usb_powered(), ok ? "ok" : "NOT ok", frames, tries);
+}
 int usbview_is_on(void) { return on; }
 
 void usbview_send(void) {
@@ -64,4 +81,5 @@ void usbview_send(void) {
     acm_puts(line);
   }
   acm_puts("END\n");
+  frames++;
 }
