@@ -20,19 +20,22 @@
 #include "zones.h"
 #include "c47scr.h"
 #include "views.h"
+#include "ntext.h"
+#include "route.h"
 
 #define DIR       "/NAV47"
 #define TIDEDIR   "/NAV47/TIDES"
 #define CFGFILE   "/NAV47/NAV47.CFG"
+#define ROUTEFILE "/NAV47/ROUTE.TXT"
 #define MENU_Y    (LCD_Y - LCD_MENU_LINES)     /* 208 */
 #define LH        9                            /* tiny font line pitch */
 
 /* ------------------------------------------------------------------ */
 /*  State (heap: a DMCP5 program has 8 KB of static RAM)              */
 /* ------------------------------------------------------------------ */
-enum { PG_MENU, PG_VALM, PG_VCHART, PG_VSKY, PG_VSPLIT, PG_VANIM, PG_VALLSKY,
-       PG_ZONES, PG_TIDES, PG_FLOW, PG_SET, PG_FILES, PG_INFO, PG_PICK };
-#define IS_VIEW(p) ((p) <= PG_VALLSKY)
+enum { PG_VALM, PG_VSPLIT, PG_VSKY, PG_VALLSKY, PG_VMOON, PG_VANIM,
+       PG_TIDE, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK };
+#define IS_VIEW(p) ((p) <= PG_VANIM)
 
 typedef struct {
   double lat, lon;          /* degrees, N+ E+ */
@@ -44,10 +47,13 @@ typedef struct {
   int    zone, city;        /* ZONES stop and city */
   char   files[4][40];      /* loaded tide files, reloaded at start */
   int    nfiles;
+  int    south;             /* MOON47: the view from the south */
+  int    gc;                /* ROUTE: great circle instead of rhumb line */
 } Cfg;
 
 typedef struct { int src, reg, st; } Row;
 #define MAXROWS 400
+#define MAXWP   40
 
 typedef struct {
   Cfg cfg;
@@ -61,12 +67,16 @@ typedef struct {
   FlowAtlas ffl;            /* atlas loaded from a file */
   int have_ffl;
   char msg[64];
+  double wlat[MAXWP], wlon[MAXWP];   /* ROUTE waypoints */
+  int nwp;
 } Nav;
 
 static Nav *N;
-static int page = PG_MENU, menu_page, shift, vframe;
+static int page = PG_VALM, menu_page, shift, vframe;
 static double toff;                      /* hours added to the time by the arrows */
-static int edit_field = -1, sel_field, pick_cursor, tide_day_off, flow_hw_step, flow_day_step;
+static int edit_field = -1, sel_field, pick_cursor, flow_hw_step, flow_day_step;
+static int wp_cur, wp_edit = -1;          /* ROUTE: the cursor; editing 0 lat, 1 lon */
+static double wp_lat;
 static char ebuf[16];
 static int elen;
 
@@ -117,12 +127,22 @@ static void fmt_off(char *s, double o) {                  /* +3, -5:30 */
 }
 
 static void header(const char *title, const char *right) {
-  draw_text(&STD, 2, 0, title, 1);
-  if (right) draw_text_r(&STD, LCD_X - 2, 0, right, 0);
+  nt_inv(2, 0, title);
+  if (right) nt_r(LCD_X - 2, 0, right);
+  lcd_fill_rect(0, 15, LCD_X, 1, 1);
+}
+
+/* the degree sign of the system font text */
+static void fmt_dmn(char *s, double deg, int ddig, char hemi) {     /* 26°30.0N 050°10.0E */
+  double a = fabs(deg);
+  int d = (int)a;
+  double m = (a - d) * 60.0;
+  if (m >= 59.95) { d++; m = 0.0; }
+  sprintf(s, ddig == 3 ? "%03d" NT_DEG "%04.1f%c" : "%02d" NT_DEG "%04.1f%c", d, m, hemi);
 }
 
 static const char *MON[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
-static const char *WDAY[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
+static const char *WDAY[7] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
 
 
 /* ------------------------------------------------------------------ */
@@ -142,21 +162,21 @@ static void draw_zones(void) {
   long n = jdn(y, m, d);
   fmt_off(o, off);
   sprintf(s, "UTC%s", off == 0 ? "" : o);
-  draw_text(&STD, 2, 0, s, 1);
+  nt_inv(2, 0, s);
   fmt_hm(t, h);
-  draw_text(&STD, 150, 0, t, 0);
+  nt(150, 0, t);
   sprintf(s, "%s %d %s", WDAY[(n + 1) % 7], d, MON[m - 1]);
-  draw_text_r(&STD, LCD_X - 2, 0, s, 0);
+  nt_r(LCD_X - 2, 0, s);
   fmt_off(o, N->cfg.tz);
   sprintf(s, "TZ %s", o);
-  draw_text(&STD, 2, 19, s, 0);
+  nt(2, 17, s);
   fmt_hm(t, fmod((ut + 0.5) * 24.0, 24.0) + N->cfg.tz);
-  draw_text(&STD, 150, 19, t, 0);
+  nt(150, 17, t);
   double dd = off - N->cfg.tz;
   if (dd == 0) strcpy(s, "same time"); else { fmt_off(o, dd); sprintf(s, "%s h", o); }
-  draw_text_r(&STD, LCD_X - 2, 19, s, 0);
+  nt_r(LCD_X - 2, 17, s);
   /* map: 120 x 45 dots, 3 px each, from x 20; zone column c (5 dots, 15 deg) is UTC c - 11 */
-  int mx = 20, my = 40;
+  int mx = 20, my = 36;
   for (int j = 0; j < MAP_NCOL; j++) {
     int hl = (j / 5) == z->col;
     if (hl) gfx_rect(mx + 3 * j, my, 3, 3 * MAP_NROW, 1);
@@ -177,7 +197,7 @@ static void draw_zones(void) {
     fmt_off(o, c->dst);
     sprintf(s, on ? "%s %s  %d/%d  summer %s h" : "%s %s  %d/%d  winter, DST %s h", c->name, c->cc, N->cfg.city + 1, z->n, o);
   } else sprintf(s, "%s %s  %d/%d", c->name, c->cc, N->cfg.city + 1, z->n);
-  draw_text(&STD, 2, MENU_Y - 20, s, 0);
+  nt(2, 192, s);
 }
 
 /* ------------------------------------------------------------------ */
@@ -248,9 +268,9 @@ static void pick_choose(void) {
   int n = list_rows(rows, MAXROWS);
   if (pick_cursor < n && rows[pick_cursor].st >= 0) {
     N->cfg.tsrc = rows[pick_cursor].src; N->cfg.treg = rows[pick_cursor].reg; N->cfg.tst = rows[pick_cursor].st;
-    tide_day_off = 0;
+    flow_hw_step = flow_day_step = 0;
   }
-  page = PG_TIDES;
+  page = PG_TIDE;
 }
 
 static void pick_open(void) {
@@ -259,90 +279,6 @@ static void pick_open(void) {
   for (int i = 0; i < n; i++)
     if (rows[i].src == N->cfg.tsrc && rows[i].reg == N->cfg.treg && rows[i].st == N->cfg.tst) pick_cursor = i;
   page = PG_PICK;
-}
-
-/* ---- TIDES: the day of the station ---- */
-static void draw_tides(void) {
-  const TStation *st = cur_station();
-  int stream = st->kind != TK_TIDE;
-  double ut = ut_now();
-  /* the station's local date now */
-  int y, m, d;
-  double h;
-  long n0;
-  {
-    double tz0 = st->tz;
-    jd_to_ymd(ut + tz0 / 24.0, &y, &m, &d, &h);
-    n0 = jdn(y, m, d);
-    if (tide_dst(st, n0)) { jd_to_ymd(ut + (tz0 + 1) / 24.0, &y, &m, &d, &h); n0 = jdn(y, m, d); }
-  }
-  long n = n0 + tide_day_off;
-  TDay *Dp = &N->tday;
-  tide_day(st, n, stream, Dp);
-#define D (*Dp)
-  cal(n, &y, &m, &d);
-  char s[96], o[12], t[8];
-  draw_text(&STD, 2, 0, st->name, 1);
-  fmt_off(o, D.tz);
-  sprintf(s, "%s %04d-%02d-%02d  UTC%s  %s%s%s", WDAY[(n + 1) % 7], y, m, d, o, stream ? "knots" : "metres above ",
-          stream ? "" : st->datum, tide_day_off ? "" : "  (today)");
-  draw_text(&TINY, 2, 22, s, 0);
-  /* graph */
-  int gx = 24, gy = 34, gw = 216, gh = 120;
-  double lo = 1e9, hi = -1e9;
-  for (int k = 0; k < 73; k++) { if (D.curve[k] < lo) lo = D.curve[k]; if (D.curve[k] > hi) hi = D.curve[k]; }
-  if (stream && st->kind == TK_RECT) { double a = fmax(fabs(lo), fabs(hi)); lo = -a; hi = a; }
-  if (stream && st->kind == TK_ROT) lo = 0;
-  if (hi - lo < 0.2) { hi += 0.1; lo -= 0.1; }
-  double pad = (hi - lo) * 0.08;
-  lo -= pad; hi += pad;
-  gfx_frame(gx, gy, gw + 1, gh + 1);
-  for (int k = 0; k <= 24; k += 3) {
-    int x = gx + k * gw / 24;
-    gfx_rect(x, gy + gh, 1, 3, 1);
-    if (k % 6 == 0) { sprintf(s, "%02d", k); draw_text(&TINY, x - 5, gy + gh + 4, s, 0); }
-  }
-  sprintf(s, "%.1f", hi); draw_text_r(&TINY, gx - 2, gy, s, 0);
-  sprintf(s, "%.1f", lo); draw_text_r(&TINY, gx - 2, gy + gh - 8, s, 0);
-  if (lo < 0 && hi > 0) gfx_hline_dotted(gx, gx + gw, gy + (int)((hi - 0) / (hi - lo) * gh), 3);
-  int px = -1, py = -1;
-  for (int k = 0; k < 73; k++) {
-    int x = gx + k * gw / 72, yy = gy + (int)((hi - D.curve[k]) / (hi - lo) * gh);
-    if (px >= 0) { gfx_line(px, py, x, yy, 1); gfx_line(px, py + 1, x, yy + 1, 1); }
-    px = x; py = yy;
-  }
-  /* now */
-  double now_h = -1;
-  if (tide_day_off == 0) {
-    now_h = fmod((ut + 0.5) * 24.0 + D.tz + 48.0, 24.0);
-    int x = gx + (int)(now_h / 24.0 * gw);
-    for (int yy = gy; yy < gy + gh; yy += 2) gfx_pixel(x, yy, 1);
-  }
-  /* events */
-  int ex = 250, ey = 36;
-  for (int i = 0; i < D.nev; i++) {
-    const TEvent *e = &D.ev[i];
-    fmt_hm(t, e->t);
-    if (!stream) sprintf(s, "%-5s %s %6.2f m", e->kind > 0 ? "HIGH" : "LOW", t, e->val);
-    else if (st->kind == TK_RECT) {
-      if (e->kind < 0) sprintf(s, "SLACK %s", t);
-      else sprintf(s, "%-5s %s %4.1f kn %03.0f", e->val > 0 ? "FLOOD" : "EBB", t, fabs(e->val), e->set);
-    } else sprintf(s, "%-5s %s %4.1f kn %03.0f", e->kind > 0 ? "MAX" : "MIN", t, e->val, e->set);
-    draw_text(&TINY, ex, ey, s, 0);
-    ey += LH + 2;
-  }
-  if (now_h >= 0) {
-    double v, dir;
-    stream_now(st, n, now_h, &v, &dir);
-    fmt_hm(t, now_h);
-    if (!stream) sprintf(s, "NOW %s %.2f m", t, v);
-    else sprintf(s, "NOW %s %.1f kn %03.0f", t, fabs(v), dir);
-    draw_text(&TINY, ex, ey + 4, s, 1);
-  }
-  sprintf(s, "%s  %s", st->src && *st->src ? st->src : "", N->cfg.tsrc == 1 ? "(private)" : N->cfg.tsrc == 2 ? "(file)" : "");
-  draw_text(&TINY, 2, MENU_Y - 2 * LH, s, 0);
-  draw_text(&TINY, 2, MENU_Y - LH, "4 6 day   5 today   ENTER stations      check official tables", 0);
-#undef D
 }
 
 /* ------------------------------------------------------------------ */
@@ -375,105 +311,195 @@ static void arrow(int cx, int cy, double set, double len) {
   gfx_line(x1, y1, bx, by, 1);
 }
 
-static void draw_flow(void) {
-  char s[96], a[24], b[24], t[8];
-  header("FLOW", NULL);
-  const FlowAtlas *fl = atlas();
-  if (!fl) {
-    draw_text(&TINY, 2, 30, "No tidal stream atlas.", 0);
-    draw_text(&TINY, 2, 30 + LH, "Build with make TIDE47=~/opt/tide47 (python/flow_private.py),", 0);
-    draw_text(&TINY, 2, 30 + 2 * LH, "or copy FLOW.FLW (tools/gen_tides.py files) to /NAV47/TIDES and load it in FILES.", 0);
-    return;
-  }
-  int rs, rr;
-  const TStation *ref = find_station(fl->ref, &rs, &rr);
-  fmt_lat(a, N->cfg.lat);
-  fmt_lon(b, N->cfg.lon);
-  sprintf(s, "%s %s  wind %03.0f/%.0f kn", a, b, N->cfg.wdir, N->cfg.wkn);
-  draw_text_r(&TINY, LCD_X - 2, 6, s, 0);
-  double FU[13], FV[13];
-  if (!ref) { sprintf(s, "reference station \"%s\" not loaded", fl->ref); draw_text(&TINY, 2, 30, s, 0); return; }
-  if (!flow_cell(fl, N->cfg.lat, N->cfg.lon, FU, FV)) {
-    draw_text(&TINY, 2, 30, "No atlas here (outside the charts or on land). Set the position in SET.", 0);
-    return;
-  }
-  double ut = ut_now();
+/* the station's local time zone (with US summer time) and its local date and hour at UT jd */
+static double st_local(const TStation *st, double ut, long *n, double *h) {
   int y, m, d;
-  double h;
-  double tz = ref->tz;
-  jd_to_ymd(ut + tz / 24.0, &y, &m, &d, &h);
-  long n = jdn(y, m, d) + flow_day_step;
-  long on;
-  int om;
-  flow_pick(ref, n, flow_day_step ? 12.0 : h, &on, &om);
-  for (int k = 0; k < flow_hw_step; k++) flow_step(ref, on, om, 1, &on, &om);
-  for (int k = 0; k > flow_hw_step; k--) flow_step(ref, on, om, -1, &on, &om);
-  double t0, hh, rng, fac;
-  flow_cycle(ref, on, om, &t0, &hh, &rng, &fac);
-  double U[13], V[13];
-  flow_rows(FU, FV, fac, N->cfg.wdir, N->cfg.wkn, U, V);
-  int cy, cm, cd;
-  cal(on, &cy, &cm, &cd);
-  fmt_hm(t, t0);
-  sprintf(s, "HW %04d-%02d-%02d %s %.2f m  x%.2f springs  (%.24s)", cy, cm, cd, t, hh, fac, ref->name);
-  draw_text(&TINY, 2, 22, s, 0);
-  /* the hour of now relative to that HW */
-  double off_now = ((double)(jdn(y, m, d) - on) * 24.0 + h) - t0;
-  int yy = 34;
-  draw_text(&TINY, 2, yy, "     HOUR  CLOCK      SET     KN", 0);
-  gfx_rect(2, yy + 8, 214, 1, 1);
-  yy += 11;
-  for (int k = 0; k < 13; k++) {
-    double set, kn;
-    setkn(U[k], V[k], &set, &kn);
-    fmt_hm(t, t0 + (k - 6) - tz + N->cfg.tz);
-    int mark = fabs(off_now - (k - 6)) <= 0.5;
-    sprintf(s, "%c HW%+d   %s      %03.0f   %4.2f", mark ? '>' : ' ', k - 6, t, set, kn);
-    if (k == 6) sprintf(s, "%c HW     %s      %03.0f   %4.2f", mark ? '>' : ' ', t, set, kn);
-    draw_text(&TINY, 2, yy, s, 0);
-    arrow(204, yy + 3, set, 3 + 5 * fmin(kn, 2.0));
-    yy += LH + 2;
-  }
-  /* rose */
-  int cx = 318, cyy = 122, R = 62;
-  double mx = 0.25;
-  for (int k = 0; k < 13; k++) { double se, kn; setkn(U[k], V[k], &se, &kn); if (kn > mx) mx = kn; }
-  double ring = mx <= 0.5 ? 0.25 : mx <= 1.0 ? 0.5 : 1.0;
-  double scale = R / (ceil(mx / ring) * ring);
-  for (double r = ring; r * scale <= R + 1; r += ring) gfx_circle(cx, cyy, (int)(r * scale), 1);
-  int px = 0, py = 0;
-  for (int k = 0; k < 13; k++) {
-    int x = cx + (int)lround(U[k] * scale), yv = cyy - (int)lround(V[k] * scale);
-    if (k) gfx_line(px, py, x, yv, 1);
-    if (k == 0 || k == 6 || k == 12) gfx_disc(x, yv, 2, 1);
-    px = x; py = yv;
-  }
-  if (off_now >= -6 && off_now <= 6) {
-    double u, v, se, kn;
-    flow_now(U, V, off_now, &u, &v);
-    setkn(u, v, &se, &kn);
-    arrow(cx, cyy, se, kn * scale);
-    arrow(cx + 1, cyy, se, kn * scale);
-    sprintf(s, "NOW %03.0f %.2f kn", se, kn);
-    draw_text(&TINY, 236, 44, s, 1);
-  }
-  sprintf(s, "rings %.2f kn", ring);
-  draw_text(&TINY, cx - text_width(&TINY, s) / 2, cyy + R + 3, s, 0);
-  /* ARTF: the tide at the nearest port of the reference station's region */
-  const TRegion *reg = src_reg(rs, rr);
-  int best = 0;
-  double bd = 1e9;
-  for (int i = 0; i < reg->n; i++) {
-    const TStation *p = &reg->st[i];
-    if (p->kind != TK_TIDE) continue;
-    double dd = 60 * hypot(p->lat - N->cfg.lat, (p->lon - N->cfg.lon) * dcos(N->cfg.lat));
-    if (dd < bd) { bd = dd; best = i; }
-  }
-  sprintf(s, "near %.14s %.0f nm", reg->st[best].name, bd);
-  draw_text(&TINY, 236, 34, s, 0);
-  draw_text(&TINY, 2, MENU_Y - LH, "4 6 HW  1 3 day  5 now    spring atlas x range, + 2.5% of the wind", 0);
+  double tz = st->tz;
+  jd_to_ymd(ut + tz / 24.0, &y, &m, &d, h);
+  *n = jdn(y, m, d);
+  if (tide_dst(st, *n)) { tz += 1; jd_to_ymd(ut + tz / 24.0, &y, &m, &d, h); *n = jdn(y, m, d); }
+  return tz;
+}
+static void norm_day(long *n, double *h) {
+  while (*h < 0) { *h += 24; (*n)--; }
+  while (*h >= 24) { *h -= 24; (*n)++; }
 }
 
+/* TIDE: Tide 47's ARTF47 page. Left: the hours HW-6 ... HW+6 of the reference station's High Water, with the
+   stream of the FLOW atlas at the position (springs scaled, the wind added), or the station's own height or stream.
+   Right: the tide of the port nearest the position (the chosen station without an atlas): the day's curve, the
+   table's 13 hours as a bar, now dotted, the high and low waters. */
+static void draw_tide(void) {
+  char s[96], t[8], a[24], b[24];
+  double ut = ut_now();
+  const FlowAtlas *fl = atlas();
+  int rs = 0, rr = 0;
+  const TStation *ref = fl ? find_station(fl->ref, &rs, &rr) : NULL;
+  double FU[13], FV[13];
+  int have_flow = ref && flow_cell(fl, N->cfg.lat, N->cfg.lon, FU, FV);
+  const TStation *st = ref ? ref : cur_station();
+  int tidal = st->kind == TK_TIDE;
+  long n0;
+  double h0, tzl = st_local(st, ut, &n0, &h0);
+  /* the table's hours: t0 + k - 6 (local hours of day on) */
+  long on = n0 + flow_day_step;
+  int om = 0;
+  double t0, hh = 0, rng = 0, fac = 1;
+  if (tidal) {
+    flow_pick(st, on, flow_day_step ? 12.0 : h0, &on, &om);
+    for (int k = 0; k < flow_hw_step; k++) flow_step(st, on, om, 1, &on, &om);
+    for (int k = 0; k > flow_hw_step; k--) flow_step(st, on, om, -1, &on, &om);
+    flow_cycle(st, on, om, &t0, &hh, &rng, &fac);
+  } else t0 = floor(flow_day_step ? 12.0 : h0) + 13 * flow_hw_step;
+  double off_now = ((double)(n0 - on) * 24.0 + h0) - t0;
+  double U[13], V[13], val[13];
+  if (have_flow) flow_rows(FU, FV, fac, N->cfg.wdir, N->cfg.wkn, U, V);
+  else
+    for (int k = 0; k < 13; k++) {
+      long nn = on;
+      double hk = t0 + k - 6, dir;
+      norm_day(&nn, &hk);
+      stream_now(st, nn, hk, &val[k], &dir);
+      if (!tidal) { U[k] = fabs(val[k]) * dsin(dir); V[k] = fabs(val[k]) * dcos(dir); }
+    }
+  int vec = have_flow || !tidal;
+  /* the top line */
+  fmt_dmn(a, N->cfg.lat, 2, N->cfg.lat < 0 ? 'S' : 'N');
+  fmt_dmn(b, N->cfg.lon, 3, N->cfg.lon < 0 ? 'W' : 'E');
+  sprintf(s, "%s %s", a, b);
+  nt(1, 0, s);
+  {
+    int y, m, d;
+    cal(on, &y, &m, &d);
+    sprintf(s, "%s %02d-%02d-%04d", WDAY[(on + 1) % 7], d, m, y);
+    nt_r(399, 0, s);
+  }
+  lcd_fill_rect(0, 15, LCD_X, 1, 1);
+  for (int y = 17; y < MENU_Y; y += 2) lcd_fill_rect(200, (uint32_t)y, 1, 1, 1);
+  /* left: the table */
+  int mark = off_now >= -6.5 && off_now < 6.5 ? (int)floor(off_now + 6.5) : -1;
+  int first = mark < 0 ? 1 : mark - 5;
+  if (first < 0) first = 0;
+  if (first > 2) first = 2;
+  nt(tidal ? 12 : 4, 16, tidal ? "HW" : "  ");
+  nt(46, 16, "TIME");
+  if (vec) { nt(114, 16, "SET"); nt_r(196, 16, "KN"); } else nt_r(196, 16, "HEIGHT");
+  double dclk = N->cfg.tz - tzl;
+  for (int r = 0; r < 11; r++) {
+    int k = first + r, y = 32 + NT_ROW * r;
+    if (k == mark) nt(0, y, ">");
+    if (tidal) {
+      if (k == 6) strcpy(s, "HW"); else sprintf(s, "%+d", k - 6);
+      nt_r(34, y, s);
+    }
+    fmt_hm(t, t0 + k - 6 + dclk);
+    nt(42, y, t);
+    if (vec) {
+      double set, kn;
+      setkn(U[k], V[k], &set, &kn);
+      double len = 6 + 6 * fmin(kn, 1.5) / 1.5;               /* centred in its cell */
+      arrow(100 - (int)lround(len / 2 * dsin(set)), y + 7 + (int)lround(len / 2 * dcos(set)), set, len);
+      sprintf(s, "%03.0f" NT_DEG, set);
+      nt(112, y, s);
+      sprintf(s, "%.2f", kn);
+      nt_r(196, y, s);
+    } else {
+      sprintf(s, "%.2f m", val[k]);
+      nt_r(196, y, s);
+    }
+  }
+  /* right: now */
+  int X = 206;
+  if (off_now >= -6 && off_now <= 6) {
+    fmt_hm(t, h0 + N->cfg.tz - tzl);
+    if (vec) {
+      double u, v, se, kn;
+      flow_now(U, V, off_now, &u, &v);
+      setkn(u, v, &se, &kn);
+      sprintf(s, "NOW %s %03.0f" NT_DEG " %.2f", t, se, kn);
+    } else sprintf(s, "NOW %s %.2f m", t, val[mark < 0 ? 6 : mark]);
+    nt(X, 16, s);
+  }
+  /* the tide station of the right side */
+  const TStation *rst = st;
+  double dist = -1;
+  if (ref) {
+    const TRegion *reg = src_reg(rs, rr);
+    double bd = 1e9;
+    for (int i = 0; i < reg->n; i++) {
+      const TStation *p = &reg->st[i];
+      if (p->kind != TK_TIDE) continue;
+      double dd = 60 * hypot(p->lat - N->cfg.lat, (p->lon - N->cfg.lon) * dcos(N->cfg.lat));
+      if (dd < bd) { bd = dd; rst = p; }
+    }
+    dist = bd;
+  }
+  /* its local day holding the table's High Water */
+  long rn;
+  double rh, rtz = st_local(rst, (double)on - 0.5 + t0 / 24.0 - tzl / 24.0, &rn, &rh);
+  int stream = rst->kind != TK_TIDE;
+  TDay *D = &N->tday;
+  tide_day(rst, rn, stream, D);
+  {
+    char nm[24];
+    int room = 192 - (dist >= 0 ? 6 * nt_cw() : 0);
+    int nc = room / nt_cw();
+    snprintf(nm, sizeof nm, "%.*s", nc > 20 ? 20 : nc, rst->name);
+    char *c = strchr(nm, ',');
+    if (c) *c = 0;
+    if (dist >= 0) sprintf(s, "%s %.0fnm", nm, dist); else strcpy(s, nm);
+    nt(X, 32, s);
+  }
+  int gx = 210, gw = 180, gy = 52, gh = 58;
+  double lo = 1e9, hi = -1e9;
+  for (int k = 0; k < 73; k++) { if (D->curve[k] < lo) lo = D->curve[k]; if (D->curve[k] > hi) hi = D->curve[k]; }
+  if (stream && rst->kind == TK_RECT) { double m = fmax(fabs(lo), fabs(hi)); lo = -m; hi = m; }
+  if (hi - lo < 0.2) { hi += 0.1; lo -= 0.1; }
+  int px = -1, py = -1;
+  for (int k = 0; k < 73; k++) {
+    int x = gx + k * gw / 72, y = gy + (int)((hi - D->curve[k]) / (hi - lo) * gh);
+    if (px >= 0) gfx_line(px, py, x, y, 1);
+    px = x; py = y;
+  }
+  for (int i = 0; i < D->nev; i++) {                          /* + on the high and low waters */
+    int x = gx + (int)(D->ev[i].t / 24.0 * gw), y = gy + (int)((hi - D->ev[i].val) / (hi - lo) * gh);
+    if (stream) continue;
+    gfx_line(x - 3, y, x + 3, y, 1);
+    gfx_line(x, y - 3, x, y + 3, 1);
+  }
+  int ay = gy + gh + 6;
+  gfx_hline_dotted(gx, gx + gw, ay, 2);
+  for (int k = 0; k <= 24; k += 6) {
+    gfx_rect(gx + k * gw / 24, ay - 1, 1, 3, 1);
+    sprintf(s, "%02d", k);
+    draw_text(&TINY, gx + k * gw / 24 - 5, ay + 3, s, 0);
+  }
+  {                                                             /* the table's 13 hours */
+    double b0 = (double)(on - rn) * 24 + t0 - 6 + rtz - tzl, b1 = b0 + 12;
+    if (b0 < 0) b0 = 0;
+    if (b1 > 24) b1 = 24;
+    if (b1 > b0) gfx_rect(gx + (int)(b0 / 24 * gw), ay + 1, (int)((b1 - b0) / 24 * gw) + 1, 2, 1);
+    double nh = (ut - ((double)rn - 0.5 - rtz / 24.0)) * 24.0;   /* now, on the station's day */
+    if (nh >= 0 && nh <= 24) for (int y = gy - 4; y < ay; y += 2) gfx_pixel(gx + (int)(nh / 24 * gw), y, 1);
+  }
+  int ey = 128;
+  for (int i = 0; i < D->nev && ey <= 192; i++, ey += NT_ROW) {
+    const TEvent *e = &D->ev[i];
+    fmt_hm(t, e->t + N->cfg.tz - rtz);
+    if (!stream) sprintf(s, "%s %s %5.2f m", e->kind > 0 ? "HW" : "LW", t, e->val);
+    else if (rst->kind == TK_RECT) {
+      if (e->kind < 0) sprintf(s, "SLACK %s", t);
+      else sprintf(s, "%s %s %.1fkn", e->val > 0 ? "FLOOD" : "EBB", t, fabs(e->val));
+    } else sprintf(s, "%s %s %.1fkn", e->kind > 0 ? "MAX" : "MIN", t, e->val);
+    nt(X + 6, ey, s);
+  }
+  if (ey <= 192) {
+    if (have_flow) sprintf(s, "RANGE x%.2f%s", fac, N->cfg.wkn > 0 ? " +WIND" : "");
+    else if (fl && ref) strcpy(s, "NO STREAM HERE");
+    else strcpy(s, "NO STREAM ATLAS");
+    nt(X, 192, s);
+  }
+}
 /* ------------------------------------------------------------------ */
 /*  SET                                                               */
 /* ------------------------------------------------------------------ */
@@ -533,15 +559,20 @@ static void field_commit(int f) {
 static void draw_set(void) {
   header("SET", "8 2 field  ENTER edit");
   char v[48];
-  int y = 26;
+  int y = 22;
   for (int f = 0; f < F_COUNT; f++) {
     if ((f == F_DATE || f == F_TIME) && N->cfg.live) continue;
     field_text(f, v);
+    if (f == F_LAT || f == F_LON) {
+      if (f == F_LAT) fmt_dmn(v, N->cfg.lat, 2, N->cfg.lat < 0 ? 'S' : 'N');
+      else fmt_dmn(v, N->cfg.lon, 3, N->cfg.lon < 0 ? 'W' : 'E');
+    }
+    if (f == F_WDIR) sprintf(v, "%03.0f" NT_DEG, N->cfg.wdir);
     if (edit_field == f) sprintf(v, "%s_", ebuf);
-    draw_text(&STD, 8, y, FNAME[f], f == sel_field);
-    draw_text(&STD, 150, y, v, 0);
-    draw_text_r(&TINY, LCD_X - 2, y + 7, FHELP[f], 0);
-    y += 21;
+    if (f == sel_field) nt_inv(6, y, FNAME[f]); else nt(6, y, FNAME[f]);
+    nt(140, y, v);
+    draw_text_r(&TINY, LCD_X - 2, y + 5, FHELP[f], 0);
+    y += 20;
   }
   draw_text(&TINY, 2, MENU_Y - LH, "As Almanac 47: 26.30 = 26" SYM_DEG "30'. Fixed time: date and UT (live off)", 0);
 }
@@ -615,8 +646,9 @@ static void cfg_save(void) {
   if (!b) return;
   Cfg *c = &N->cfg;
   char *o = b;
-  o += sprintf(o, "NAV47 CFG 1\nLAT %.9f\nLON %.9f\nTZ %.4f\nLIVE %d\nFIXED %.9f\nWIND %.1f %.1f\nTIDE %d %d %d\nZONE %d %d\n",
-               c->lat, c->lon, c->tz, c->live, c->fixed_jd, c->wdir, c->wkn, c->tsrc, c->treg, c->tst, c->zone, c->city);
+  o += sprintf(o, "NAV47 CFG 1\nLAT %.9f\nLON %.9f\nTZ %.4f\nLIVE %d\nFIXED %.9f\nWIND %.1f %.1f\nTIDE %d %d %d\nZONE %d %d\nSOUTH %d\nGC %d\n",
+               c->lat, c->lon, c->tz, c->live, c->fixed_jd, c->wdir, c->wkn, c->tsrc, c->treg, c->tst, c->zone, c->city,
+               c->south, c->gc);
   for (int i = 0; i < c->nfiles; i++) o += sprintf(o, "FILE %s\n", c->files[i]);
   sys_disk_write_enable(1);
   check_create_dir(DIR);
@@ -644,6 +676,8 @@ static void cfg_load(void) {
     else if (!strncmp(l, "WIND ", 5)) sscanf(l + 5, "%lf %lf", &c->wdir, &c->wkn);
     else if (!strncmp(l, "TIDE ", 5)) sscanf(l + 5, "%d %d %d", &c->tsrc, &c->treg, &c->tst);
     else if (!strncmp(l, "ZONE ", 5)) sscanf(l + 5, "%d %d", &c->zone, &c->city);
+    else if (!strncmp(l, "SOUTH ", 6)) c->south = atoi(l + 6);
+    else if (!strncmp(l, "GC ", 3)) c->gc = atoi(l + 3);
     else if (!strncmp(l, "FILE ", 5) && c->nfiles < 4) { strncpy(c->files[c->nfiles], l + 5, 39); c->files[c->nfiles++][39] = 0; }
     l = strtok(NULL, "\n");
   }
@@ -679,20 +713,159 @@ static void draw_info(void) {
 }
 
 /* ------------------------------------------------------------------ */
+/*  ROUTE: passage planning                                           */
+/* ------------------------------------------------------------------ */
+static void route_save(void) {
+  if (!sys_disk_ok()) return;
+  char *b = (char *)malloc(64 + 48 * MAXWP);
+  if (!b) return;
+  char *o = b;
+  o += sprintf(o, "NAV47 ROUTE 1\n%s\n", N->cfg.gc ? "GC" : "RL");
+  for (int i = 0; i < N->nwp; i++) o += sprintf(o, "%.7f %.7f\n", N->wlat[i], N->wlon[i]);
+  sys_disk_write_enable(1);
+  check_create_dir(DIR);
+  FIL f;
+  UINT bw;
+  if (f_open(&f, ROUTEFILE, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK) { f_write(&f, b, (UINT)strlen(b), &bw); f_close(&f); }
+  sys_disk_write_enable(0);
+  free(b);
+}
+
+static void route_load(void) {
+  char *t = read_text(ROUTEFILE);
+  if (!t) return;
+  char *l = strtok(t, "\n");
+  N->nwp = 0;
+  while (l) {
+    double a, b;
+    if (!strcmp(l, "GC")) N->cfg.gc = 1;
+    else if (!strcmp(l, "RL")) N->cfg.gc = 0;
+    else if (sscanf(l, "%lf %lf", &a, &b) == 2 && N->nwp < MAXWP && fabs(a) <= 90 && fabs(b) <= 180) {
+      N->wlat[N->nwp] = a; N->wlon[N->nwp] = b; N->nwp++;
+    }
+    l = strtok(NULL, "\n");
+  }
+  free(t);
+}
+
+static void route_insert(double lat, double lon) {
+  if (N->nwp >= MAXWP) return;
+  int at = N->nwp ? wp_cur + 1 : 0;
+  memmove(&N->wlat[at + 1], &N->wlat[at], sizeof(double) * (size_t)(N->nwp - at));
+  memmove(&N->wlon[at + 1], &N->wlon[at], sizeof(double) * (size_t)(N->nwp - at));
+  N->wlat[at] = lat; N->wlon[at] = lon;
+  N->nwp++;
+  wp_cur = at;
+}
+
+static void route_delete(void) {
+  if (!N->nwp) return;
+  memmove(&N->wlat[wp_cur], &N->wlat[wp_cur + 1], sizeof(double) * (size_t)(N->nwp - wp_cur - 1));
+  memmove(&N->wlon[wp_cur], &N->wlon[wp_cur + 1], sizeof(double) * (size_t)(N->nwp - wp_cur - 1));
+  N->nwp--;
+  if (wp_cur >= N->nwp && wp_cur) wp_cur--;
+}
+
+static void leg(int i, double *crs, double *nm) {
+  (N->cfg.gc ? leg_gc : leg_rl)(N->wlat[i - 1], N->wlon[i - 1], N->wlat[i], N->wlon[i], crs, nm);
+}
+
+static void draw_route(void) {
+  char s[64];
+  double tot = 0, crs, nm;
+  for (int i = 1; i < N->nwp; i++) { leg(i, &crs, &nm); tot += nm; }
+  nt_inv(2, 0, N->cfg.gc ? "ROUTE GC" : "ROUTE RL");
+  sprintf(s, "%d WP  TOTAL %.1f NM", N->nwp, tot);
+  nt_r(LCD_X - 2, 0, s);
+  lcd_fill_rect(0, 15, LCD_X, 1, 1);
+  int c = nt_cw();
+  int xw = 2 * c, xla = xw + 6 + 5 * c + 10 + c, xlo = xla + 6 + 6 * c + 10 + c, xc = xlo + 8 + 3 * c + 5,
+      xd = xc + 8 + 5 * c + 5, xcu = xd + 8 + 6 * c + 5;
+  if (xcu > 398) xcu = 398;
+  nt_r(xw, 16, "WP"); nt_c(xla - (7 * c + 10) / 2, 16, "LAT"); nt_c(xlo - (8 * c + 10) / 2, 16, "LON");
+  nt_r(xc, 16, N->cfg.gc ? "ICRS" : "CRS"); nt_r(xd, 16, "DIST"); nt_r(xcu, 16, "CUM");
+  if (!N->nwp) {
+    nt(4, 48, "No waypoints yet.");
+    nt(4, 72, "HERE: the position (SET)");
+    nt(4, 88, "ADD: a new one, then type");
+    nt(4, 104, "  LAT DD.MMm ENTER");
+    nt(4, 120, "  LON DDD.MMm ENTER");
+    nt(4, 136, "  (+/- for S and W)");
+    nt(4, 160, "RL: rhumb line, GC: great");
+    nt(4, 176, "circle (initial course)");
+    return;
+  }
+  int vis = 11;
+  if (wp_edit >= 0) {
+    vis = 10;
+    nt_inv(2, 192, wp_edit ? "LON DDD.MMm  +/- WEST  ENTER" : "LAT DD.MMm  +/- SOUTH  ENTER");
+  }
+  if (wp_cur >= N->nwp) wp_cur = N->nwp - 1;
+  int top = wp_cur - vis / 2;
+  if (top > N->nwp - vis) top = N->nwp - vis;
+  if (top < 0) top = 0;
+  double cum = 0;
+  for (int i = 1; i < top; i++) { leg(i, &crs, &nm); cum += nm; }
+  for (int i = top; i < N->nwp && i < top + vis; i++) {
+    int y = 32 + NT_ROW * (i - top);
+    sprintf(s, "%d", i + 1);
+    if (i == wp_cur) nt_inv(xw - nt_w(s), y, s); else nt_r(xw, y, s);
+    if (i == wp_cur && wp_edit >= 0) {
+      if (wp_edit == 0) { sprintf(s, "%s_", ebuf); nt_r(xla, y, s); }
+      else {
+        fmt_dmn(s, wp_lat, 2, wp_lat < 0 ? 'S' : 'N'); nt_r(xla, y, s);
+        sprintf(s, "%s_", ebuf); nt_r(xlo, y, s);
+      }
+      continue;
+    }
+    fmt_dmn(s, N->wlat[i], 2, N->wlat[i] < 0 ? 'S' : 'N'); nt_r(xla, y, s);
+    fmt_dmn(s, N->wlon[i], 3, N->wlon[i] < 0 ? 'W' : 'E'); nt_r(xlo, y, s);
+    if (i > 0) {
+      leg(i, &crs, &nm);
+      cum += nm;
+      sprintf(s, "%03.0f" NT_DEG, fmod(floor(crs + 0.5), 360.0)); nt_r(xc, y, s);
+      sprintf(s, "%.1f", nm); nt_r(xd, y, s);
+      sprintf(s, "%.1f", cum); nt_r(xcu, y, s);
+    }
+  }
+}
+
+static void wp_start_edit(void) { if (N->nwp) { wp_edit = 0; elen = 0; ebuf[0] = 0; } }
+
+static int digit(int key);
+static void key_wp(int key) {
+  int d = digit(key);
+  if (key == KEY_ENTER) {
+    double v = parse_dm(ebuf);
+    if (wp_edit == 0) {
+      wp_lat = elen && fabs(v) <= 90 ? v : N->wlat[wp_cur];
+      wp_edit = 1; elen = 0; ebuf[0] = 0;
+    } else {
+      N->wlat[wp_cur] = wp_lat;
+      if (elen && fabs(v) <= 180) N->wlon[wp_cur] = v;
+      wp_edit = -1;
+      route_save();
+    }
+    return;
+  }
+  if (key == KEY_EXIT) { wp_edit = -1; return; }
+  if (key == KEY_BSP) { if (elen) ebuf[--elen] = 0; return; }
+  if (key == KEY_CHS) { if (ebuf[0] == '-') { memmove(ebuf, ebuf + 1, (size_t)elen); elen--; } else if (elen < 14) { memmove(ebuf + 1, ebuf, (size_t)elen + 1); ebuf[0] = '-'; elen++; } return; }
+  if (key == KEY_DOT && elen < 14 && !strchr(ebuf, '.')) { ebuf[elen++] = '.'; ebuf[elen] = 0; return; }
+  if (d >= 0 && elen < 14) { ebuf[elen++] = (char)('0' + d); ebuf[elen] = 0; }
+}
+
+/* ------------------------------------------------------------------ */
 /*  Menus, keys, main loop                                            */
 /* ------------------------------------------------------------------ */
-static const char *const MENU_ITEMS[10] = {
-  "1 ALMANAC", "2 SPLIT", "3 SKY", "4 ANIM", "5 ALLSKY",
-  "6 CHART", "7 ZONES", "8 TIDES", "9 FLOW", "0 SET",
-};
-static const int MENU_PAGE[10] = { PG_SET, PG_VALM, PG_VSPLIT, PG_VSKY, PG_VANIM, PG_VALLSKY,
-                                   PG_VCHART, PG_ZONES, PG_TIDES, PG_FLOW };
-static const char *MENUS[2][6] = {
-  { "MENU", "ZONES", "TIDES", "FLOW", "STATNS", ">>" },
-  { "SET", "FILES", "INFO", "NOW", "ANIM", ">>" },
+static const char *MENUS[4][6] = {
+  { "ALMAN", "SPLIT", "SKY", "ALLSKY", "MOON", ">>" },
+  { "ANIM", "TIDE", "ROUTE", "ZONES", "STATNS", ">>" },
+  { "SET", "FILES", "INFO", "NOW", "", ">>" },
+  { "ADD", "EDIT", "DEL", "RL/GC", "HERE", ">>" },
 };
 static const char *FILE_MENU[6] = { "TID", "FLW", "CLEAR", "", "", "BACK" };
-static const char *EDIT_MENU[6] = { "", "", "", "", "", "" };
+static const char *EDIT_MENU[6] = { "", "", "", "", "", "CANCEL" };
 
 #define ANIM_FRAMES 24
 #define ANIM_STEP   0.5
@@ -712,28 +885,25 @@ static void redraw(void) {
   if (IS_VIEW(page)) {
     view_almanac_now();
     switch (page) {
-    case PG_MENU: view_menu(&N->al, MENU_ITEMS, 10); break;
     case PG_VALM: view_almanac(&N->al); break;
-    case PG_VCHART: view_chart(&N->al); break;
-    case PG_VSKY: view_sky(&N->al, vframe); break;
     case PG_VSPLIT: view_split(&N->al); break;
-    case PG_VANIM: view_anim(&N->al, ANIM_FRAMES, ANIM_STEP, vframe < ANIM_FRAMES ? vframe : ANIM_FRAMES - 1); break;
+    case PG_VSKY: view_sky(&N->al, vframe); break;
     case PG_VALLSKY: view_allsky(&N->al); break;
+    case PG_VMOON: view_moon(&N->al, N->cfg.south); break;
+    case PG_VANIM: view_anim(&N->al, ANIM_FRAMES, ANIM_STEP, vframe < ANIM_FRAMES ? vframe : ANIM_FRAMES - 1); break;
     }
-    c47_show();
-    lcd_refresh();
-    return;
-  }
-  switch (page) {
-  case PG_ZONES: draw_zones(); break;
-  case PG_TIDES: draw_tides(); break;
-  case PG_FLOW: draw_flow(); break;
-  case PG_SET: draw_set(); break;
-  case PG_FILES: draw_files(); break;
-  case PG_INFO: draw_info(); break;
-  case PG_PICK: draw_pick(); break;
-  }
-  lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : edit_field >= 0 ? EDIT_MENU : MENUS[menu_page]);
+  } else
+    switch (page) {
+    case PG_TIDE: draw_tide(); break;
+    case PG_ROUTE: draw_route(); break;
+    case PG_ZONES: draw_zones(); break;
+    case PG_SET: draw_set(); break;
+    case PG_FILES: draw_files(); break;
+    case PG_INFO: draw_info(); break;
+    case PG_PICK: draw_pick(); break;
+    }
+  if (page != PG_ROUTE && menu_page == 3) menu_page = 0;
+  lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0) ? EDIT_MENU : MENUS[menu_page]);
   lcd_refresh();
 }
 
@@ -753,6 +923,8 @@ static void key_edit(int key) {
   if (d >= 0 && elen < 14) { ebuf[elen++] = (char)('0' + d); ebuf[elen] = 0; }
 }
 
+static void go(int p) { page = p; vframe = 0; }
+
 static void softkey(int fn) {
   if (page == PG_FILES) {
     if (fn == 0 || fn == 1) {
@@ -766,21 +938,33 @@ static void softkey(int fn) {
       if (N->cfg.tsrc == 2) N->cfg.tsrc = 0;
       strcpy(N->msg, "files cleared (memory is freed at the next start)");
       cfg_save();
-    } else if (fn == 5) page = PG_TIDES;
+    } else if (fn == 5) go(PG_SET);
+    return;
+  }
+  if (fn == 5) {                                       /* >> */
+    menu_page = menu_page == 3 ? 0 : (page == PG_ROUTE && menu_page == 2) ? 3 : (menu_page + 1) % 3;
     return;
   }
   switch (menu_page * 6 + fn) {
-  case 0: page = PG_MENU; break;
-  case 1: page = PG_ZONES; break;
-  case 2: page = PG_TIDES; break;
-  case 3: page = PG_FLOW; flow_hw_step = flow_day_step = 0; break;
-  case 4: pick_open(); break;
-  case 6: page = PG_SET; sel_field = 0; break;
-  case 7: page = PG_FILES; N->msg[0] = 0; break;
-  case 8: page = PG_INFO; break;
-  case 9: toff = 0; tide_day_off = 0; flow_hw_step = flow_day_step = 0; N->valid = 0; break;
-  case 10: page = PG_VANIM; vframe = 0; break;
-  case 5: case 11: menu_page ^= 1; break;
+  case 0: go(PG_VALM); break;
+  case 1: go(PG_VSPLIT); break;
+  case 2: go(PG_VSKY); break;
+  case 3: go(PG_VALLSKY); break;
+  case 4: go(PG_VMOON); break;
+  case 6: go(PG_VANIM); break;
+  case 7: go(PG_TIDE); flow_hw_step = flow_day_step = 0; break;
+  case 8: go(PG_ROUTE); menu_page = 3; break;
+  case 9: go(PG_ZONES); break;
+  case 10: pick_open(); break;
+  case 12: go(PG_SET); sel_field = 0; break;
+  case 13: go(PG_FILES); N->msg[0] = 0; break;
+  case 14: go(PG_INFO); break;
+  case 15: toff = 0; flow_hw_step = flow_day_step = 0; N->valid = 0; break;
+  case 18: route_insert(N->nwp ? N->wlat[wp_cur] : N->cfg.lat, N->nwp ? N->wlon[wp_cur] : N->cfg.lon); wp_start_edit(); break;
+  case 19: wp_start_edit(); break;
+  case 20: route_delete(); route_save(); break;
+  case 21: N->cfg.gc ^= 1; route_save(); break;
+  case 22: route_insert(N->cfg.lat, N->cfg.lon); route_save(); break;
   }
 }
 
@@ -801,19 +985,12 @@ static void handle_key(int key) {
       return;
     }
   }
+  if ((edit_field >= 0 || wp_edit >= 0) && key == KEY_F6) key = KEY_EXIT;
   if (edit_field >= 0) { key_edit(key); return; }
+  if (wp_edit >= 0) { key_wp(key); return; }
   if (key >= KEY_F1 && key <= KEY_F6) { softkey(key - KEY_F1); vframe = 0; return; }
-  if (page == PG_MENU) {                         /* as Almanac 47's NAV menu: key a number */
-    int d = digit(key);
-    if (d >= 0) { page = MENU_PAGE[d]; vframe = 0; if (page == PG_SET) sel_field = 0; return; }
-    if (key == KEY_UP) { step_time(1); return; }
-    if (key == KEY_DOWN) { step_time(-1); return; }
-    return;
-  }
-  switch (page) {
-  case PG_VALM: case PG_VCHART: case PG_VSKY: case PG_VSPLIT: case PG_VANIM: case PG_VALLSKY:
-    /* as Almanac 47 (WPLS): + back to the menu, up / down one hour later / earlier */
-    if (key == KEY_ADD || key == KEY_EXIT) { page = PG_MENU; return; }
+  if (IS_VIEW(page)) {
+    /* as Almanac 47: up / down one hour later / earlier; 4 6 ten minutes, 7 9 a day, 5 now */
     if (key == KEY_UP) step_time(1);
     else if (key == KEY_DOWN) step_time(-1);
     else if (key == KEY_4) step_time(-1.0 / 6);
@@ -821,8 +998,12 @@ static void handle_key(int key) {
     else if (key == KEY_7) step_time(-24);
     else if (key == KEY_9) step_time(24);
     else if (key == KEY_5) toff = 0;
+    else if (key == KEY_CHS && page == PG_VMOON) { N->cfg.south ^= 1; cfg_save(); }
+    else if (key == KEY_EXIT) go(PG_VALM);
     vframe = 0;
     return;
+  }
+  switch (page) {
   case PG_ZONES:
     if (key == KEY_4) { N->cfg.zone = (N->cfg.zone + NZONES - 1) % NZONES; N->cfg.city = 0; }
     else if (key == KEY_6) { N->cfg.zone = (N->cfg.zone + 1) % NZONES; N->cfg.city = 0; }
@@ -830,24 +1011,24 @@ static void handle_key(int key) {
     else if (key == KEY_2 || key == KEY_DOWN) N->cfg.city = (N->cfg.city + 1) % ZONES[N->cfg.zone].n;
     else if (key == KEY_5) { N->cfg.zone = zone_nearest(N->cfg.tz, ut_now()); N->cfg.city = 0; }
     break;
-  case PG_TIDES:
-    if (key == KEY_4) tide_day_off--;
-    else if (key == KEY_6) tide_day_off++;
-    else if (key == KEY_5) tide_day_off = 0;
+  case PG_TIDE:
+    if (key == KEY_4) flow_hw_step--;
+    else if (key == KEY_6) flow_hw_step++;
+    else if (key == KEY_1) { flow_day_step--; flow_hw_step = 0; }
+    else if (key == KEY_3) { flow_day_step++; flow_hw_step = 0; }
+    else if (key == KEY_5) flow_hw_step = flow_day_step = 0;
     else if (key == KEY_ENTER) pick_open();
     break;
   case PG_PICK:
     if (key == KEY_8 || key == KEY_UP) pick_move(-1);
     else if (key == KEY_2 || key == KEY_DOWN) pick_move(1);
     else if (key == KEY_ENTER || key == KEY_5) { pick_choose(); cfg_save(); }
-    else if (key == KEY_EXIT) page = PG_TIDES;
-    break;
-  case PG_FLOW:
-    if (key == KEY_4) flow_hw_step--;
-    else if (key == KEY_6) flow_hw_step++;
-    else if (key == KEY_1) { flow_day_step--; flow_hw_step = 0; }
-    else if (key == KEY_3) { flow_day_step++; flow_hw_step = 0; }
-    else if (key == KEY_5) flow_hw_step = flow_day_step = 0;
+    else if (key == KEY_EXIT) go(PG_TIDE);
+    return;
+  case PG_ROUTE:
+    if ((key == KEY_8 || key == KEY_UP) && wp_cur > 0) wp_cur--;
+    else if ((key == KEY_2 || key == KEY_DOWN) && wp_cur < N->nwp - 1) wp_cur++;
+    else if (key == KEY_ENTER) wp_start_edit();
     break;
   case PG_SET:
     if (key == KEY_8 || key == KEY_UP) { do sel_field = (sel_field + F_COUNT - 1) % F_COUNT; while (N->cfg.live && (sel_field == F_DATE || sel_field == F_TIME)); }
@@ -863,7 +1044,7 @@ static void handle_key(int key) {
     }
     break;
   }
-  if ((key == KEY_EXIT || key == KEY_ADD) && page != PG_PICK) page = PG_MENU;
+  if (key == KEY_EXIT) go(page == PG_FILES ? PG_SET : PG_VALM);
 }
 
 static void *nav_alloc(size_t n) { return calloc(1, n); }
@@ -874,8 +1055,10 @@ void program_main(void) {
   menu_line_str_app = NULL;
   switch_usb_powered_freq();
   N = (Nav *)nav_alloc(sizeof(Nav));
-  if (!N || !c47_init()) { lcd_clear_buf(); draw_text(&STD, 10, 100, "NAV47: not enough memory", 0); lcd_refresh(); for (;;) wait_for_key_press(); }
+  if (!N || !c47_init()) { lcd_clear_buf(); draw_text(&TINY, 10, 100, "NAV47: not enough memory", 0); lcd_refresh(); for (;;) wait_for_key_press(); }
+  nt_init();
   cfg_load();
+  route_load();
   if (N->cfg.zone < 0 || N->cfg.zone >= NZONES) N->cfg.zone = zone_nearest(N->cfg.tz, ut_now());
   int nf = N->cfg.nfiles;
   N->cfg.nfiles = 0;

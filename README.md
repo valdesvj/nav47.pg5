@@ -3,32 +3,49 @@
 **NAV47.pg5** is a native DMCP5 program in C for the SwissMicros **DM42n**. It joins three of the "47"
 projects into one navigation computer:
 
-It starts on the Almanac 47 menu: **key a number**.
+No start menu: it opens on ALMANAC, and the **soft-key bar** (F1-F6, `>>` for the next row, as Chess 47) goes
+everywhere.
 
-| Key | View | From | What it shows |
+| Keys | Page | From | What it shows |
 |---|---|---|---|
-| **1** | **ALMANAC** | [almanac47](https://github.com/valdesvj/almanac47) | ARIES, the 8 bodies (Sun, Moon, a planet, the brightest stars): GHA, Dec, Hc, Zn; twilight, rise/set, meridian passage, Moon phase |
-| **2** | **SPLIT** | almanac47 | the horizon chart with the celestial equator above the almanac table |
-| **3** | **SKY** | almanac47 | the horizon chart, sine scale, celestial equator; the names of the bodies in turn, one a second |
-| **4** | **ANIM** | almanac47 | the movie: the Sun and the Moon across the whole sky, 24 frames 30 min apart |
-| **5** | **ALLSKY** | almanac47 | the whole sky: all 58 stars, planets, Moon, Sun, above and below the horizon |
-| **6** | **CHART** | almanac47 | the narrow chart with the Hc / Zn list |
-| **7** | **ZONES** | [zones47](https://github.com/valdesvj/zones47) | the world map with the zone column, its time and date, DST computed on the calculator, the cities |
-| **8** | **TIDES** | [tide47](https://github.com/valdesvj/tide47) | the day's curve, high and low waters (or slack / max for streams, rotary too), the value now |
-| **9** | **FLOW** | tide47 (FLOW47, ARTF47) | the tidal stream atlas at your position: HW-6...HW+6 table, rose, the stream now, the nearest port |
-| **0** | **SET** | | position, clock TZ, live or fixed time, wind |
+| F1 | **ALMAN** | [almanac47](https://github.com/valdesvj/almanac47) | ARIES, the 8 bodies (Sun, Moon, a planet, the brightest stars): GHA, Dec, Hc, Zn; rise/set, twilight, meridian passage, SD, the Moon's phase and age |
+| F2 | **SPLIT** | almanac47 | the horizon chart with the celestial equator above the table (6 bodies) |
+| F3 | **SKY** | almanac47 | the horizon chart, sine scale, celestial equator; the names of the bodies in turn, one a second |
+| F4 | **ALLSKY** | almanac47 | the whole sky: all 58 stars, planets, Moon, Sun, above and below the horizon |
+| F5 | **MOON** | almanac47 (MOON47) | the disc, phase, % lit, age, HP, SD, the next four phases, the eight phases; **+/−** the view from the south |
+| `>>` F1 | **ANIM** | almanac47 | the movie: the Sun and the Moon across the whole sky, 24 frames 30 min apart |
+| `>>` F2 | **TIDE** | [tide47](https://github.com/valdesvj/tide47) (ARTF47) | tide and current on one page, as ARTF47: HW−6 … HW+6 with the stream of the FLOW atlas at your position (set, knots, arrow), and the tide of the nearest port (curve, high and low waters). Without an atlas: the chosen station's heights or stream |
+| `>>` F3 | **ROUTE** | | passage planning: waypoints, course and distance of each leg, the cumulative distance; rhumb line or great circle |
+| `>>` F4 | **ZONES** | [zones47](https://github.com/valdesvj/zones47) | the world map with the zone column, its time and date, DST computed on the calculator, the cities |
+| `>>` F5 | **STATNS** | tide47 | the station list (private, files, public) |
+| `>> >>` | **SET FILES INFO NOW** | | position, clock TZ, live or fixed time, wind; tide files; about; back to now |
 
-Views 1-6 are Almanac 47's C47 views, ported line for line from `python/native/c47screen21.py` with the same fonts
-(GRFNT 21, tinyFont) and glyphs47 symbols: **`test/test_views.py` checks 240 screens against the Python, pixel for
-pixel (all identical)**. On the DM42n a view takes about 0.1 s (battery) instead of the C47's ten seconds.
+The views are Almanac 47's (`python/native/c47screen21.py`): the same bodies, charts, glyphs47 symbols (☉ ☾ ♀ ♂ ♃ ♄
+★ and the Moon phases), tinyFont scale labels and dotted celestial equator. The text is in the **DMCP5 system font**
+(t20), so the views are compressed into the 208 rows above the menu bar: 16-pixel rows, star names cut to 9
+letters, the degree sign and narrow `.` `:` drawn by NAV47. On the DM42n a view takes about 0.1 s (battery).
 
-![NAV47 views](docs/views.png)
+![NAV47 views](docs/views1.png)
 
-![ANIM](docs/anim.gif)
+![MOON47, ANIM, TIDE, ROUTE](docs/views2.png)
 
-![NAV47 screens](docs/screens.png)
+![TIDE, ROUTE, ZONES, SET](docs/views3.png)
 
-*(Simulator pictures. Zones, Tides and FLOW below; FLOW uses Tide 47's synthetic atlas: the real atlas is private.)*
+*(Simulator pictures: the font stands in for the DMCP one; on the calculator the letters look a little different.
+The TIDE page with streams uses Tide 47's synthetic atlas: the real atlas is private.)*
+
+## ROUTE: passage planning
+
+**ADD** a waypoint after the cursor (then type LAT `DD.MMm` ENTER, LON `DDD.MMm` ENTER, **+/−** for S and W),
+**HERE** adds the position of SET, **EDIT** (or ENTER) changes it, **DEL** removes it, **UP DOWN** move.
+Each row shows the leg from the waypoint before: **CRS** (true), **DIST** and **CUM** (nm), the total on top.
+
+* **RL**, rhumb line: Mercator sailing with the meridional parts of the WGS84 spheroid (Bowditch:
+  MP = 7915.7045 log tan(45° + φ/2) − 23.0133 sin φ − 0.0514 sin³ φ), parallel sailing on an east-west leg, the
+  shorter way across 180°.
+* **GC**, great circle: the distance on the sphere (1′ = 1 nm) and the **initial** course (ICRS).
+
+The route is saved in `/NAV47/ROUTE.TXT` (one `lat lon` per line, degrees), up to 40 waypoints.
 
 ## Same precision as Almanac 47
 
@@ -58,14 +75,14 @@ To go back to Free42: **RESET + F1 → Load program → DM42-x.yy.pg5**.
 
 | Key | Action |
 |---|---|
-| **0-9** | on the menu: the views and pages |
-| **+** or **EXIT** | back to the menu |
-| **UP DOWN** | views: one hour later / earlier (as Almanac 47). ZONES: the cities. SET / STATIONS: move |
-| **4 6 / 7 9** | views: 10 minutes / one day. ZONES: zone west / east. TIDES: day before / after. FLOW: High Water before / after |
+| **F1-F6** | the soft keys; `>>` the next row (ALMAN SPLIT SKY ALLSKY MOON / ANIM TIDE ROUTE ZONES STATNS / SET FILES INFO NOW) |
+| **UP DOWN** | views: one hour later / earlier (as Almanac 47). ZONES: the cities. SET / STATNS / ROUTE: move |
+| **4 6 / 7 9** | views: 10 minutes / one day. ZONES: zone west / east. TIDE: High Water before / after |
+| **1 3** | TIDE: day before / after |
 | **5** | back to now (ZONES: the zone of your clock) |
-| **ENTER** | TIDES: the station list. SET: edit the field (ENTER again to confirm, EXIT to cancel) |
-| **1 3** | FLOW: day before / after |
-| **F1-F6** | MENU ZONES TIDES FLOW STATNS, `>>`: SET FILES INFO NOW ANIM |
+| **+/−** | MOON: the view from the south. Entering a position: south / west |
+| **ENTER** | TIDE: the station list. SET, ROUTE: edit (ENTER again to confirm, EXIT or CANCEL to cancel) |
+| **EXIT** | back to ALMANAC |
 | **SHIFT EXIT** | power off (settings saved to `/NAV47/NAV47.CFG`) |
 | **SHIFT 0** | setup: time, date, beep, USB disk, System |
 
@@ -84,7 +101,7 @@ make TIDE47=~/opt/tide47
 
 The build reads `python/stations_private.py`, `streams_private.py` and `flow_private.py` (the git-ignored files that
 Tide 47's `make_private*.py` and `make_flow.py` write) into `build/gen/tidedata_priv.c`. They appear first in the
-station list as PRIVATE, and FLOW uses the atlas with its reference station (Ras Tanura). `build/` is ignored
+station list as PRIVATE, and TIDE uses the atlas with its reference station (Ras Tanura). `build/` is ignored
 by git. **Keep that `.pg5` to yourself.** A plain `make` builds the public version.
 
 **B. As files, loaded in the FILES menu.** Write them on your computer and copy them to `/NAV47/TIDES/` on the
@@ -95,7 +112,7 @@ python3 tools/gen_tides.py files ~/opt/tide47 /path/to/DM42n/NAV47/TIDES --priva
 ```
 
 That writes one `.TID` file per region (stations: tides and streams) and `FLOW.FLW` (the atlas). On the
-DM42n: **>> → FILES → TID** (or **FLW**) and choose the file. Loaded files are remembered and reloaded at start;
+DM42n: **>> >> → FILES → TID** (or **FLW**) and choose the file. Loaded files are remembered and reloaded at start;
 CLEAR forgets them. The format is plain text (see `src/tidefile.c`), so you can also write a station by hand.
 
 ## Build
@@ -117,10 +134,13 @@ make sim                   # PC simulator: build/sim, pictures with test/sim/ren
 | `src/zones.c` `zonedata.c` | Zones 47: 38 zones, 311 cities, tzdata 2026e, the dot map (`tools/gen_zones.py`) |
 | `src/tide.c` `tidecons.c` `tidedata_pub.c` | Tide 47's engine, its 60 constituents, 32 public stations (`tools/gen_tides.py`) |
 | `src/tidefile.c` | the `.TID` / `.FLW` file reader |
-| `src/views.c` `c47scr.c` `fonts21.c` | Almanac 47's C47 views and screen (PIXEL, AGRAPH, number printers), GRFNT 21 + glyphs47 (`tools/gen_fonts21.py`) |
+| `src/views.c` `c47scr.c` `fonts21.c` | Almanac 47's views on a C47 screen layer (PIXEL, AGRAPH), glyphs47 symbols and tinyFont (`tools/gen_fonts21.py`) |
+| `src/ntext.c` | text in the DMCP5 system font on 16-pixel rows; the degree sign |
+| `src/moon47.c` | MOON47, the C twin of Almanac 47's `python/moon47.py` (`test/test_moon47.py`: 400 dates, identical) |
+| `src/route.c` | ROUTE: rhumb line and great circle |
 | `src/gfx.c` `fonts.c` | the other pages, C47 standardFont and tinyFont (`tools/gen_fonts.py`) |
 | `src/main.c` | the pages, keys, settings |
-| memory | 266 KB of program flash. Static RAM 1.6 KB of 8 KB; the rest is on the heap |
+| memory | 262 KB of program flash. Static RAM 1.7 KB of 8 KB; the rest is on the heap |
 
 ## Data and credits
 

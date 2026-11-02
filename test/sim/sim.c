@@ -13,6 +13,7 @@
 #include <time.h>
 #include "dmcp.h"
 #include "gfx.h"
+#include "simfont.h"
 
 sys_sdb_t sim_sdb;
 static disp_stat_t ds20, ds24, dsReg;
@@ -35,13 +36,47 @@ void lcd_fill_rect(uint32_t x, uint32_t y, uint32_t dx, uint32_t dy, int val) {
   for (uint32_t j = y; j < y + dy && j < LCD_Y; j++)
     for (uint32_t i = x; i < x + dx && i < LCD_X; i++) fb[j][i] = (uint8_t)(val ? 1 : 0);
 }
+/* the DMCP font layer: t20 / t24 stand-in (test/sim/gen_simfont.py), cell SIMF_W x SIMF_H, baseline SIMF_B */
+static line_font_t simf = { "sim t20", SIMF_W, SIMF_H, SIMF_B, 32, 96, 1, 1, 0, 0 };
+int lcd_lineHeight(disp_stat_t *ds) { return ds->f->height + ds->ya + ds->yb; }
+int lcd_baseHeight(disp_stat_t *ds) { return ds->f->baseline + ds->yb; }
+int lcd_fontWidth(disp_stat_t *ds) { return ds->f->width; }
+int lcd_charWidth(disp_stat_t *ds, int c) { (void)c; return ds->f->width + ds->xspc; }
+int lcd_textWidth(disp_stat_t *ds, const char *t) { return (int)strlen(t) * lcd_charWidth(ds, 0); }
+void lcd_setXY(disp_stat_t *ds, int x, int y) { ds->x = (int16_t)x; ds->y = (int16_t)y; }
+void lcd_switchFont(disp_stat_t *ds, int nr) { (void)nr; ds->f = &simf; }
+void lcd_writeText(disp_stat_t *ds, const char *s) {
+  int y0 = ds->y + ds->ya;
+  for (; *s; s++) {
+    int c = (unsigned char)*s;
+    if (ds->bgfill) lcd_fill_rect((uint32_t)ds->x, (uint32_t)ds->y, (uint32_t)lcd_charWidth(ds, c), (uint32_t)lcd_lineHeight(ds), ds->inv);
+    if (c >= 32 && c < 128)
+      for (int r = 0; r < SIMF_H; r++) {
+        unsigned m = SIMF[(c - 32) * SIMF_H + r];
+        for (int i = 0; i < SIMF_W; i++)
+          if (m & (1u << (SIMF_W - 1 - i))) {
+            int X = ds->x + i, Y = y0 + r;
+            if (X >= 0 && Y >= 0 && X < LCD_X && Y < LCD_Y) fb[Y][X] = (uint8_t)(ds->inv ? 0 : 1);
+          }
+      }
+    ds->x = (int16_t)(ds->x + lcd_charWidth(ds, c));
+  }
+}
 void lcd_draw_menu_keys(const char *keys[]) {
   int y0 = LCD_Y - LCD_MENU_LINES + 2, w = LCD_X / 6;
   lcd_fill_rect(0, LCD_Y - LCD_MENU_LINES, LCD_X, LCD_MENU_LINES, 0);
+  disp_stat_t d = ds24;
+  d.inv = 1; d.bgfill = 0;
   for (int i = 0; i < 6; i++) {
     int x0 = i * w + 2;
     lcd_fill_rect((uint32_t)x0, (uint32_t)y0, (uint32_t)(w - 4), LCD_MENU_LINES - 4, 1);
-    if (keys[i] && keys[i][0]) draw_text(&STD, x0 + (w - 4 - text_width(&STD, keys[i])) / 2, y0 + 5, keys[i], 1);
+    if (keys[i] && keys[i][0]) {
+      int tw = lcd_textWidth(&d, keys[i]);
+      if (tw > w - 6) d.xspc = -1, tw = lcd_textWidth(&d, keys[i]);
+      lcd_setXY(&d, x0 + (w - 4 - tw) / 2, y0 + 3);
+      lcd_writeText(&d, keys[i]);
+      d.xspc = 0;
+    }
   }
 }
 void qrcode_disp(QRCode *qr, int xo, int yo, int z) { (void)qr; (void)xo; (void)yo; (void)z; }
@@ -131,6 +166,7 @@ void sys_sleep(void) { if (idle) { idle = 0; return; } if (key_empty()) { fprint
 void program_main(void);
 int main(int argc, char **argv) {
   ds20.lnfill = ds24.lnfill = 1;
+  ds20.f = ds24.f = dsReg.f = &simf;
   sim_sdb.pds_t20 = &ds20; sim_sdb.pds_t24 = &ds24; sim_sdb.pds_fReg = &dsReg;
   const char *c = getenv("NAV47_CLOCK");
   if (c) sscanf(c, "%d-%d-%d %d:%d", &clk_y, &clk_m, &clk_d, &clk_h, &clk_mi);

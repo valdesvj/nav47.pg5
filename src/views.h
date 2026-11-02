@@ -1,4 +1,4 @@
-/* views.h - NAV47: Almanac 47's C47 views (python/native/c47screen21.py) on the C47 screen layer. GPL-3.0-or-later. */
+/* views.h - NAV47: Almanac 47's views (c47screen21.py) and MOON47 above the DMCP menu bar. GPL-3.0-or-later. */
 #ifndef NAV47_VIEWS_H
 #define NAV47_VIEWS_H
 #include "astro.h"
@@ -21,12 +21,12 @@ typedef struct { int id; double gha, dec, hc, zn; } VBody;   /* id 0 Sun, -1 Moo
 void al_compute(Al *al, double j, double lat, double lon);
 int  vbodies(Al *al, VBody *out);                             /* the 8 bodies of the views */
 
-void view_menu(Al *al, const char *const *items, int nitems);
+/* each draws the whole area above the menu bar (rows 0-207) */
 void view_almanac(Al *al);
-void view_chart(Al *al);
 int  view_sky(Al *al, int frame);     /* frame of the name loop (0..); returns the number of frames */
 void view_split(Al *al);
 void view_anim(Al *al, int frames, double step, int upto);   /* frames 0..upto drawn (the trail) */
 void view_allsky(Al *al);
+void view_moon(Al *al, int south);
 
 #endif

@@ -20,7 +20,7 @@ C_INCLUDES += -Idmcp -Isrc
 C_SOURCES  += dmcp/sys/pgm_syscalls.c
 ASM_SOURCES = dmcp/startup_pgm.s
 C_SOURCES += src/main.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
-             src/c47scr.c src/views.c src/fonts21.c \
+             src/c47scr.c src/views.c src/fonts21.c src/ntext.c src/moon47.c src/route.c \
              src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c
 
 CC      = arm-none-eabi-gcc
@@ -89,16 +89,20 @@ data:
 
 test:
 	$(PYTHON) test/test_astro.py $(ALMANAC47)
-	$(PYTHON) test/test_views.py $(ALMANAC47)
+	$(PYTHON) test/test_moon47.py $(ALMANAC47)
 	$(PYTHON) test/test_zones.py $(ZONES47)
 	$(PYTHON) test/test_tide.py $(TIDE47_TEST)
 
 SIM_SRC = test/sim/sim.c src/main.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
-          src/c47scr.c src/views.c src/fonts21.c \
+          src/c47scr.c src/views.c src/fonts21.c src/ntext.c src/moon47.c src/route.c \
           src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c
-sim: $(SIM_SRC) | $(BUILD_DIR)
+$(BUILD_DIR)/gen/simfont.h: test/sim/gen_simfont.py
+	@mkdir -p $(BUILD_DIR)/gen
+	$(PYTHON) test/sim/gen_simfont.py $@
+
+sim: $(SIM_SRC) $(BUILD_DIR)/gen/simfont.h | $(BUILD_DIR)
 	gcc -std=gnu11 -O2 -w -ffp-contract=off '-D__packed=__attribute__((__packed__))' '-D__weak=__attribute__((weak))' \
-	    -Itest/sim -Isrc -o $(BUILD_DIR)/sim $(SIM_SRC) -lm
+	    -Itest/sim -Isrc -I$(BUILD_DIR)/gen -o $(BUILD_DIR)/sim $(SIM_SRC) -lm
 
 clean:
 	-rm -fR .dep $(BUILD_DIR)

@@ -1,17 +1,24 @@
-/* views.c - NAV47: the C47 views of Almanac 47 (python/native/c47screen21.py), line for line:
- * ALMANAC, CHART, SKY (with its name loop), SPLIT, ANIM, ALLSKY. The same 8 bodies, the header line, the C47
- * standard font (GRFNT 21), the tinyFont chart labels, the glyphs47 symbols, the dotted celestial equator.
- * test/test_views.py compares them with the Python pixel for pixel.
+/* views.c - NAV47: Almanac 47's views (python/native/c47screen21.py) above the DMCP menu bar.
+ * ALMANAC, SPLIT, SKY (with its name loop), ANIM, ALLSKY and MOON47 (python/moon47.py). The same bodies, charts,
+ * glyphs47 symbols, tinyFont labels and dotted celestial equator as Almanac 47, drawn on the C47 layer (c47scr.c);
+ * the text in the DMCP system font (ntext.c) on 16-pixel rows: 208 rows of LCD instead of 240, so compressed.
  * Copyright (C) 2026 Victor Valdes - GPL-3.0-or-later. */
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <main.h>
+#include <dmcp.h>
 #include "views.h"
 #include "almdata.h"
 #include "c47scr.h"
+#include "ntext.h"
+#include "moon47.h"
 
 #define LUN 29.530589
+#define R NT_ROW
+#define CY(ly) (239 - (ly))                /* LCD row -> C47 y (up) */
+#define BL(row) (CY((row) + 13))           /* the C47 y of a text row's baseline */
 static const char *const PNAME[5] = { "", "VENUS", "MARS", "JUPITER", "SATURN" };
 
 static long ipd(double x) { return (long)x; }
@@ -85,9 +92,6 @@ static const char *moon_word(const Al *al) {
 }
 static double ut_hours(double j) { return pmod(j + 0.5, 1.0) * 24; }
 
-static int width(const char *t) { return c47_width(t, &F21); }
-
-/* chart_x / chart_ys of c47screen.py */
 static int chart_x(double zn, double off, double w, double x0) {
   double v = zn + off;
   v = v - 360 * floor(v / 360);
@@ -98,253 +102,205 @@ static int chart_ys(double sh, double base, int sign, double scale) {
   return sign > 0 ? (int)(h + base) : (int)(base - h);
 }
 
-/* the layout columns (genviews_atx.py, mode t21) */
-static int DIG, PDM, ZNW, HMW, DTW, NAMEW;
-static void metrics(void) {
-  if (DIG) return;
-  DIG = width("0");
-  PDM = 4 * DIG + DIG + 2 * DIG + width(".") + DIG;
-  ZNW = width("000.0"); HMW = width("00:00"); DTW = width("00-00-0000");
-  NAMEW = 0;
-  for (int i = 0; i < 58; i++) if (width(STAR_NAME47[i]) > NAMEW) NAMEW = width(STAR_NAME47[i]);
+/* ---------------------------------------------------------------- number formats (the C47 printers' rounding) */
+static void f_dm(char *s, double v) {                    /* 123°45.6 (no sign) */
+  long t = ipd(fabs(v) * 600 + 0.5), d = ipd(t / 600.0);
+  t -= d * 600;
+  sprintf(s, "%ld" NT_DEG "%ld%ld.%ld", d, t / 100, (t / 10) % 10, t % 10);
+}
+static void f_hm(char *s, double h) {
+  if (h > 98) { strcpy(s, "--:--"); return; }
+  long m = ipd(h * 60 + 0.5);
+  sprintf(s, "%02ld:%02ld", (m / 60) % 24, m % 60);
+}
+static void f_zn(char *s, double v) {
+  long t = ipd(v * 10 + 0.5);
+  if (3600 <= t) t = 0;
+  sprintf(s, "%03ld.%ld", t / 10, t % 10);
+}
+static void f_f1(char *s, double v) { long m = ipd(fabs(v) * 10 + 0.5); sprintf(s, "%ld.%ld", m / 10, m % 10); }
+static void f_date(char *s, double j) {
+  int y, m, d;
+  double h;
+  jd_to_ymd(j + 1e-9, &y, &m, &d, &h);
+  sprintf(s, "%02d-%02d-%04d", d, m, y);
 }
 
-typedef struct { int date, time, UT, DR, N, lat, E, lon; } TopX;
-static TopX top_x(void) {
-  TopX X;
-  X.date = 2;
-  X.time = 2 + DTW + DIG;
-  X.UT = X.time + HMW + DIG;
-  X.DR = X.UT + width("UT") + DIG;
-  X.N = X.DR + width("DR") + DIG;
-  X.lat = X.N + width("N") + DIG - 2 * DIG;
-  X.E = X.lat + PDM + DIG;
-  X.lon = X.E + width("W") + DIG - DIG;
+/* the header row: date, time UT, the DR position (as Almanac 47's top line) */
+static void header(const Al *al, double j) {
+  char s[80], a[24], b[24], t[8], dt[16];
+  f_date(dt, j);
+  f_hm(t, ut_hours(j));
+  f_dm(a, fabs(al->lat));
+  f_dm(b, fabs(al->lon));
+  sprintf(s, "%s %s UT", dt, t);
+  nt(1, 0, s);
+  sprintf(s, "%s%s %s%s%s", al->lat < 0 ? "S" : "N", a, al->lon < 0 ? "W" : "E", fabs(al->lon) < 100 ? "0" : "", b);
+  nt_r(399, 0, s);
+  lcd_fill_rect(0, 15, LCD_X, 1, 1);
+}
+
+/* ---------------------------------------------------------------- the body table (ALMANAC, SPLIT) */
+typedef struct { int name, gha, ns, dec, hc, zn; } Cols;
+static Cols cols(void) {
+  int c = nt_cw(), dm3 = 6 * c + 10, dm2 = 5 * c + 10;
+  Cols X;
+  X.name = 22;
+  X.gha = X.name + 9 * c + 2 + dm3;             /* right edges */
+  X.ns = X.gha + 3;
+  X.dec = X.ns + c + dm2;
+  X.hc = X.dec + 4 + dm2;
+  X.zn = X.hc + 4 + 4 * c + 5;
+  int e = (400 - X.zn) / 4;
+  if (e > 0) { X.gha += e; X.ns += 2 * e; X.dec += 2 * e; X.hc += 3 * e; X.zn += 4 * e; }
   return X;
 }
 
-typedef struct { int num, name, gha, ns, dec, hc, zn, hGHA, hDEC, hHC, hZN; } TabX;
-static int cen(double a, double b, const char *t) { return (int)nearbyint((a + b - width(t)) / 2); }
-static TabX table_x(void) {
-  TabX X;
-  X.num = 14; X.name = 34;
-  X.gha = X.name + NAMEW;
-  X.ns = X.gha + PDM + 4;
-  X.dec = X.ns + width("N") + 6 - 2 * DIG;
-  X.hc = X.dec + PDM + 6 - DIG;
-  X.zn = X.hc + PDM + 6;
-  int e = (398 - X.zn - ZNW) / 4;           /* Python // on a positive number */
-  X.gha += 1 * e; X.ns += 2 * e; X.dec += 2 * e; X.hc += 3 * e; X.zn += 4 * e;
-  X.hGHA = cen(X.gha + DIG, X.gha + PDM, "GHA");
-  X.hDEC = cen(X.ns, X.dec + PDM, "DEC");
-  X.hHC = cen(X.hc + DIG, X.hc + PDM, "HC");
-  X.hZN = cen(X.zn, X.zn + ZNW, "ZN");
-  return X;
+static void table_heads(int y, const Cols *X) {
+  int c = nt_cw();
+  nt(X->name, y, "BODY");
+  nt_c(X->gha - (6 * c + 10) / 2, y, "GHA");
+  nt_c((X->ns + X->dec) / 2, y, "DEC");
+  nt_c(X->hc - (5 * c + 10) / 2, y, "HC");
+  nt_c(X->zn - (4 * c + 5) / 2, y, "ZN");
 }
 
-static int state_x(const char *w) { return 200 - width(w) / 2; }
-
-static void header(const Al *al, double j, double uth) {
-  TopX T = top_x();
-  double lat = al->lat, lon = al->lon;
-  c47_pdat(226, T.date, j);
-  c47_phm(226, T.time, uth);
-  c47_text(226, T.UT, "UT", &F21);
-  c47_text(226, T.DR, "DR", &F21);
-  c47_text(226, T.N, lat < 0 ? "S" : "N", &F21);
-  c47_pdm(226, T.lat, fabs(lat));
-  c47_text(226, T.E, lon < 0 ? "W" : "E", &F21);
-  c47_pdm(226, T.lon, fabs(lon));
-  c47_text(226, 388, "S", &F21);
-  c47_pixel(-221, 0);
+/* ---------------------------------------------------------------- ALMANAC */
+void view_almanac(Al *al) {
+  c47_clear();
+  Cols X = cols();
+  VBody B[NBODY];
+  int nb = vbodies(al, B);
+  for (int i = 0; i < nb; i++) {                       /* the symbols first (C47 layer) */
+    int y = 2 * R + R * (i + 1);
+    c47_glyph(&SYMB, symbol(B[i].id), BL(y), 0);
+    if (B[i].id > 0) c47_tiny_num(BL(y) + 7, 14, B[i].id);
+  }
+  c47_glyph(&SYMB, '0' + phase_index(al->age), BL(12 * R + 1), 0);
+  c47_show();
+  header(al, al->j);
+  table_heads(R, &X);
+  char s[64], a[8], b[8], t[16];
+  nt(X.name, 2 * R, "ARIES");
+  f_dm(s, al->sun.aries); nt_r(X.gha, 2 * R, s);
+  for (int i = 0; i < nb; i++) {
+    int y = 3 * R + R * i;
+    VBody *v = &B[i];
+    char nm[12];
+    snprintf(nm, sizeof nm, "%.9s", body_name(v->id));
+    nt(X.name, y, nm);
+    f_dm(s, v->gha); nt_r(X.gha, y, s);
+    nt(X.ns, y, v->dec < 0 ? "S" : "N");
+    f_dm(s, fabs(v->dec)); nt_r(X.dec, y, s);
+    f_dm(s, fabs(v->hc));
+    if (v->hc < 0) nt_inv(X.hc - nt_w(s), y, s); else nt_r(X.hc, y, s);
+    f_zn(s, v->zn); nt_r(X.zn, y, s);
+  }
+  lcd_fill_rect(0, 11 * R, LCD_X, 1, 1);
+  /* the Sun's day and the Moon (Almanac 47's three footer lines in two) */
+  f_hm(a, al->times[1]); f_hm(b, al->times[3]);
+  sprintf(s, "RISE %s SET %s", a, b);
+  nt(1, 11 * R + 2, s);
+  f_hm(a, al->times[0]); f_hm(b, al->times[4]);
+  sprintf(s, "TWI %s %s", a, b);
+  nt_r(399, 11 * R + 2, s);
+  f_f1(t, al->age);
+  sprintf(s, "%ld%% %s %s d", (long)ipd(al->illum + 0.5), moon_word(al), t);
+  nt(16, 12 * R + 1, s);
+  f_hm(a, al->times[2]);
+  f_f1(t, al->sun.sd);
+  sprintf(s, "MER %s SD %s", a, t);
+  nt_r(399, 12 * R + 1, s);
 }
 
-static void tiny(int y, int x, const char *s) { c47_text(y, x, s, &TINY21); }
-
-static void hc_box(int y, int x) { c47_xor_box(y - 1, x + 7, PDM - 6, 14); }
-
-static void alt_axis(int HY, int HS, const int *xt, int nx, int label) {
+/* ---------------------------------------------------------------- charts */
+static void alt_axis(int HY, int HS, const int *xt, int nx) {
   static const int V[6] = { 10, 20, 30, 45, 60, 90 };
   for (int i = 0; i < 6; i++) {
     int y = HY + (int)(HS * dsin(V[i]));
     for (int k = 0; k < nx; k++) c47_pixel(y, xt[k]);
-    if (label) c47_tiny_num(y - 2, 2, V[i]);
+    c47_tiny_num(y - 2, 2, V[i]);
   }
-}
-
-static void hczs3(const Al *al, double dec, double gha, double *hc, double *zn, double *sh) {
-  *sh = hczs(al->lat, al->lon, dec, gha, hc, zn);
 }
 
 static const int COLS13[13] = { 20, 51, 82, 113, 145, 176, 207, 238, 270, 301, 332, 363, 395 };
+static const int LX[5] = { 19, 112, 206, 300, 394 };
 
-/* ---------------------------------------------------------------- the menu (NAV) */
-void view_menu(Al *al, const char *const *items, int nitems) {
-  metrics();
-  c47_clear();
-  c47_text(226, 2, "NAV47  ALMANAC 47", &F21);
-  c47_text(226, 230, "VALID 2000-2050", &F21);
-  TopX T = top_x();
-  int y = 206;
-  c47_pdat(y, T.date, al->j);
-  c47_phm(y, T.time, ut_hours(al->j));
-  c47_text(y, T.UT, "UT", &F21);
-  c47_text(y, T.DR, "DR", &F21);
-  c47_text(y, T.N, al->lat < 0 ? "S" : "N", &F21);
-  c47_pdm(y, T.lat, fabs(al->lat));
-  c47_text(y, T.E, al->lon < 0 ? "W" : "E", &F21);
-  c47_pdm(y, T.lon, fabs(al->lon));
-  c47_pixel(-199, 0);
-  for (int i = 0; i < nitems; i++) {
-    int col = i / 5, row = i % 5;
-    c47_text(176 - 28 * row, 16 + 200 * col, items[i], &F21);
-  }
-  c47_text(36, 2, "KEY A NUMBER   + MENU   UP DN 1 HOUR   F1-F6", &F21);
-  c47_pixel(-22, 0);
-  c47_text(6, 2, "DOES NOT REPLACE THE NAUTICAL ALMANAC", &F21);
-}
-
-/* ---------------------------------------------------------------- 1 ALMANAC */
-void view_almanac(Al *al) {
-  metrics();
-  c47_clear();
-  TabX X = table_x();
-  int NX = X.name, GX = X.gha, NSX = X.ns, DX = X.dec, HX = X.hc, ZX = X.zn;
-  const int TOP = 193, PITCH = 16, ROWS = NBODY + 1;
-  header(al, al->j, ut_hours(al->j));
-  c47_text(207, X.name, "BODY", &F21); c47_text(207, X.hGHA, "GHA", &F21); c47_text(207, X.hDEC, "DEC", &F21);
-  c47_text(207, X.hHC, "HC", &F21); c47_text(207, X.hZN, "ZN", &F21);
-  c47_text(TOP, NX, "ARIES", &F21);
-  c47_pdm(TOP, GX, al->sun.aries);
-  int y = TOP - PITCH;
-  VBody B[NBODY];
-  int nb = vbodies(al, B);
-  for (int i = 0; i < nb; i++) {
-    VBody *b = &B[i];
-    c47_glyph(&SYMB, symbol(b->id), y, 0);
-    if (b->id > 0) c47_pinb(y, X.num, b->id);
-    c47_text(y, NX, body_name(b->id), &F21);
-    c47_pdm(y, GX, b->gha);
-    c47_text(y, NSX, b->dec < 0 ? "S" : "N", &F21);
-    c47_pdm(y, DX, fabs(b->dec));
-    c47_pdm(y, HX, b->hc);
-    c47_pzn(y, ZX, b->zn);
-    if (b->hc < 0) c47_xor_box(y - 1, HX + 7, PDM - 6, 14);
-    y -= PITCH;
-  }
-  int FY = TOP - PITCH * ROWS;
-  c47_pixel(-(FY + 8), 0);
-  int y1 = FY - 6, y2 = FY - 20, y3 = FY - 34;
-  int t1 = 2, w;
-  w = width("NAUT TWI"); if (width("RISE/SET") > w) w = width("RISE/SET"); if (width("MER PASS") > w) w = width("MER PASS");
-  t1 = 2 + w + 8;
-  int t2 = t1 + HMW + 8, x;
-  c47_text(y1, 2, "NAUT TWI", &F21); c47_phm(y1, t1, al->times[0]); c47_phm(y1, t2, al->times[4]);
-  c47_text(y2, 2, "RISE/SET", &F21); c47_phm(y2, t1, al->times[1]); c47_phm(y2, t2, al->times[3]);
-  c47_text(y3, 2, "MER PASS", &F21); c47_phm(y3, t1, al->times[2]); x = c47_text(y3, t2, "SD ", &F21); c47_pf1(y3, x, al->sun.sd);
-  const int MX = 212;
-  x = c47_text(y1, MX, "MOON ", &F21); x = c47_pinb(y1, x, al->illum); x = c47_text(y1, x, "% ", &F21);
-  x = c47_glyph(&SYMB, '0' + phase_index(al->age), y1, x); x = c47_text(y1, x, " ", &F21); c47_text(y1, x, moon_word(al), &F21);
-  x = c47_text(y2, MX, "AGE ", &F21); x = c47_pf1(y2, x, al->age); c47_text(y2, x, " DAYS", &F21);
-  x = c47_text(y3, MX, "HP ", &F21); x = c47_pf1(y3, x, al->moon[2]); x = c47_text(y3, x, " SD ", &F21); c47_pf1(y3, x, al->moon[3]);
-}
-
-/* ---------------------------------------------------------------- 2 CHART */
-void view_chart(Al *al) {
-  metrics();
-  c47_clear();
-  const int X0 = 176, CW = 150, HY = 14, HS = 200;
-  for (int y = 0; y < 221; y++) c47_pixel(y, X0 - 4);
-  c47_pixel(-221, 0);
-  c47_hline(HY, 18, CW + 1);
-  for (int y = HY; y < HY + HS + 1; y++) c47_pixel(y, 17);
-  static const int XT[2] = { 15, 16 };
-  alt_axis(HY, HS, XT, 2, 1);
-  double off = al->lat < 0 ? 180 : 0;
-  const char *lab = off ? "SWNES" : "NESWN";
-  for (int k = 0; k < 5; k++) { char t[2] = { lab[k], 0 }; tiny(5, 16 + CW * k / 4, t); }
-  double hc, zn, sh;
-  for (int g = 0; g < 358; g += 3) {
-    hczs3(al, 0, g, &hc, &zn, &sh);
-    if (hc > 1e-4) c47_dot4(chart_ys(sh, HY, 1, HS), chart_x(zn, off, CW, 18));
-  }
-  header(al, al->j, ut_hours(al->j));
-  int ZX = 398 - ZNW, HX = ZX - 6 - PDM, NM = X0 + 14;
-  c47_text(207, NM, "BODY", &F21);
-  c47_text(207, (int)nearbyint(HX + 8 + (PDM - 8 - width("HC")) / 2.0), "HC", &F21);
-  c47_text(207, (int)nearbyint(ZX + (ZNW - width("ZN")) / 2.0), "ZN", &F21);
-  int y = 193;
-  VBody B[NBODY];
-  int nb = vbodies(al, B);
-  for (int i = 0; i < nb; i++) {
-    VBody *b = &B[i];
-    hczs3(al, b->dec, b->gha, &hc, &zn, &sh);
-    int cx = chart_x(zn, off, CW, 18), cy = chart_ys(sh, HY, 1, HS);
-    if (b->hc > 0) {
-      c47_glyph(&SYMS, symbol(b->id), cy - 3, cx - 3);
-      if (b->id > 0) {
-        int lx = cx + 5;
-        if (lx > 18 + CW - 20) lx -= 22;
-        c47_tiny_num(cy - 3, lx, b->id);
-      }
-    }
-    c47_glyph(&SYMB, symbol(b->id), y, X0);
-    if (b->id > 0) {
-      c47_pinb(y, NM, b->id);
-      c47_text(y, NM + width("00 "), body_name(b->id), &F21);
-    } else c47_text(y, NM, body_name(b->id), &F21);
-    c47_pdm(y, HX, b->hc);
-    c47_pzn(y, ZX, b->zn);
-    if (b->hc < 0) hc_box(y, HX);
-    y -= 16;
-  }
-}
-
-/* ---------------------------------------------------------------- 4 SKY */
-static void sky_pos(double sh, double zn, double off, int HB, int HS, int *r, int *x) {
-  *x = chart_x(zn, off, 375, 20);
-  *r = 241 - chart_ys(sh, 241 - HB, -1, HS);
-}
-
-int view_sky(Al *al, int frame) {
-  metrics();
-  c47_clear();
-  const int HB = 28, HS = 184;
-  c47_hline(HB, 20, 376);
-  for (int y = HB + 2; y < 213; y += 3) c47_pixel(y, 18);
+/* the horizon chart of SKY and SPLIT: horizon at C47 y HY, the zenith HS above */
+static void horizon_chart(const Al *al, int HY, int HS) {
+  c47_hline(HY, 20, 376);
+  for (int y = HY + 2; y < HY + HS + 1; y += 3) c47_pixel(y, 18);
   for (int i = 0; i < 13; i++)
-    for (int y = HB - 1; y >= HB - 3; y--) c47_pixel(y, COLS13[i]);
+    for (int y = HY - 1; y >= HY - 3; y--) c47_pixel(y, COLS13[i]);
   static const int XT[3] = { 15, 16, 17 };
-  alt_axis(HB, HS, XT, 3, 1);
+  alt_axis(HY, HS, XT, 3);
   double off = al->lat < 0 ? 180 : 0;
   const char *lab = off ? "SWNES" : "NESWN";
-  static const int LX[5] = { 19, 112, 206, 300, 394 };
-  for (int k = 0; k < 5; k++) { char t[2] = { lab[k], 0 }; tiny(HB - 9, LX[k], t); }
-  double hc, zn, sh;
-  int r, x;
+  for (int k = 0; k < 5; k++) { char t[2] = { lab[k], 0 }; c47_text(HY - 9, LX[k], t, &TINY21); }
+  double hc, zn;
   for (int g = 0; g < 359; g += 2) {
-    hczs3(al, 0, g, &hc, &zn, &sh);
-    if (hc > 1e-4) { sky_pos(sh, zn, off, HB, HS, &r, &x); c47_dot4(r, x); }
+    double sh = hczs(al->lat, al->lon, 0, g, &hc, &zn);
+    if (hc > 1e-4) c47_dot4(chart_ys(sh, HY, 1, HS), chart_x(zn, off, 375, 20));
   }
+}
+
+static void plot_body(const Al *al, const VBody *b, int HY, int HS, int *px, int *py) {
+  double hc, zn, sh = hczs(al->lat, al->lon, b->dec, b->gha, &hc, &zn), off = al->lat < 0 ? 180 : 0;
+  int x = chart_x(zn, off, 375, 20), y = chart_ys(sh, HY, 1, HS);
+  if (b->hc > 0) {
+    c47_glyph(&SYMS, symbol(b->id), y - 3, x - 3);
+    if (b->id > 0) { int lx = x + 5; if (lx > 380) lx -= 22; c47_tiny_num(y - 3, lx, b->id); }
+  }
+  if (px) { *px = x; *py = CY(y); }
+}
+
+/* ---------------------------------------------------------------- SPLIT: the horizon chart over the table */
+void view_split(Al *al) {
+  c47_clear();
+  const int HY = CY(77), HS = 58;
+  horizon_chart(al, HY, HS);
+  Cols X = cols();
   VBody B[NBODY];
   int nb = vbodies(al, B);
+  int rows = (208 - 104) / R;
   for (int i = 0; i < nb; i++) {
-    VBody *b = &B[i];
-    if (b->id == 0 || b->hc > 0) {
-      hczs3(al, b->dec, b->gha, &hc, &zn, &sh);
-      sky_pos(sh, zn, off, HB, HS, &r, &x);
-      if (b->hc > 0) c47_glyph(&SYMS, symbol(b->id), r - 3, x - 3);
-      if (b->id > 0) {
-        int lx = x + 5;
-        if (lx > 380) lx -= 22;
-        c47_tiny_num(r - 3, lx, b->id);
-      }
-      if (b->id == 0) { const char *w = daylight(b->hc); c47_text(4, state_x(w), w, &F21); }
+    plot_body(al, &B[i], HY, HS, NULL, NULL);
+    if (i < rows) {
+      int y = 104 + R * i;
+      c47_glyph(&SYMB, symbol(B[i].id), BL(y), 0);
+      if (B[i].id > 0) c47_tiny_num(BL(y) + 7, 14, B[i].id);
     }
   }
-  header(al, al->j, ut_hours(al->j));
-  /* the name loop: the frames (consecutive duplicates removed) */
-  int fr[NBODY], nf = 0;
+  c47_show();
+  header(al, al->j);
+  table_heads(88, &X);
+  for (int i = 0; i < nb && i < rows; i++) {
+    int y = 104 + R * i;
+    char s[24], nm[12];
+    VBody *v = &B[i];
+    snprintf(nm, sizeof nm, "%.9s", body_name(v->id));
+    nt(X.name, y, nm);
+    f_dm(s, v->gha); nt_r(X.gha, y, s);
+    nt(X.ns, y, v->dec < 0 ? "S" : "N");
+    f_dm(s, fabs(v->dec)); nt_r(X.dec, y, s);
+    f_dm(s, fabs(v->hc));
+    if (v->hc < 0) nt_inv(X.hc - nt_w(s), y, s); else nt_r(X.hc, y, s);
+    f_zn(s, v->zn); nt_r(X.zn, y, s);
+  }
+}
+
+/* ---------------------------------------------------------------- SKY: the horizon chart and the name loop */
+int view_sky(Al *al, int frame) {
+  c47_clear();
+  const int HB = CY(180), HS = 160;
+  horizon_chart(al, HB, HS);
+  VBody B[NBODY];
+  int nb = vbodies(al, B), bx[NBODY], by[NBODY];
+  for (int i = 0; i < nb; i++) plot_body(al, &B[i], HB, HS, &bx[i], &by[i]);
+  c47_show();
+  header(al, al->j);
+  nt_c(200, 192, daylight(B[0].hc));
+  int fr[NBODY], nf = 0;                             /* the name loop (consecutive duplicates removed) */
   for (int i = 0; i < nb; i++) {
     int f = B[i].hc <= 0 ? -1 : i;
     if (!nf || fr[nf - 1] != f) fr[nf++] = f;
@@ -352,100 +308,35 @@ int view_sky(Al *al, int frame) {
   if (!nf) return 1;
   int k = fr[((frame % nf) + nf) % nf];
   if (k >= 0) {
-    VBody *b = &B[k];
-    sky_pos(dsin(b->hc), b->zn, off, HB, HS, &r, &x);
-    int nx = x + 8 + (b->id > 0 ? 14 : 0);
-    const char *t = body_name(b->id);
-    if (nx + 8 * (int)strlen(t) > 380) nx = x - 28 - 8 * (int)strlen(t);
-    /* XOR the name: draw it on an empty screen, then XOR it in (base ^ name as c47screen21) */
-    static C47Screen *tmp;
-    if (!tmp) tmp = (C47Screen *)calloc(1, sizeof(C47Screen));
-    if (tmp) {
-      C47Screen *main = c47();
-      memcpy(tmp, main, sizeof *tmp);
-      c47_clear();
-      c47_text(r - 3, nx, t, &F21);
-      for (int yy = 0; yy < SH; yy++)
-        for (int i = 0; i < SW / 8; i++) tmp->b[yy][i] ^= main->b[yy][i];
-      memcpy(main, tmp, sizeof *tmp);
-    }
+    const char *t = body_name(B[k].id);
+    int nx = bx[k] + 8 + (B[k].id > 0 ? 14 : 0);
+    if (nx + nt_w(t) > 396) nx = bx[k] - 10 - nt_w(t);
+    int ny = by[k] - 8;
+    if (ny < 17) ny = 17;
+    nt_inv(nx, ny, t);
   }
   return nf;
 }
 
-/* ---------------------------------------------------------------- 5 SPLIT */
-void view_split(Al *al) {
-  metrics();
-  c47_clear();
-  TabX X = table_x();
-  int NX = X.name, GX = X.gha, NSX = X.ns, DX = X.dec, HX = X.hc, ZX = X.zn;
-  const int HY = 144, HS = 68, TOP = 107;
-  header(al, al->j, ut_hours(al->j));
-  c47_hline(HY, 20, 376);
-  for (int y = HY; y < HY + HS + 1; y += 3) c47_pixel(y, 18);
-  static const int XT[3] = { 15, 16, 17 };
-  alt_axis(HY, HS, XT, 3, 1);
-  for (int i = 0; i < 13; i++) { c47_pixel(HY - 1, COLS13[i]); c47_pixel(HY - 2, COLS13[i]); }
-  double off = al->lat < 0 ? 180 : 0;
-  const char *lab = off ? "SWNES" : "NESWN";
-  static const int LX[5] = { 19, 112, 206, 300, 394 };
-  for (int k = 0; k < 5; k++) { char t[2] = { lab[k], 0 }; tiny(HY - 9, LX[k], t); }
-  double hc, zn, sh;
-  for (int g = 0; g < 358; g += 3) {
-    hczs3(al, 0, g, &hc, &zn, &sh);
-    if (hc > 1e-4) c47_dot4(chart_ys(sh, HY, 1, HS), chart_x(zn, off, 375, 20));
-  }
-  c47_text(TOP + 14, X.name, "BODY", &F21); c47_text(TOP + 14, X.hGHA, "GHA", &F21); c47_text(TOP + 14, X.hDEC, "DEC", &F21);
-  c47_text(TOP + 14, X.hHC, "HC", &F21); c47_text(TOP + 14, X.hZN, "ZN", &F21);
-  int y = TOP;
-  VBody B[NBODY];
-  int nb = vbodies(al, B);
-  for (int i = 0; i < nb; i++) {
-    if (y < 9) break;
-    VBody *b = &B[i];
-    hczs3(al, b->dec, b->gha, &hc, &zn, &sh);
-    int cx = chart_x(zn, off, 375, 20), cy = chart_ys(sh, HY, 1, HS);
-    if (b->hc > 0) {
-      c47_glyph(&SYMS, symbol(b->id), cy - 3, cx - 3);
-      if (b->id > 0) {
-        int lx = cx + 5;
-        if (lx > 380) lx -= 22;
-        c47_tiny_num(cy - 3, lx, b->id);
-      }
-    }
-    c47_glyph(&SYMB, symbol(b->id), y, 0);
-    if (b->id > 0) c47_pinb(y, X.num, b->id);
-    c47_text(y, NX, body_name(b->id), &F21);
-    c47_pdm(y, GX, b->gha);
-    c47_text(y, NSX, b->dec < 0 ? "S" : "N", &F21);
-    c47_pdm(y, DX, fabs(b->dec));
-    c47_pdm(y, HX, b->hc);
-    c47_pzn(y, ZX, b->zn);
-    if (b->hc < 0) hc_box(y, HX);
-    y -= 14;
-  }
-}
+/* ---------------------------------------------------------------- ANIM and ALLSKY: the whole sphere */
+#define HYA CY(104)
+#define HSA 84
 
-/* ---------------------------------------------------------------- 6 ANIM and 7 ALLSKY */
-#define HYA 118
-#define HSA 94
-
-static void sky_chart(double off, int HY, int HS) {
-  c47_pixel(-HY, 0);
-  for (int y = HY - HS; y < HY + HS + 1; y += 3) c47_pixel(y, 18);
+static void sky_chart(double off) {
+  c47_hline(HYA, 0, 400);
+  for (int y = HYA - HSA; y < HYA + HSA + 1; y += 3) c47_pixel(y, 18);
   static const int V[6] = { 10, 20, 30, 45, 60, 90 };
   for (int i = 0; i < 6; i++) {
-    int dy = (int)(HS * dsin(V[i]));
-    int ys[2] = { HY + dy, HY - dy };
+    int dy = (int)(HSA * dsin(V[i]));
+    int ys[2] = { HYA + dy, HYA - dy };
     for (int k = 0; k < 2; k++) {
       c47_pixel(ys[k], 15); c47_pixel(ys[k], 16); c47_pixel(ys[k], 17);
       c47_tiny_num(ys[k] - 2, 2, V[i]);
     }
   }
-  for (int i = 0; i < 13; i++) { c47_pixel(HY - 1, COLS13[i]); c47_pixel(HY - 2, COLS13[i]); }
+  for (int i = 0; i < 13; i++) { c47_pixel(HYA - 1, COLS13[i]); c47_pixel(HYA - 2, COLS13[i]); }
   const char *lab = off ? "SWNES" : "NESWN";
-  static const int LX[5] = { 19, 112, 206, 300, 394 };
-  for (int k = 0; k < 5; k++) { char t[2] = { lab[k], 0 }; tiny(HY - 10, LX[k], t); }
+  for (int k = 0; k < 5; k++) { char t[2] = { lab[k], 0 }; c47_text(HYA - 10, LX[k], t, &TINY21); }
 }
 
 static void apos(double lat, double lon, double off, double dec, double gha, double *hc, int *x, int *y) {
@@ -454,27 +345,19 @@ static void apos(double lat, double lon, double off, double dec, double gha, dou
   *y = chart_ys(sh, HYA, 1, HSA);
 }
 
-static void keep_rows(int lo, int hi) {              /* sc.pix = {p ... if lo < y < hi} */
-  C47Screen *S = c47();
-  for (int y = 0; y < SH; y++)
-    if (!(y > lo && y < hi)) memset(S->b[y], 0, sizeof S->b[y]);
-}
-
 void view_anim(Al *al, int frames, double step, int upto) {
-  metrics();
   double lat = al->lat, lon = al->lon, off = lat < 0 ? 180 : 0;
   c47_clear();
-  sky_chart(off, HYA, HSA);
-  c47_pixel(-221, 0);
-  double hc;
+  sky_chart(off);
+  double hc, hs = 0;
   int x, y;
   for (int g = 0; g < 359; g += 2) { apos(lat, lon, off, 0, g, &hc, &x, &y); c47_dot4(y, x); }
   if (frames < 1) frames = 1;
   if (upto >= frames) upto = frames - 1;
+  double j = al->j;
   for (int k = 0; k <= upto; k++) {
-    double j = al->j + k * step / 24;
-    double uth = pmod(j + 0.5, 1.0) * 24;
-    double g, d, hs;
+    j = al->j + k * step / 24;
+    double g, d;
     sun_fast(j, &g, &d);
     int xs, ys, xm, ym;
     apos(lat, lon, off, d, g, &hs, &xs, &ys);
@@ -485,22 +368,19 @@ void view_anim(Al *al, int frames, double step, int upto) {
     q.aries = pmod(dd * 360.98564736629 + 280.46061837, 360.0);
     moon_quick(&q, &g, &d);
     apos(lat, lon, off, d, g, &hc, &xm, &ym);
-    keep_rows(15, 224);
-    header(al, j, uth);
-    const char *w = daylight(hs);
-    c47_text(4, state_x(w), w, &F21);
     c47_glyph(&SYMS, '@', ys - 3, xs - 3);
     c47_glyph(&SYMS, '(', ym - 3, xm - 3);
   }
+  c47_show();
+  header(al, j);
+  nt_c(200, 192, daylight(hs));
 }
 
 void view_allsky(Al *al) {
-  metrics();
   c47_clear();
   double off = al->lat < 0 ? 180 : 0;
-  sky_chart(off, HYA, HSA);
+  sky_chart(off);
   const Sun *s = &al->sun;
-  header(al, al->j, ut_hours(al->j));
   double hc;
   int x, y;
   for (int g = 0; g < 358; g += 3) { apos(al->lat, al->lon, off, 0, g, &hc, &x, &y); c47_dot4(y, x); }
@@ -510,6 +390,7 @@ void view_allsky(Al *al) {
     double dec2 = dcos(ra) * 20.0431 * ty + dec;
     double ra2 = (dsin(ra) * dtan(dec) * 20.0431 + 46.1244) * ty + ra;
     apos(al->lat, al->lon, off, dec2, pmod(s->aries - ra2, 360.0), &hc, &x, &y);
+    if (y < CY(190) || y > CY(17)) continue;
     c47_glyph(&SYMS, '*', y - 3, x - 3);
     int lx = x + 5;
     if (lx > 388) lx -= 17;
@@ -524,6 +405,51 @@ void view_allsky(Al *al) {
   double hs;
   apos(al->lat, al->lon, off, s->dec, s->gha, &hs, &x, &y);
   c47_glyph(&SYMS, '@', y - 3, x - 3);
-  const char *w = daylight(hs);
-  c47_text(4, state_x(w), w, &F21);
+  c47_show();
+  header(al, al->j);
+  nt_c(200, 192, daylight(hs));
+}
+
+/* ---------------------------------------------------------------- MOON47 (python/moon47.py page, moon47_screen) */
+static const char *const PHSHORT[4] = { "NEW", "1ST QTR", "FULL", "LAST QTR" };
+
+void view_moon(Al *al, int south) {
+  Moon47 p;
+  moon47_page(al->j, south, &p);
+  c47_clear();
+  const int cx = 70, cy = CY(98), r = 60;
+  int runs[2][2];
+  for (int dx = -r; dx <= r; dx++) {
+    int n = moon47_disc_runs(r, p.age, south, dx, runs);
+    for (int i = 0; i < n; i++)
+      for (int a = runs[i][0]; a <= runs[i][1]; a++) { c47_pixel(cy + a, cx + dx); if (a) c47_pixel(cy - a, cx + dx); }
+  }
+  for (int i = 0; i < 8; i++) {                       /* the eight phases, today's inverted */
+    int x = 6 + i * 20;
+    c47_glyph(&SYMB, '0' + (south ? (8 - i) % 8 : i), BL(176), x);
+    if ((south ? (8 - i) % 8 : i) == p.index) c47_xor_box(BL(176) - 2, x - 3, 18, 16);
+  }
+  c47_show();
+  char s[64], t[16], d[16];
+  f_date(d, al->j);
+  f_hm(t, ut_hours(al->j));
+  sprintf(s, "MOON47   %s %s UT", d, t);
+  nt(1, 0, s);
+  lcd_fill_rect(0, 15, LCD_X, 1, 1);
+  const int X = 146;
+  nt(X, 20, M47_NAMES[p.index]);
+  sprintf(s, "LIT %ld%%   AGE %.1f d", (long)floor(p.lit + 0.5), p.age);
+  nt(X, 40, s);
+  sprintf(s, "HP %.1f'  SD %.1f'", p.hp, p.sd);
+  nt(X, 56, s);
+  for (int k = 0; k < 4; k++) {
+    int y, m, dd;
+    double h;
+    jd_to_ymd(p.next_t[k] + 1e-9, &y, &m, &dd, &h);
+    f_hm(t, h);
+    sprintf(s, "%-8s %02d-%02d %s", PHSHORT[p.next_k[k]], dd, m, t);
+    nt(X, 80 + R * k, s);
+  }
+  nt(1, 192, south ? "AS SEEN FROM THE SOUTH" : "AS SEEN FROM THE NORTH");
+  nt_r(399, 192, "+/- FLIP");
 }
