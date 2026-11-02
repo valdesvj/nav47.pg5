@@ -1,0 +1,9 @@
+build/
+.dep/
+*.o
+simdisk/
+__pycache__/
+# private data never goes into git
+*private*
+*.TID
+*.FLW
