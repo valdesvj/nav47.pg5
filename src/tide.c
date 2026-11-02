@@ -162,12 +162,6 @@ static void evaluate(const Comp *C, double z0, double t, double out[3]) {
   out[0] = z0 + s0; out[1] = -s1; out[2] = -s2;
 }
 
-static void herm(double f0, double d0, double f1, double d1, double s, double *v, double *dv) {
-  double s2 = s * s, s3 = s * s * s;
-  *v = (2 * s3 - 3 * s2 + 1) * f0 + (s3 - 2 * s2 + s) * d0 + (-2 * s3 + 3 * s2) * f1 + (s3 - s2) * d1;
-  *dv = (6 * s2 - 6 * s) * f0 + (3 * s2 - 4 * s + 1) * d0 + (-6 * s2 + 6 * s) * f1 + (3 * s2 - 2 * s) * d1;
-}
-
 typedef struct { const Comp *E, *N; double z0, v0; int stream, rot; } Eng;
 typedef struct { double u[3], v[3], F, Fp; } UV;
 
@@ -204,25 +198,22 @@ void tide_day(const TStation *st, long n, int stream, TDay *out) {
   out->tz = tz;
   out->nev = 0;
   int most = stream ? 8 : 6;
+  /* Tide 47's exact method (day_exact / sday_exact): the hourly signs of F (h' for a tide, u u' + v v' for a
+     stream), then four exact Newton steps F / F' from the straight line between the hours; the values exact
+     at the event and on the curve. (The C47 uses a faster interpolated engine; the DM42n needs none.) */
   for (int k = 1; k < 25; k++) {
-    double F0 = HR[k - 1].F, D0 = HR[k - 1].Fp, F1 = HR[k].F, D1 = HR[k].Fp;
+    double F0 = HR[k - 1].F, F1 = HR[k].F;
     if (F0 * F1 < 0 && out->nev < most) {
-      double s = F0 / (F0 - F1);
-      for (int i = 0; i < 3; i++) {
-        double p, dp;
-        herm(F0, D0, F1, D1, s, &p, &dp);
-        s -= p / dp;
-        s = s < 0.0 ? 0.0 : s > 1.0 ? 1.0 : s;
-      }
-      double x0 = k - 1 + s;
+      double lo = k - 1.0, hi = (double)k, x = lo + F0 / (F0 - F1);
       UV r;
-      uv(&g, x0, &r);
-      double x = x0 - r.F / r.Fp;
-      if (x < k - 1.0) x = k - 1.0;
-      if (x > (double)k) x = (double)k;
-      double dx = x - x0;
-      double uu = r.u[0] + r.u[1] * dx, vv = r.v[0] + r.v[1] * dx;
-      int kind = r.Fp < 0 ? 1 : -1;
+      for (int i = 0; i < 4; i++) {
+        uv(&g, x, &r);
+        x -= r.F / r.Fp;
+        x = x < lo ? lo : x > hi ? hi : x;
+      }
+      int kind = r.Fp < 0 ? 1 : -1;               /* from the last step's F', as the twin */
+      uv(&g, x, &r);
+      double uu = r.u[0], vv = r.v[0];
       TEvent *e = &out->ev[out->nev++];
       e->t = x; e->kind = kind;
       if (!stream) { e->val = uu; e->set = 0.0; }
@@ -231,15 +222,9 @@ void tide_day(const TStation *st, long n, int stream, TDay *out) {
     }
   }
   for (int k = 0; k < 73; k++) {
-    double t = k / 3.0;
-    int i = (int)t;
-    if (i > 23) i = 23;
-    double s = t - i, u, v, d;
-    herm(HR[i].u[0], HR[i].u[1], HR[i + 1].u[0], HR[i + 1].u[1], s, &u, &d);
-    if (rot) {
-      herm(HR[i].v[0], HR[i].v[1], HR[i + 1].v[0], HR[i + 1].v[1], s, &v, &d);
-      out->curve[k] = hypot(u, v);
-    } else out->curve[k] = u;
+    UV r;
+    uv(&g, k / 3.0, &r);
+    out->curve[k] = rot ? hypot(r.u[0], r.v[0]) : r.u[0];
   }
 }
 

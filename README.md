@@ -77,7 +77,7 @@ On Linux the port is `/dev/ttyACM0`; your user needs the `uucp` group (Arch) or 
   with nothing to initialize and no RAM used. No TBL tables are needed: the DM42n computes the series directly.
 * `test/test_astro.py` compares every result with the Python twin (302 dates × 71 results): the Moon, the Sun
   events and the phase are bit-identical, everything else within 1×10⁻¹¹°.
-* Tides: `src/tide.c` is the twin of Tide 47's `python/tide47ref.py` (`test/test_tide.py`: 478 checks within
+* Tides: `src/tide.c` is the twin of Tide 47's exact engine, `python/tide47ref.py` `day_exact` / `sday_exact` (`test/test_tide.py`: 478 checks within
   10⁻¹⁴). Zones: the DST rules agree with the IANA database at every change of 2026, 2027 and 2030
   (`test/test_zones.py`).
 

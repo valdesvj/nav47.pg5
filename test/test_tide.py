@@ -23,6 +23,13 @@ import stations                # noqa: E402
 import streams                 # noqa: E402
 import gen_tides as G          # noqa: E402
 
+# NAV47 computes every day exactly (the DM42n is fast). Tide 47 v0.4 made day() / sday() the C47's faster
+# engine (exact every 2 h + quintics) and kept the exact method as day_exact() / sday_exact(): compare with
+# that one. flow_*() call day() through the module, so they follow too.
+if hasattr(R, 'day_exact'):
+    R.day, R.sday = R.day_exact, R.sday_exact
+    print('Tide 47 v0.4+: comparing with the exact engine (day_exact, sday_exact)')
+
 top = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 exe = os.path.join(top, 'build', 'tide_cli')
 os.makedirs(os.path.join(top, 'build', 'gen'), exist_ok=True)
@@ -127,7 +134,8 @@ for (kind, name, ref), cmd in zip(exp, cmds):
         for a, b in zip(got, ref[1]):
             worst['t'] = max(worst['t'], abs(a[0] - b[0]))
             worst['v'] = max(worst['v'], abs(a[1] - b[1]))
-            worst['set'] = max(worst['set'], angd(a[2], b[2]))
+            if abs(b[1]) > 1e-6:                    # a slack (speed 0): flood or ebb is only the sign of ~1e-10
+                worst['set'] = max(worst['set'], angd(a[2], b[2]))
         worst['curve'] = max([worst['curve']] + [abs(a - b) for a, b in zip(cv, ref[2])])
     elif kind == 'NOW':
         v, d = map(float, out[li].split()[1:])
