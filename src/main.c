@@ -18,6 +18,8 @@
 #include "tide.h"
 #include "tidefile.h"
 #include "zones.h"
+#include "c47scr.h"
+#include "views.h"
 
 #define DIR       "/NAV47"
 #define TIDEDIR   "/NAV47/TIDES"
@@ -28,7 +30,9 @@
 /* ------------------------------------------------------------------ */
 /*  State (heap: a DMCP5 program has 8 KB of static RAM)              */
 /* ------------------------------------------------------------------ */
-enum { PG_ALM, PG_SKY, PG_ZONES, PG_TIDES, PG_FLOW, PG_SET, PG_FILES, PG_INFO, PG_PICK };
+enum { PG_MENU, PG_VALM, PG_VCHART, PG_VSKY, PG_VSPLIT, PG_VANIM, PG_VALLSKY,
+       PG_ZONES, PG_TIDES, PG_FLOW, PG_SET, PG_FILES, PG_INFO, PG_PICK };
+#define IS_VIEW(p) ((p) <= PG_VALLSKY)
 
 typedef struct {
   double lat, lon;          /* degrees, N+ E+ */
@@ -42,22 +46,14 @@ typedef struct {
   int    nfiles;
 } Cfg;
 
-typedef struct {
-  /* almanac cache */
-  double jd, lat, lon;
-  Sun s;
-  double gha[7], dec[7], hc[7], zn[7], hp, sd, illum, age;          /* Sun Moon Ve Ma Ju Sa, [6] Aries GHA */
-  double sgha[58], sdec[58], shc[58], szn[58];
-  double ev[EV_COUNT];
-  int valid;
-} Alm;
-
 typedef struct { int src, reg, st; } Row;
 #define MAXROWS 400
 
 typedef struct {
   Cfg cfg;
-  Alm alm;
+  Al al;                    /* the views' almanac (c47screen.py Almanac) */
+  double vjd;               /* its time */
+  int valid;
   Row rows[MAXROWS];        /* the station list */
   TDay tday;
   TRegion *fr;              /* regions loaded from files */
@@ -68,7 +64,7 @@ typedef struct {
 } Nav;
 
 static Nav *N;
-static int page = PG_ALM, menu_page, shift;
+static int page = PG_MENU, menu_page, shift, vframe;
 static double toff;                      /* hours added to the time by the arrows */
 static int edit_field = -1, sel_field, pick_cursor, tide_day_off, flow_hw_step, flow_day_step;
 static char ebuf[16];
@@ -104,8 +100,6 @@ static void fmt_dm(char *s, double deg, int ddig) {      /* ddd°mm.m' */
 
 static void fmt_lat(char *s, double v) { fmt_dm(s, v, 2); strcat(s, v < 0 ? "S" : "N"); }
 static void fmt_lon(char *s, double v) { fmt_dm(s, v, 3); strcat(s, v < 0 ? "W" : "E"); }
-static void fmt_dec(char *s, double v) { s[0] = v < 0 ? 'S' : 'N'; s[1] = ' '; fmt_dm(s + 2, v, 2); }
-static void fmt_hc(char *s, double v) { s[0] = v < 0 ? '-' : ' '; fmt_dm(s + 1, v, 2); }
 
 static void fmt_hm(char *s, double h) {                   /* hours -> hh:mm, 99 -> --:-- */
   if (h >= 98) { strcpy(s, "--:--"); return; }
@@ -122,181 +116,14 @@ static void fmt_off(char *s, double o) {                  /* +3, -5:30 */
   if (m) sprintf(s, "%c%d:%02d", sg, h, m); else sprintf(s, "%c%d", sg, h);
 }
 
-static const char *MON[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
-static const char *WDAY[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
-
-static void fmt_datetime(char *s, double jd) {            /* 2026-11-02 09:45 */
-  int y, m, d;
-  double h;
-  jd_to_ymd(jd + 0.5 / 1440.0, &y, &m, &d, &h);
-  int mi = (int)floor(h * 60.0);
-  sprintf(s, "%04d-%02d-%02d %02d:%02d", y, m, d, mi / 60, mi % 60);
-}
-
-/* ------------------------------------------------------------------ */
-/*  Almanac                                                           */
-/* ------------------------------------------------------------------ */
-static const char *BODY_NAME[7] = { "SUN", "MOON", "VENUS", "MARS", "JUPITER", "SATURN", "ARIES" };
-
-static void alm_compute(double jd) {
-  Alm *A = &N->alm;
-  double lat = N->cfg.lat, lon = N->cfg.lon;
-  if (A->valid && A->jd == jd && A->lat == lat && A->lon == lon) return;
-  sun_at(&A->s, jd);
-  A->gha[0] = A->s.gha; A->dec[0] = A->s.dec;
-  moon_pos(&A->s, &A->gha[1], &A->dec[1], &A->hp, &A->sd);
-  for (int p = 1; p <= 4; p++) planet_pos(&A->s, p, 0, &A->gha[p + 1], &A->dec[p + 1], NULL, NULL);
-  A->gha[6] = A->s.aries; A->dec[6] = 0.0;
-  for (int i = 0; i < 6; i++) hcz(lat, lon, A->dec[i], A->gha[i], &A->hc[i], &A->zn[i]);
-  for (int n = 1; n <= 58; n++) {
-    star_pos(&A->s, n, &A->sgha[n - 1], &A->sdec[n - 1], NULL);
-    hcz(lat, lon, A->sdec[n - 1], A->sgha[n - 1], &A->shc[n - 1], &A->szn[n - 1]);
-  }
-  double j0 = day0(jd);
-  for (int k = 0; k < EV_COUNT; k++) A->ev[k] = sun_event(j0, lat, lon, k);
-  moon_phase(&A->s, &A->illum, &A->age);
-  A->jd = jd; A->lat = lat; A->lon = lon; A->valid = 1;
-}
-
 static void header(const char *title, const char *right) {
   draw_text(&STD, 2, 0, title, 1);
   if (right) draw_text_r(&STD, LCD_X - 2, 0, right, 0);
 }
 
-static void pos_line(int y) {
-  char a[24], b[24], s[128], t[24], z[8];
-  fmt_lat(a, N->cfg.lat);
-  fmt_lon(b, N->cfg.lon);
-  fmt_hm(t, fmod((ut_now() + 0.5) * 24.0, 24.0) + N->cfg.tz);
-  fmt_off(z, N->cfg.tz);
-  sprintf(s, "%s  %s   clock TZ%s  %s%s", a, b, z, t, N->cfg.live ? (toff != 0 ? "  (stepped)" : "  live") : "  fixed");
-  draw_text(&TINY, 2, y, s, 0);
-}
+static const char *MON[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
+static const char *WDAY[7] = { "Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat" };
 
-static void draw_almanac(void) {
-  Alm *A = &N->alm;
-  double jd = ut_now();
-  alm_compute(jd);
-  char s[128], g[20], d[20], h[20], dt[40];
-  fmt_datetime(dt, jd);
-  strcat(dt, " UT");
-  header("ALMANAC", dt);
-  pos_line(22);
-  int y = 33;
-  draw_text(&TINY, 2, y, "BODY       GHA         DEC          HC        ZN", 0);
-  gfx_rect(2, y + 8, LCD_X - 4, 1, 1);
-  y += 11;
-  for (int i = 0; i < 7; i++) {
-    fmt_dm(g, A->gha[i], 3);
-    if (i == 6) sprintf(s, "%-8s %s", BODY_NAME[i], g);
-    else {
-      fmt_dec(d, A->dec[i]);
-      fmt_hc(h, A->hc[i]);
-      sprintf(s, "%-8s %s  %s  %s  %05.1f", BODY_NAME[i], g, d, h, A->zn[i]);
-      if (i == 1) { char x[24]; sprintf(x, "  HP %.1f", A->hp); strcat(s, x); }
-      if (i == 0) { char x[24]; sprintf(x, "  SD %.1f", A->sd); strcat(s, x); }
-    }
-    draw_text(&TINY, 2, y, s, A->hc[i] > 0 && i < 6 ? 0 : 0);
-    if (i < 6 && A->hc[i] > 0) draw_text(&TINY, LCD_X - 12, y, SYM_UP, 0);
-    y += LH;
-  }
-  gfx_rect(2, y, LCD_X - 4, 1, 1);
-  y += 3;
-  /* stars above 10 degrees, by brightness */
-  int rows = 0, maxrows = 8;
-  for (int r = 0; r < 58 && rows < maxrows * 2; r++) {
-    int n = BRIGHT[r] - 1;
-    if (A->shc[n] < 10.0 || A->shc[n] > 85.0) continue;
-    fmt_dm(g, A->sgha[n], 3);
-    fmt_dec(d, A->sdec[n]);
-    fmt_hc(h, A->shc[n]);
-    int col = rows / maxrows, yy = y + (rows % maxrows) * LH;
-    if (col == 0) sprintf(s, "%2d %-14.14s %s  %s  %s  %05.1f", n + 1, STAR_NAME[n], g, d, h, A->szn[n]);
-    else break;
-    draw_text(&TINY, 2, yy, s, 0);
-    rows++;
-  }
-  if (!rows) draw_text(&TINY, 2, y, "no star between 10 and 85 deg (daylight or polar)", 0);
-  /* sun times (clock TZ) and the Moon */
-  char a[8], b[8], c[8], e[8], f[8];
-  double tz = N->cfg.tz;
-  fmt_hm(a, A->ev[EV_NTWA] + tz); fmt_hm(b, A->ev[EV_RISE] + tz); fmt_hm(c, A->ev[EV_TRAN] + tz);
-  fmt_hm(e, A->ev[EV_SET] + tz); fmt_hm(f, A->ev[EV_NTWP] + tz);
-  y = MENU_Y - 2 * LH - 1;
-  gfx_rect(2, y - 2, LCD_X - 4, 1, 1);
-  sprintf(s, "NAUT %s  RISE %s  MER PASS %s  SET %s  NAUT %s", a, b, c, e, f);
-  draw_text(&TINY, 2, y, s, 0);
-  sprintf(s, "MOON %.0f%% lit, age %.1f d    " SYM_UP SYM_DOWN " 1h  4 6 10min  7 9 1day  5 now", A->illum, A->age);
-  draw_text(&TINY, 2, y + LH, s, 0);
-}
-
-/* ---- SKY: horizon chart (zenith in the centre, equidistant in altitude), bodies listed right ---- */
-static void sky_xy(double hc, double zn, int cx, int cy, int R, int *x, int *y) {
-  double r = R * (90.0 - hc) / 90.0;
-  *x = cx + (int)lround(r * dsin(zn));
-  *y = cy - (int)lround(r * dcos(zn));
-}
-
-static void draw_sky(void) {
-  Alm *A = &N->alm;
-  double jd = ut_now();
-  alm_compute(jd);
-  char dt[40], s[96], h[20];
-  fmt_datetime(dt, jd);
-  strcat(dt, " UT");
-  header("SKY", dt);
-  int cx = 104, cy = 112, R = 84;
-  gfx_circle(cx, cy, R, 1);
-  gfx_circle(cx, cy, R * 2 / 3, 1);
-  gfx_circle(cx, cy, R / 3, 1);
-  for (int k = -R; k <= R; k += 3) { gfx_pixel(cx + k, cy, 1); gfx_pixel(cx, cy + k, 1); }
-  draw_text(&TINY, cx - 2, cy - R - 9, "N", 0);
-  draw_text(&TINY, cx - 2, cy + R + 2, "S", 0);
-  draw_text(&TINY, cx + R + 3, cy - 4, "E", 0);
-  draw_text(&TINY, cx - R - 8, cy - 4, "W", 0);
-  /* stars: brighter = bigger */
-  for (int r = 0; r < 58; r++) {
-    int n = BRIGHT[r] - 1, x, y;
-    if (A->shc[n] < 0) continue;
-    sky_xy(A->shc[n], A->szn[n], cx, cy, R, &x, &y);
-    if (r < 10) gfx_disc(x, y, 1, 1); else gfx_pixel(x, y, 1);
-  }
-  static const char *LBL[6] = { SYM_SUN, "M", "V", "Ma", "J", "S" };
-  for (int i = 0; i < 6; i++) {
-    if (A->hc[i] < 0) continue;
-    int x, y;
-    sky_xy(A->hc[i], A->zn[i], cx, cy, R, &x, &y);
-    if (i == 0) { gfx_disc(x, y, 4, 1); gfx_disc(x, y, 2, 0); }
-    else if (i == 1) { gfx_disc(x, y, 4, 1); gfx_disc(x + 2, y - 1, 3, 0); }
-    else { gfx_circle(x, y, 2, 1); draw_text(&TINY, x + 4, y - 3, LBL[i], 0); }
-  }
-  /* list: the bodies above the horizon, then the brightest stars */
-  int x0 = 214, y = 24;
-  draw_text(&TINY, x0, y, "BODY           HC      ZN", 0);
-  gfx_rect(x0, y + 8, LCD_X - x0 - 2, 1, 1);
-  y += 11;
-  int rows = 0;
-  for (int i = 0; i < 6 && rows < 18; i++) {
-    if (A->hc[i] < -1) continue;
-    fmt_hc(h, A->hc[i]);
-    sprintf(s, "%-10s %s %05.1f", BODY_NAME[i], h, A->zn[i]);
-    draw_text(&TINY, x0, y, s, 0);
-    y += LH; rows++;
-  }
-  for (int r = 0; r < 58 && rows < 18; r++) {
-    int n = BRIGHT[r] - 1;
-    if (A->shc[n] < 10.0) continue;
-    fmt_hc(h, A->shc[n]);
-    sprintf(s, "%-10.10s %s %05.1f", STAR_NAME[n], h, A->szn[n]);
-    draw_text(&TINY, x0, y, s, 0);
-    y += LH; rows++;
-  }
-  char a[24], b[24];
-  fmt_lat(a, N->cfg.lat);
-  fmt_lon(b, N->cfg.lon);
-  sprintf(s, "%s %s", a, b);
-  draw_text(&TINY, x0, MENU_Y - LH, s, 0);
-}
 
 /* ------------------------------------------------------------------ */
 /*  ZONES (as ZONE47)                                                 */
@@ -700,7 +527,7 @@ static void field_commit(int f) {
   case F_WDIR: if (v >= 0 && v <= 360) c->wdir = v; break;
   case F_WKN: if (v >= 0 && v < 100) c->wkn = v; break;
   }
-  N->alm.valid = 0;
+  N->valid = 0;
 }
 
 static void draw_set(void) {
@@ -854,18 +681,50 @@ static void draw_info(void) {
 /* ------------------------------------------------------------------ */
 /*  Menus, keys, main loop                                            */
 /* ------------------------------------------------------------------ */
+static const char *const MENU_ITEMS[10] = {
+  "1 ALMANAC", "2 SPLIT", "3 SKY", "4 ANIM", "5 ALLSKY",
+  "6 CHART", "7 ZONES", "8 TIDES", "9 FLOW", "0 SET",
+};
+static const int MENU_PAGE[10] = { PG_SET, PG_VALM, PG_VSPLIT, PG_VSKY, PG_VANIM, PG_VALLSKY,
+                                   PG_VCHART, PG_ZONES, PG_TIDES, PG_FLOW };
 static const char *MENUS[2][6] = {
-  { "ALMAN", "SKY", "ZONES", "TIDES", "FLOW", ">>" },
-  { "SET", "FILES", "STATNS", "INFO", "NOW", ">>" },
+  { "MENU", "ZONES", "TIDES", "FLOW", "STATNS", ">>" },
+  { "SET", "FILES", "INFO", "NOW", "ANIM", ">>" },
 };
 static const char *FILE_MENU[6] = { "TID", "FLW", "CLEAR", "", "", "BACK" };
 static const char *EDIT_MENU[6] = { "", "", "", "", "", "" };
 
+#define ANIM_FRAMES 24
+#define ANIM_STEP   0.5
+
+/* the views' almanac at the current time (computed again only when the time or the position changes) */
+static void view_almanac_now(void) {
+  double j = ut_now();
+  if (!N->valid || N->vjd != j || N->al.lat != N->cfg.lat || N->al.lon != N->cfg.lon) {
+    al_compute(&N->al, j, N->cfg.lat, N->cfg.lon);
+    N->vjd = j;
+    N->valid = 1;
+  }
+}
+
 static void redraw(void) {
   lcd_clear_buf();
+  if (IS_VIEW(page)) {
+    view_almanac_now();
+    switch (page) {
+    case PG_MENU: view_menu(&N->al, MENU_ITEMS, 10); break;
+    case PG_VALM: view_almanac(&N->al); break;
+    case PG_VCHART: view_chart(&N->al); break;
+    case PG_VSKY: view_sky(&N->al, vframe); break;
+    case PG_VSPLIT: view_split(&N->al); break;
+    case PG_VANIM: view_anim(&N->al, ANIM_FRAMES, ANIM_STEP, vframe < ANIM_FRAMES ? vframe : ANIM_FRAMES - 1); break;
+    case PG_VALLSKY: view_allsky(&N->al); break;
+    }
+    c47_show();
+    lcd_refresh();
+    return;
+  }
   switch (page) {
-  case PG_ALM: draw_almanac(); break;
-  case PG_SKY: draw_sky(); break;
   case PG_ZONES: draw_zones(); break;
   case PG_TIDES: draw_tides(); break;
   case PG_FLOW: draw_flow(); break;
@@ -911,16 +770,16 @@ static void softkey(int fn) {
     return;
   }
   switch (menu_page * 6 + fn) {
-  case 0: page = PG_ALM; break;
-  case 1: page = PG_SKY; break;
-  case 2: page = PG_ZONES; break;
-  case 3: page = PG_TIDES; break;
-  case 4: page = PG_FLOW; flow_hw_step = flow_day_step = 0; break;
+  case 0: page = PG_MENU; break;
+  case 1: page = PG_ZONES; break;
+  case 2: page = PG_TIDES; break;
+  case 3: page = PG_FLOW; flow_hw_step = flow_day_step = 0; break;
+  case 4: pick_open(); break;
   case 6: page = PG_SET; sel_field = 0; break;
   case 7: page = PG_FILES; N->msg[0] = 0; break;
-  case 8: pick_open(); break;
-  case 9: page = PG_INFO; break;
-  case 10: toff = 0; tide_day_off = 0; flow_hw_step = flow_day_step = 0; break;
+  case 8: page = PG_INFO; break;
+  case 9: toff = 0; tide_day_off = 0; flow_hw_step = flow_day_step = 0; N->valid = 0; break;
+  case 10: page = PG_VANIM; vframe = 0; break;
   case 5: case 11: menu_page ^= 1; break;
   }
 }
@@ -943,9 +802,18 @@ static void handle_key(int key) {
     }
   }
   if (edit_field >= 0) { key_edit(key); return; }
-  if (key >= KEY_F1 && key <= KEY_F6) { softkey(key - KEY_F1); return; }
+  if (key >= KEY_F1 && key <= KEY_F6) { softkey(key - KEY_F1); vframe = 0; return; }
+  if (page == PG_MENU) {                         /* as Almanac 47's NAV menu: key a number */
+    int d = digit(key);
+    if (d >= 0) { page = MENU_PAGE[d]; vframe = 0; if (page == PG_SET) sel_field = 0; return; }
+    if (key == KEY_UP) { step_time(1); return; }
+    if (key == KEY_DOWN) { step_time(-1); return; }
+    return;
+  }
   switch (page) {
-  case PG_ALM: case PG_SKY:
+  case PG_VALM: case PG_VCHART: case PG_VSKY: case PG_VSPLIT: case PG_VANIM: case PG_VALLSKY:
+    /* as Almanac 47 (WPLS): + back to the menu, up / down one hour later / earlier */
+    if (key == KEY_ADD || key == KEY_EXIT) { page = PG_MENU; return; }
     if (key == KEY_UP) step_time(1);
     else if (key == KEY_DOWN) step_time(-1);
     else if (key == KEY_4) step_time(-1.0 / 6);
@@ -953,7 +821,8 @@ static void handle_key(int key) {
     else if (key == KEY_7) step_time(-24);
     else if (key == KEY_9) step_time(24);
     else if (key == KEY_5) toff = 0;
-    break;
+    vframe = 0;
+    return;
   case PG_ZONES:
     if (key == KEY_4) { N->cfg.zone = (N->cfg.zone + NZONES - 1) % NZONES; N->cfg.city = 0; }
     else if (key == KEY_6) { N->cfg.zone = (N->cfg.zone + 1) % NZONES; N->cfg.city = 0; }
@@ -988,13 +857,13 @@ static void handle_key(int key) {
         if (N->cfg.live) N->cfg.fixed_jd = ut_now();
         N->cfg.live ^= 1;
         toff = 0;
-        N->alm.valid = 0;
+        N->valid = 0;
         cfg_save();
       } else { edit_field = sel_field; elen = 0; ebuf[0] = 0; }
     }
     break;
   }
-  if (key == KEY_EXIT && page != PG_ALM && page != PG_PICK) page = PG_ALM;
+  if ((key == KEY_EXIT || key == KEY_ADD) && page != PG_PICK) page = PG_MENU;
 }
 
 static void *nav_alloc(size_t n) { return calloc(1, n); }
@@ -1005,7 +874,7 @@ void program_main(void) {
   menu_line_str_app = NULL;
   switch_usb_powered_freq();
   N = (Nav *)nav_alloc(sizeof(Nav));
-  if (!N) { lcd_clear_buf(); draw_text(&STD, 10, 100, "NAV47: not enough memory", 0); lcd_refresh(); for (;;) wait_for_key_press(); }
+  if (!N || !c47_init()) { lcd_clear_buf(); draw_text(&STD, 10, 100, "NAV47: not enough memory", 0); lcd_refresh(); for (;;) wait_for_key_press(); }
   cfg_load();
   if (N->cfg.zone < 0 || N->cfg.zone >= NZONES) N->cfg.zone = zone_nearest(N->cfg.tz, ut_now());
   int nf = N->cfg.nfiles;
@@ -1019,7 +888,7 @@ void program_main(void) {
   uint32_t last = sys_current_ms();
   for (;;) {
     if ((ST(STAT_PGM_END) && ST(STAT_SUSPENDED)) || (!ST(STAT_PGM_END) && key_empty())) {
-      sys_timer_start(0, 1000);
+      sys_timer_start(0, page == PG_VANIM ? 250 : 1000);
       CLR_ST(STAT_RUNNING);
       sys_sleep();
     }
@@ -1043,11 +912,19 @@ void program_main(void) {
       redraw();
     }
     if (ST(STAT_POWER_CHANGE)) { switch_usb_powered_freq(); CLR_ST(STAT_POWER_CHANGE); }
-    /* live pages: the zone clock every second, the others every 30 s */
+    /* SKY: the name loop, a name a second. ANIM: a frame every half second, the last held 3 s, then again.
+       Live pages: the zone clock every second, the others every 30 s (a new time). */
     uint32_t t = sys_current_ms();
-    if (N->cfg.live && key_empty() && ((page == PG_ZONES && t - last >= 1000) || t - last >= 30000)) {
-      last = t;
-      redraw();
+    if (key_empty()) {
+      if (page == PG_VSKY && t - last >= 1000) { last = t; vframe++; redraw(); }
+      else if (page == PG_VANIM && t - last >= (vframe >= ANIM_FRAMES - 1 ? 3000u : 500u)) {
+        last = t;
+        vframe = vframe >= ANIM_FRAMES - 1 ? 0 : vframe + 1;
+        redraw();
+      } else if (N->cfg.live && ((page == PG_ZONES && t - last >= 1000) || t - last >= 30000)) {
+        last = t;
+        if (page != PG_VANIM) redraw();
+      }
     }
     if (!key_empty()) reset_auto_off();
     int key = key_pop();

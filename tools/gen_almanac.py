@@ -72,6 +72,11 @@ c.append('};')
 h.append('extern const double KEPLER[5][2][6];')
 c.append('const unsigned char BRIGHT[58] = {%s};' % ', '.join(str(x) for x in D.BRIGHT))
 h.append('extern const unsigned char BRIGHT[58];      /* star numbers by brightness */')
+c.append('const char *const STAR_NAME47[58] = {')
+for i in range(0, 58, 6):
+    c.append('  ' + ' '.join('"%s",' % D.STAR_NAME[n] for n in range(i + 1, min(i + 7, 59))))
+c.append('};')
+h.append('extern const char *const STAR_NAME47[58];   /* the names of the C47 views (upper case) */')
 c.append('const char *const STAR_NAME[58] = {')
 for i in range(0, 58, 6):
     c.append('  ' + ' '.join('"%s",' % n for n in names[i:i + 6]))

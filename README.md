@@ -3,17 +3,32 @@
 **NAV47.pg5** is a native DMCP5 program in C for the SwissMicros **DM42n**. It joins three of the "47"
 projects into one navigation computer:
 
-| Page | From | What it shows |
-|---|---|---|
-| **ALMANAC** | [almanac47](https://github.com/valdesvj/almanac47) | GHA, Dec, Hc, Zn of the Sun, Moon, Venus, Mars, Jupiter, Saturn, Aries GHA and the stars above 10°; nautical twilight, rise, meridian passage, set; Moon phase |
-| **SKY** | almanac47 | horizon chart, Hc/Zn of the bodies and brightest stars |
-| **ZONES** | [zones47](https://github.com/valdesvj/zones47) | the world map with the zone column, its time and date, DST computed on the calculator, the cities |
-| **TIDES** | [tide47](https://github.com/valdesvj/tide47) | the day's curve, high and low waters (or slack / max for streams, rotary too), the value now |
-| **FLOW** | tide47 (FLOW47, ARTF47) | the tidal stream atlas at your position: HW−6…HW+6 table, rose, the stream now, the nearest port |
+It starts on the Almanac 47 menu: **key a number**.
+
+| Key | View | From | What it shows |
+|---|---|---|---|
+| **1** | **ALMANAC** | [almanac47](https://github.com/valdesvj/almanac47) | ARIES, the 8 bodies (Sun, Moon, a planet, the brightest stars): GHA, Dec, Hc, Zn; twilight, rise/set, meridian passage, Moon phase |
+| **2** | **SPLIT** | almanac47 | the horizon chart with the celestial equator above the almanac table |
+| **3** | **SKY** | almanac47 | the horizon chart, sine scale, celestial equator; the names of the bodies in turn, one a second |
+| **4** | **ANIM** | almanac47 | the movie: the Sun and the Moon across the whole sky, 24 frames 30 min apart |
+| **5** | **ALLSKY** | almanac47 | the whole sky: all 58 stars, planets, Moon, Sun, above and below the horizon |
+| **6** | **CHART** | almanac47 | the narrow chart with the Hc / Zn list |
+| **7** | **ZONES** | [zones47](https://github.com/valdesvj/zones47) | the world map with the zone column, its time and date, DST computed on the calculator, the cities |
+| **8** | **TIDES** | [tide47](https://github.com/valdesvj/tide47) | the day's curve, high and low waters (or slack / max for streams, rotary too), the value now |
+| **9** | **FLOW** | tide47 (FLOW47, ARTF47) | the tidal stream atlas at your position: HW-6...HW+6 table, rose, the stream now, the nearest port |
+| **0** | **SET** | | position, clock TZ, live or fixed time, wind |
+
+Views 1-6 are Almanac 47's C47 views, ported line for line from `python/native/c47screen21.py` with the same fonts
+(GRFNT 21, tinyFont) and glyphs47 symbols: **`test/test_views.py` checks 240 screens against the Python, pixel for
+pixel (all identical)**. On the DM42n a view takes about 0.1 s (battery) instead of the C47's ten seconds.
+
+![NAV47 views](docs/views.png)
+
+![ANIM](docs/anim.gif)
 
 ![NAV47 screens](docs/screens.png)
 
-*(Simulator pictures. FLOW uses Tide 47's synthetic atlas: the real atlas is private.)*
+*(Simulator pictures. Zones, Tides and FLOW below; FLOW uses Tide 47's synthetic atlas: the real atlas is private.)*
 
 ## Same precision as Almanac 47
 
@@ -43,13 +58,14 @@ To go back to Free42: **RESET + F1 → Load program → DM42-x.yy.pg5**.
 
 | Key | Action |
 |---|---|
-| **F1–F6** | the pages; `>>` switches to SET, FILES, STATNS (stations), INFO, NOW |
-| **▲ ▼** | ALMANAC / SKY: one hour later / earlier (as Almanac 47) |
-| **4 6 / 7 9** | ALMANAC / SKY: 10 minutes / one day. ZONES: zone west / east. TIDES: day before / after. FLOW: High Water before / after |
-| **8 2** | ZONES: the cities of the zone. SET / STATIONS: move |
+| **0-9** | on the menu: the views and pages |
+| **+** or **EXIT** | back to the menu |
+| **UP DOWN** | views: one hour later / earlier (as Almanac 47). ZONES: the cities. SET / STATIONS: move |
+| **4 6 / 7 9** | views: 10 minutes / one day. ZONES: zone west / east. TIDES: day before / after. FLOW: High Water before / after |
 | **5** | back to now (ZONES: the zone of your clock) |
 | **ENTER** | TIDES: the station list. SET: edit the field (ENTER again to confirm, EXIT to cancel) |
 | **1 3** | FLOW: day before / after |
+| **F1-F6** | MENU ZONES TIDES FLOW STATNS, `>>`: SET FILES INFO NOW ANIM |
 | **SHIFT EXIT** | power off (settings saved to `/NAV47/NAV47.CFG`) |
 | **SHIFT 0** | setup: time, date, beep, USB disk, System |
 
@@ -101,9 +117,10 @@ make sim                   # PC simulator: build/sim, pictures with test/sim/ren
 | `src/zones.c` `zonedata.c` | Zones 47: 38 zones, 311 cities, tzdata 2026e, the dot map (`tools/gen_zones.py`) |
 | `src/tide.c` `tidecons.c` `tidedata_pub.c` | Tide 47's engine, its 60 constituents, 32 public stations (`tools/gen_tides.py`) |
 | `src/tidefile.c` | the `.TID` / `.FLW` file reader |
-| `src/gfx.c` `fonts.c` | drawing with the C47 standardFont and tinyFont (`tools/gen_fonts.py`) |
+| `src/views.c` `c47scr.c` `fonts21.c` | Almanac 47's C47 views and screen (PIXEL, AGRAPH, number printers), GRFNT 21 + glyphs47 (`tools/gen_fonts21.py`) |
+| `src/gfx.c` `fonts.c` | the other pages, C47 standardFont and tinyFont (`tools/gen_fonts.py`) |
 | `src/main.c` | the pages, keys, settings |
-| memory | 237 KB of program flash. Static RAM 1.6 KB of 8 KB; the rest is on the heap |
+| memory | 266 KB of program flash. Static RAM 1.6 KB of 8 KB; the rest is on the heap |
 
 ## Data and credits
 

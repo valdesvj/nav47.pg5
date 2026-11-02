@@ -20,6 +20,7 @@ C_INCLUDES += -Idmcp -Isrc
 C_SOURCES  += dmcp/sys/pgm_syscalls.c
 ASM_SOURCES = dmcp/startup_pgm.s
 C_SOURCES += src/main.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
+             src/c47scr.c src/views.c src/fonts21.c \
              src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c
 
 CC      = arm-none-eabi-gcc
@@ -81,16 +82,19 @@ $(BUILD_DIR):
 data:
 	$(PYTHON) tools/gen_almanac.py $(ALMANAC47)
 	$(PYTHON) tools/gen_fonts.py $(ALMANAC47)
+	$(PYTHON) tools/gen_fonts21.py $(ALMANAC47)
 	$(PYTHON) tools/gen_zones.py $(ZONES47)
 	$(PYTHON) tools/gen_tides.py cons $(TIDE47_TEST)
 	$(PYTHON) tools/gen_tides.py public $(TIDE47_TEST)
 
 test:
 	$(PYTHON) test/test_astro.py $(ALMANAC47)
+	$(PYTHON) test/test_views.py $(ALMANAC47)
 	$(PYTHON) test/test_zones.py $(ZONES47)
 	$(PYTHON) test/test_tide.py $(TIDE47_TEST)
 
 SIM_SRC = test/sim/sim.c src/main.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
+          src/c47scr.c src/views.c src/fonts21.c \
           src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c
 sim: $(SIM_SRC) | $(BUILD_DIR)
 	gcc -std=gnu11 -O2 -w -ffp-contract=off '-D__packed=__attribute__((__packed__))' '-D__weak=__attribute__((weak))' \

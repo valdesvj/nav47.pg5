@@ -37,6 +37,7 @@ extern const double MCL[40][6];
 extern const double MCB[15][6];
 extern const double KEPLER[5][2][6];
 extern const unsigned char BRIGHT[58];      /* star numbers by brightness */
+extern const char *const STAR_NAME47[58];   /* the names of the C47 views (upper case) */
 extern const char *const STAR_NAME[58];
 
 #endif

@@ -1063,6 +1063,18 @@ const double KEPLER[5][2][6] = {
   {{9.53667594, 0.05386179, 2.48599187, 49.95424423, 92.59887831, 113.66242448}, {-0.0012506, -0.00050991, 0.00193609, 1222.49362201, -0.41897216, -0.28867794}},
 };
 const unsigned char BRIGHT[58] = {18, 17, 38, 37, 49, 12, 11, 20, 16, 5, 35, 51, 30, 10, 33, 42, 21, 56, 53, 26, 19, 45, 31, 13, 14, 24, 15, 55, 32, 9, 27, 34, 48, 22, 43, 52, 25, 58, 6, 4, 50, 1, 36, 40, 46, 28, 23, 41, 47, 3, 2, 54, 44, 57, 8, 29, 39, 7};
+const char *const STAR_NAME47[58] = {
+  "ALPHERATZ", "ANKAA", "SCHEDAR", "DIPHDA", "ACHERNAR", "HAMAL",
+  "ACAMAR", "MENKAR", "MIRFAK", "ALDEBARAN", "RIGEL", "CAPELLA",
+  "BELLATRIX", "ELNATH", "ALNILAM", "BETELGEUSE", "CANOPUS", "SIRIUS",
+  "ADHARA", "PROCYON", "POLLUX", "AVIOR", "SUHAIL", "MIAPLACIDU",
+  "ALPHARD", "REGULUS", "DUBHE", "DENEBOLA", "GIENAH", "ACRUX",
+  "GACRUX", "ALIOTH", "SPICA", "ALKAID", "HADAR", "MENKENT",
+  "ARCTURUS", "RIGIL KENT", "ZUBENELGEN", "KOCHAB", "ALPHECCA", "ANTARES",
+  "ATRIA", "SABIK", "SHAULA", "RASALHAGUE", "ELTANIN", "KAUS AUST",
+  "VEGA", "NUNKI", "ALTAIR", "PEACOCK", "DENEB", "ENIF",
+  "AL NAIR", "FOMALHAUT", "MARKAB", "POLARIS",
+};
 const char *const STAR_NAME[58] = {
   "Alpheratz", "Ankaa", "Schedar", "Diphda", "Achernar", "Hamal",
   "Acamar", "Menkar", "Mirfak", "Aldebaran", "Rigel", "Capella",
