@@ -50,10 +50,14 @@ The route is saved in `/NAV47/ROUTE.TXT` (one `lat lon` per line, degrees), up t
 
 ## The screen on your PC (USB)
 
-**`>> >>` USB** (it shows `USB*` while on) turns the USB port into a serial port and sends every new screen to the
-PC: the LCD as text (`NAV47 LCD 400 240`, 240 lines of 100 hex digits, `END`), with DMCP's `usb_acm_on` /
-`acm_puts`. NAV47 learns how the firmware stores the LCD lines at the start (it sets a pixel and looks which bit
-changes), so it relies on nothing undocumented. Press USB again to stop; the USB disk works again after that.
+**`>> >>` USB** (it shows `USB*` while on) turns the USB port into a serial port (`/dev/ttyACM0`) and sends every new
+screen to the PC: the LCD as text (`NAV47 LCD 400 240`, 240 lines of 100 hex digits, `END`).
+
+The firmware's own `usb_acm_on()` leaves the port disconnected (USB47's register probe: `DCTL.SDIS` stays 1), so NAV47
+drives the USB itself with **TinyUSB** (`src/usb/`, `third_party/tinyusb`, MIT): the USB supply and 48 MHz clock, its
+own interrupt handler in a RAM copy of the vector table, one CDC serial port. While USB is on the calculator does not
+sleep (it would stop the USB); press USB again to stop and give the port back to the firmware (the USB disk). NAV47
+learns how the firmware stores the LCD lines (it sets a pixel and looks which bit changes).
 
 ```bash
 python3 tools/dm42view.py                      # the screen in the terminal (Braille dots), new at every key

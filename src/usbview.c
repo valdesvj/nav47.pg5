@@ -1,4 +1,4 @@
-/* usbview.c - NAV47: sends the LCD to the PC over USB (DMCP usb_acm_on / acm_puts), one text frame per screen:
+/* usbview.c - NAV47: sends the LCD to the PC over USB (our own serial port, src/usb/usbser.c), one text frame per screen:
  *   NAV47 LCD 400 240\n   240 lines of 100 hex digits (x = 0 first, most significant bit first, 1 = ink)   END\n
  * The DMCP line buffer's layout (byte order, bit order, inverted data) is learnt at start by setting one pixel and
  * looking which bit changes, so it does not depend on undocumented details. tools/dm42view.py shows the frames.
@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "usbview.h"
+#include "usbser.h"
 
 #define SCAN 54                       /* look at the whole line buffer (command and dummy bytes too) */
 static int on, ok, frames, tries;
@@ -40,30 +41,30 @@ static void learn(void) {
   ok = (kstep == 1 || kstep == -1) && (bstep == 1 || bstep == -1);
 }
 
-/* on: needs USB power; any other USB use (the disk) is switched off first, then the serial port on */
+/* on: our own USB serial port (TinyUSB): the firmware's usb_acm_on() leaves the port disconnected */
 void usbview_on(void) {
   tries++;
-  if (!usb_powered()) { strcpy(state, "NO USB POWER: connect the cable"); on = 0; return; }
-  if (usb_is_on()) { usb_turn_off(); sys_delay(100); }
-  usb_acm_on();
-  sys_delay(300);
+  int r = usbser_start("NAV47 screen");
+  if (r == -1) { strcpy(state, "NO USB POWER: connect the cable"); on = 0; return; }
+  if (r) { strcpy(state, "no memory for the USB"); on = 0; return; }
   on = 1;
   learn();
-  acm_puts("\r\nNAV47 USB hello\r\n");
-  strcpy(state, usb_is_on() ? "ON (usb_is_on = 1)" : "ON requested, usb_is_on = 0");
+  strcpy(state, "ON: open /dev/ttyACM0 on the PC");
 }
-void usbview_off(void) { if (on) usb_turn_off(); on = 0; strcpy(state, "OFF"); }
+void usbview_off(void) { if (on) usbser_stop(); on = 0; strcpy(state, "OFF"); }
 void usbview_state(char *a, char *b, int n) {
   snprintf(a, (size_t)n, "USB: %s", state[0] ? state : "OFF");
-  snprintf(b, (size_t)n, "power %d  layout %s  frames %d  tries %d", usb_powered(), ok ? "ok" : "NOT ok", frames, tries);
+  snprintf(b, (size_t)n, "PC %s%s  layout %s  frames %d", usbser_mounted() ? "sees it" : "-",
+           usbser_connected() ? ", port open" : "", ok ? "ok" : "NOT ok", frames);
+  (void)tries;
 }
 int usbview_is_on(void) { return on; }
 
 void usbview_send(void) {
-  if (!on || !ok) return;
+  if (!on || !ok || !usbser_connected()) return;
   static const char HEX[] = "0123456789ABCDEF";
   char line[LCD_X / 4 + 2];
-  acm_puts("NAV47 LCD 400 240\n");
+  usbser_puts("NAV47 LCD 400 240\n");
   for (int y = 0; y < LCD_Y; y++) {
     const uint8_t *p = lcd_line_addr(y);
     for (int c = 0; c < LCD_X / 8; c++) {
@@ -78,8 +79,8 @@ void usbview_send(void) {
     }
     line[LCD_X / 4] = '\n';
     line[LCD_X / 4 + 1] = 0;
-    acm_puts(line);
+    usbser_puts(line);
   }
-  acm_puts("END\n");
+  usbser_puts("END\n");
   frames++;
 }

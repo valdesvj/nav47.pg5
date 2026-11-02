@@ -23,6 +23,7 @@
 #include "ntext.h"
 #include "route.h"
 #include "usbview.h"
+#include "usbser.h"
 
 #define DIR       "/NAV47"
 #define TIDEDIR   "/NAV47/TIDES"
@@ -1077,7 +1078,9 @@ void program_main(void) {
   redraw();
   uint32_t last = sys_current_ms();
   for (;;) {
-    if ((ST(STAT_PGM_END) && ST(STAT_SUSPENDED)) || (!ST(STAT_PGM_END) && key_empty())) {
+    if (usbview_is_on() && !ST(STAT_PGM_END) && key_empty())
+      usbser_idle(page == PG_VANIM ? 250 : 1000);       /* the USB runs: no sleep (it would stop the USB) */
+    else if ((ST(STAT_PGM_END) && ST(STAT_SUSPENDED)) || (!ST(STAT_PGM_END) && key_empty())) {
       sys_timer_start(0, page == PG_VANIM ? 250 : 1000);
       CLR_ST(STAT_RUNNING);
       sys_sleep();
