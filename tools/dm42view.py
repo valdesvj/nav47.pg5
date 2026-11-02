@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""dm42view.py - the DM42n's screen in your terminal, sent by NAV47 over USB (>> >> USB).
+"""dm42view.py - the DM42n's screen in your terminal, sent over USB by NAV47 (>> >> USB) or Chess 47 (>> >> USB).
 
     python3 tools/dm42view.py                     # /dev/ttyACM0, Braille dots: 200 x 60 characters
     python3 tools/dm42view.py --zoom 0,0,200,104  # a part of the screen, bigger (x, y, width, height)
@@ -7,7 +7,7 @@
     python3 tools/dm42view.py --png shots/        # also save every screen as a PNG (needs Pillow)
     python3 tools/dm42view.py --once --png .      # one screen, then exit
 
-The frames are text: "NAV47 LCD 400 240", 240 lines of 100 hex digits (1 = ink), "END".
+The frames are text: "NAV47 LCD 400 240" (or "CHESS47 LCD ..."), 240 lines of 100 hex digits (1 = ink), "END".
 On Linux the user needs access to the port: sudo usermod -aG uucp $USER (Arch) or dialout (Debian), then log in again.
 """
 import argparse
@@ -44,7 +44,7 @@ def frames(path):
         while b'\n' in buf:
             line, buf = buf.split(b'\n', 1)
             line = line.strip().decode('ascii', 'replace')
-            if line.startswith('NAV47 LCD'):
+            if line.endswith('LCD 400 240'):
                 rows, inside = [], True
             elif line == 'END' and inside:
                 inside = False
@@ -74,7 +74,7 @@ def blocks(px, x0, y0, w, h):
 
 
 def main():
-    ap = argparse.ArgumentParser(description='The DM42n screen (NAV47 USB) in the terminal.')
+    ap = argparse.ArgumentParser(description='The DM42n screen (NAV47 / Chess 47 USB) in the terminal.')
     ap.add_argument('port', nargs='?', default='/dev/ttyACM0', help='serial port, or a file of frames')
     ap.add_argument('--zoom', help='x,y,w,h: show only this part, as big as the terminal allows')
     ap.add_argument('--blocks', action='store_true', help='half blocks instead of Braille dots')
@@ -114,7 +114,7 @@ def main():
     except PermissionError:
         sys.exit('no access to %s: add yourself to the uucp (Arch) or dialout (Debian) group' % a.port)
     except FileNotFoundError:
-        sys.exit('%s not found: on the DM42n press >> >> USB in NAV47 (the USB cable connected)' % a.port)
+        sys.exit('%s not found: on the DM42n press >> >> USB in NAV47 or Chess 47 (the USB cable connected)' % a.port)
 
 
 if __name__ == '__main__':
