@@ -24,7 +24,7 @@ int  vbodies(Al *al, VBody *out);                             /* the 8 bodies of
 /* each draws the whole area above the menu bar (rows 0-207) */
 void view_almanac(Al *al);
 int  view_sky(Al *al, int frame);     /* frame of the name loop (0..); returns the number of frames */
-void view_split(Al *al);
+void view_split(Al *al, int *first);   /* *first: the first body in the table (8 / 2 scroll it) */
 void view_anim(Al *al, int frames, double step, int upto);   /* frames 0..upto drawn (the trail) */
 void view_allsky(Al *al);
 void view_moon(Al *al, int south);

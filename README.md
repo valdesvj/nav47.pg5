@@ -9,15 +9,15 @@ everywhere.
 | Keys | Page | From | What it shows |
 |---|---|---|---|
 | F1 | **ALMAN** | [almanac47](https://github.com/valdesvj/almanac47) | ARIES, the 8 bodies (Sun, Moon, a planet, the brightest stars): GHA, Dec, Hc, Zn; rise/set, twilight, meridian passage, SD, the Moon's phase and age |
-| F2 | **SPLIT** | almanac47 | the horizon chart with the celestial equator above the table (6 bodies) |
+| F2 | **SPLIT** | almanac47 | the horizon chart with the celestial equator above the table: 6 bodies at a time, **8 2** scroll (the small arrows by BODY show more above / below) |
 | F3 | **SKY** | almanac47 | the horizon chart, sine scale, celestial equator; the names of the bodies in turn, one a second |
 | F4 | **ALLSK** | almanac47 | the whole sky: all 58 stars, planets, Moon, Sun, above and below the horizon |
 | F5 | **MOON** | almanac47 (MOON47) | the disc, phase, % lit, age, HP, SD, the next four phases, the eight phases; **+/−** the view from the south |
 | `>>` F1 | **ANIM** | almanac47 | the movie: the Sun and the Moon across the whole sky, 24 frames 30 min apart |
-| `>>` F2 | **TIDE** | [tide47](https://github.com/valdesvj/tide47) (ARTF47) | tide and current on one page, as ARTF47: HW−6 … HW+6 with the stream of the FLOW atlas at your position (set, knots, arrow), and the tide of the nearest port (curve, high and low waters). Without an atlas: the chosen station's heights or stream |
-| `>>` F3 | **ROUTE** | | passage planning: waypoints, course and distance of each leg, the cumulative distance; rhumb line or great circle |
-| `>>` F4 | **ZONES** | [zones47](https://github.com/valdesvj/zones47) | the world map with the zone column, its time and date, DST computed on the calculator, the cities |
-| `>>` F5 | **STATNS** | tide47 | the station list (private, files, public) |
+| `>>` F2 | **T&F** | [tide47](https://github.com/valdesvj/tide47) (ARTF47) | tide and current on one page, as ARTF47: HW−6 … HW+6 with the stream of the FLOW atlas at your position (set, knots, arrow), and the tide of the nearest port (curve, high and low waters). Without an atlas: the chosen station's heights or stream |
+| `>>` F3 | **TIDE** | tide47 | the chosen station's day: curve, high and low waters (or slack, flood, ebb), now, the range against springs, the next springs and neaps; **8 2** the previous / next station, **4 6** the day, **ENTER** the station list |
+| `>>` F4 | **ROUTE** | | passage planning: waypoints, course and distance of each leg, the cumulative distance; rhumb line or great circle |
+| `>>` F5 | **ZONES** | [zones47](https://github.com/valdesvj/zones47) | the world map with the zone column, its time and date, DST computed on the calculator, the cities |
 | `>> >>` | **SET FILES INFO NOW USB** | | position, clock TZ, live or fixed time, wind; tide files; about; back to now; the screen to the PC |
 
 The views are Almanac 47's (`python/native/c47screen21.py`): the same bodies, charts, glyphs47 symbols (☉ ☾ ♀ ♂ ♃ ♄
@@ -95,7 +95,7 @@ To go back to Free42: **RESET + F1 → Load program → DM42-x.yy.pg5**.
 
 | Key | Action |
 |---|---|
-| **F1-F6** | the soft keys; `>>` the next row (ALMAN SPLIT SKY ALLSK MOON / ANIM TIDE ROUTE ZONES STATNS / SET FILES INFO NOW) |
+| **F1-F6** | the soft keys; `>>` the next row (ALMAN SPLIT SKY ALLSK MOON / ANIM T&F TIDE ROUTE ZONES / SET FILES INFO NOW USB) |
 | **UP DOWN** | views: one hour later / earlier (as Almanac 47). ZONES: the cities. SET / STATNS / ROUTE: move |
 | **4 6 / 7 9** | views: 10 minutes / one day. ZONES: zone west / east. TIDE: High Water before / after |
 | **1 3** | TIDE: day before / after |

@@ -24,6 +24,7 @@
 #include "route.h"
 #include "usbview.h"
 #include "usbser.h"
+#include "moon47.h"
 
 #define DIR       "/NAV47"
 #define TIDEDIR   "/NAV47/TIDES"
@@ -36,7 +37,7 @@
 /*  State (heap: a DMCP5 program has 8 KB of static RAM)              */
 /* ------------------------------------------------------------------ */
 enum { PG_VALM, PG_VSPLIT, PG_VSKY, PG_VALLSKY, PG_VMOON, PG_VANIM,
-       PG_TIDE, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK };
+       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK };
 #define IS_VIEW(p) ((p) <= PG_VANIM)
 
 typedef struct {
@@ -77,6 +78,7 @@ static Nav *N;
 static int page = PG_VALM, menu_page, shift, vframe;
 static double toff;                      /* hours added to the time by the arrows */
 static int edit_field = -1, sel_field, pick_cursor, flow_hw_step, flow_day_step;
+static int split_first, st_day_off, pick_back;   /* SPLIT scroll; TIDE (station) day; where STATNS returns */
 static int wp_cur, wp_edit = -1;          /* ROUTE: the cursor; editing 0 lat, 1 lon */
 static double wp_lat;
 static char ebuf[16];
@@ -270,9 +272,9 @@ static void pick_choose(void) {
   int n = list_rows(rows, MAXROWS);
   if (pick_cursor < n && rows[pick_cursor].st >= 0) {
     N->cfg.tsrc = rows[pick_cursor].src; N->cfg.treg = rows[pick_cursor].reg; N->cfg.tst = rows[pick_cursor].st;
-    flow_hw_step = flow_day_step = 0;
+    st_day_off = 0;
   }
-  page = PG_TIDE;
+  page = PG_STATION;
 }
 
 static void pick_open(void) {
@@ -280,6 +282,7 @@ static void pick_open(void) {
   int n = list_rows(rows, MAXROWS);
   for (int i = 0; i < n; i++)
     if (rows[i].src == N->cfg.tsrc && rows[i].reg == N->cfg.treg && rows[i].st == N->cfg.tst) pick_cursor = i;
+  pick_back = page == PG_PICK ? pick_back : page;
   page = PG_PICK;
 }
 
@@ -502,6 +505,130 @@ static void draw_tide(void) {
     nt(X, 192, s);
   }
 }
+/* ------------------------------------------------------------------ */
+/*  TIDE: the chosen station's day (TIDES of Tide 47)                 */
+/* ------------------------------------------------------------------ */
+static void station_step(int d) {                /* the next / previous station of the list (8 2) */
+  Row *rows = N->rows;
+  int n = list_rows(rows, MAXROWS), cur = -1;
+  for (int i = 0; i < n; i++)
+    if (rows[i].st >= 0 && rows[i].src == N->cfg.tsrc && rows[i].reg == N->cfg.treg && rows[i].st == N->cfg.tst) cur = i;
+  int i = cur;
+  do { i = (i + d + n) % n; } while (rows[i].st < 0 && i != cur);
+  if (rows[i].st >= 0) { N->cfg.tsrc = rows[i].src; N->cfg.treg = rows[i].reg; N->cfg.tst = rows[i].st; }
+}
+
+static void draw_station(void) {
+  const TStation *st = cur_station();
+  int stream = st->kind != TK_TIDE, rot = st->kind == TK_ROT;
+  double ut = ut_now();
+  long n0;
+  double h0, tz = st_local(st, ut, &n0, &h0);
+  long n = n0 + st_day_off;
+  TDay *D = &N->tday;
+  tide_day(st, n, stream, D);
+  char s[96], t[8], nm[40];
+  int y, m, d;
+  cal(n, &y, &m, &d);
+  snprintf(nm, sizeof nm, "%.26s", st->name);
+  nt_inv(2, 0, nm);
+  sprintf(s, "%s %02d-%02d-%04d", WDAY[(n + 1) % 7], d, m, y);
+  nt_r(399, 0, s);
+  lcd_fill_rect(0, 15, LCD_X, 1, 1);
+  char o[12];
+  fmt_off(o, D->tz);
+  if (!stream) sprintf(s, "metres above %s   UTC%s%s", st->datum, o, N->cfg.tsrc == 1 ? "   PRIVATE" : N->cfg.tsrc == 2 ? "   FILE" : "");
+  else if (!rot) sprintf(s, "knots  flood %03.0f" NT_DEG " ebb %03.0f" NT_DEG "   UTC%s", st->flood, st->ebb, o);
+  else sprintf(s, "knots, rotary   UTC%s", o);
+  nt(2, 17, s);
+  /* the day's curve */
+  int gx = 24, gy = 38, gw = 222, gh = 104;
+  double lo = 1e9, hi = -1e9;
+  for (int k = 0; k < 73; k++) { if (D->curve[k] < lo) lo = D->curve[k]; if (D->curve[k] > hi) hi = D->curve[k]; }
+  if (stream && !rot) { double a = fmax(fabs(lo), fabs(hi)); lo = -a; hi = a; }
+  if (rot) lo = 0;
+  if (hi - lo < 0.2) { hi += 0.1; lo -= 0.1; }
+  double pad = (hi - lo) * 0.06;
+  lo -= pad; hi += pad;
+  gfx_frame(gx, gy, gw + 1, gh + 1);
+  for (int k = 0; k <= 24; k += 3) {
+    int x = gx + k * gw / 24;
+    gfx_rect(x, gy + gh, 1, 3, 1);
+    if (k % 6 == 0) { sprintf(s, "%02d", k); draw_text(&TINY, x - 5, gy + gh + 4, s, 0); }
+  }
+  sprintf(s, "%.1f", hi); draw_text_r(&TINY, gx - 2, gy, s, 0);
+  sprintf(s, "%.1f", lo); draw_text_r(&TINY, gx - 2, gy + gh - 8, s, 0);
+  if (lo < 0 && hi > 0) gfx_hline_dotted(gx, gx + gw, gy + (int)(hi / (hi - lo) * gh), 3);
+  int px = -1, py = -1;
+  for (int k = 0; k < 73; k++) {
+    int x = gx + k * gw / 72, yy = gy + (int)((hi - D->curve[k]) / (hi - lo) * gh);
+    if (px >= 0) { gfx_line(px, py, x, yy, 1); gfx_line(px, py + 1, x, yy + 1, 1); }
+    px = x; py = yy;
+  }
+  double now_h = -1;
+  if (st_day_off == 0) {
+    now_h = h0;
+    int x = gx + (int)(now_h / 24.0 * gw);
+    for (int yy = gy; yy < gy + gh; yy += 2) gfx_pixel(x, yy, 1);
+  }
+  /* the events */
+  int ex = 254, ey = 36;
+  for (int i = 0; i < D->nev && ey < 120; i++, ey += NT_ROW) {
+    const TEvent *e = &D->ev[i];
+    fmt_hm(t, e->t);
+    if (!stream) sprintf(s, "%s %s %5.2f", e->kind > 0 ? "HW" : "LW", t, e->val);
+    else if (!rot) {
+      if (e->kind < 0) sprintf(s, "SLACK %s", t);
+      else sprintf(s, "%s %s %.1f", e->val > 0 ? "FLOOD" : "EBB", t, fabs(e->val));
+    } else sprintf(s, "%s %s %.1f %03.0f", e->kind > 0 ? "MAX" : "MIN", t, e->val, e->set);
+    nt(ex, ey, s);
+  }
+  if (now_h >= 0) {
+    double v, dir;
+    stream_now(st, n, now_h, &v, &dir);
+    fmt_hm(t, now_h);
+    if (!stream) sprintf(s, "NOW %s %.2f m", t, v);
+    else sprintf(s, "NOW %s %.1f kn %03.0f" NT_DEG, t, fabs(v), dir);
+    nt_inv(ex, 132, s);
+  }
+  /* springs and neaps: the day's range against the spring range (M2 + S2), and the next ones from the Moon */
+  if (!stream) {
+    double best = 0;
+    for (int i = 0; i < D->nev; i++) {
+      if (D->ev[i].kind < 0) continue;
+      double sum = 0; int nl = 0;
+      for (int k = i - 1; k <= i + 1; k += 2)
+        if (k >= 0 && k < D->nev && D->ev[k].kind < 0) { sum += D->ev[k].val; nl++; }
+      if (nl && D->ev[i].val - sum / nl > best) best = D->ev[i].val - sum / nl;
+    }
+    double fac = best / flow_spring(st);
+    sprintf(s, "RANGE %.2f m  x%.2f of springs  %s", best, fac, fac >= 0.9 ? "SPRINGS" : fac <= 0.6 ? "NEAPS" : "");
+    nt(2, 160, s);
+  } else {
+    double mx = 0;
+    for (int i = 0; i < D->nev; i++) if (D->ev[i].kind > 0 && fabs(D->ev[i].val) > mx) mx = fabs(D->ev[i].val);
+    sprintf(s, "strongest %.1f kn", mx);
+    nt(2, 160, s);
+  }
+  {
+    Moon47 p;
+    moon47_page((double)n - 2.0 - tz / 24.0, 0, &p);      /* from 1.5 days before the day: its own springs / neaps count */
+    double sp = 0, np = 0;
+    for (int k = 0; k < 4; k++) {
+      double tt = p.next_t[k] + 1.5;                            /* the tide follows the Moon by about 1-2 days */
+      if ((p.next_k[k] == 0 || p.next_k[k] == 2) && !sp) sp = tt;
+      if ((p.next_k[k] == 1 || p.next_k[k] == 3) && !np) np = tt;
+    }
+    int y2, m2, d2, y3, m3, d3;
+    double hh;
+    jd_to_ymd(sp + tz / 24.0, &y2, &m2, &d2, &hh);
+    jd_to_ymd(np + tz / 24.0, &y3, &m3, &d3, &hh);
+    sprintf(s, "springs ~%02d-%02d   neaps ~%02d-%02d  (Moon +1.5 d)", d2, m2, d3, m3);
+    nt(2, 176, s);
+  }
+  nt(2, 192, "8 2 station  4 6 day  5 today  ENTER list");
+}
+
 /* ------------------------------------------------------------------ */
 /*  SET                                                               */
 /* ------------------------------------------------------------------ */
@@ -864,7 +991,7 @@ static void key_wp(int key) {
 /* ------------------------------------------------------------------ */
 static const char *MENUS[4][6] = {
   { "ALMAN", "SPLIT", "SKY", "ALLSK", "MOON", ">>" },
-  { "ANIM", "TIDE", "ROUTE", "ZONES", "STATNS", ">>" },
+  { "ANIM", "T&F", "TIDE", "ROUTE", "ZONES", ">>" },
   { "SET", "FILES", "INFO", "NOW", "USB", ">>" },
   { "ADD", "EDIT", "DEL", "RL/GC", "HERE", ">>" },
 };
@@ -890,7 +1017,7 @@ static void redraw(void) {
     view_almanac_now();
     switch (page) {
     case PG_VALM: view_almanac(&N->al); break;
-    case PG_VSPLIT: view_split(&N->al); break;
+    case PG_VSPLIT: view_split(&N->al, &split_first); break;
     case PG_VSKY: view_sky(&N->al, vframe); break;
     case PG_VALLSKY: view_allsky(&N->al); break;
     case PG_VMOON: view_moon(&N->al, N->cfg.south); break;
@@ -899,6 +1026,7 @@ static void redraw(void) {
   } else
     switch (page) {
     case PG_TIDE: draw_tide(); break;
+    case PG_STATION: draw_station(); break;
     case PG_ROUTE: draw_route(); break;
     case PG_ZONES: draw_zones(); break;
     case PG_SET: draw_set(); break;
@@ -959,10 +1087,10 @@ static void softkey(int fn) {
   case 3: go(PG_VALLSKY); break;
   case 4: go(PG_VMOON); break;
   case 6: go(PG_VANIM); break;
-  case 7: go(PG_TIDE); flow_hw_step = flow_day_step = 0; break;
-  case 8: go(PG_ROUTE); menu_page = 3; break;
-  case 9: go(PG_ZONES); break;
-  case 10: pick_open(); break;
+  case 7: go(PG_TIDE); flow_hw_step = flow_day_step = 0; break;      /* T&F: tide and flow, the nearest station */
+  case 8: go(PG_STATION); st_day_off = 0; break;                    /* TIDE: the chosen station */
+  case 9: go(PG_ROUTE); menu_page = 3; break;
+  case 10: go(PG_ZONES); break;
   case 12: go(PG_SET); sel_field = 0; break;
   case 13: go(PG_FILES); N->msg[0] = 0; break;
   case 14: go(PG_INFO); break;
@@ -1007,6 +1135,8 @@ static void handle_key(int key) {
     else if (key == KEY_9) step_time(24);
     else if (key == KEY_5) toff = 0;
     else if (key == KEY_CHS && page == PG_VMOON) { N->cfg.south ^= 1; cfg_save(); }
+    else if (key == KEY_8 && page == PG_VSPLIT) split_first--;
+    else if (key == KEY_2 && page == PG_VSPLIT) split_first++;
     else if (key == KEY_EXIT) go(PG_VALM);
     vframe = 0;
     return;
@@ -1027,11 +1157,20 @@ static void handle_key(int key) {
     else if (key == KEY_5) flow_hw_step = flow_day_step = 0;
     else if (key == KEY_ENTER) pick_open();
     break;
+  case PG_STATION:
+    if (key == KEY_8 || key == KEY_UP) station_step(-1);
+    else if (key == KEY_2 || key == KEY_DOWN) station_step(1);
+    else if (key == KEY_4) st_day_off--;
+    else if (key == KEY_6) st_day_off++;
+    else if (key == KEY_5) st_day_off = 0;
+    else if (key == KEY_ENTER) pick_open();
+    if (key != KEY_EXIT) cfg_save();
+    break;
   case PG_PICK:
     if (key == KEY_8 || key == KEY_UP) pick_move(-1);
     else if (key == KEY_2 || key == KEY_DOWN) pick_move(1);
     else if (key == KEY_ENTER || key == KEY_5) { pick_choose(); cfg_save(); }
-    else if (key == KEY_EXIT) go(PG_TIDE);
+    else if (key == KEY_EXIT) go(pick_back == PG_TIDE ? PG_TIDE : PG_STATION);
     return;
   case PG_ROUTE:
     if ((key == KEY_8 || key == KEY_UP) && wp_cur > 0) wp_cur--;

@@ -260,7 +260,16 @@ static void plot_body(const Al *al, const VBody *b, int HY, int HS, int *px, int
 }
 
 /* ---------------------------------------------------------------- SPLIT: the horizon chart over the table */
-void view_split(Al *al) {
+/* a small triangle, 7 wide, 4 high, pointing up or down, its top-left corner at x, y (LCD) */
+static void tri(int x, int y, int up) {
+  for (int i = 0; i < 4; i++) {
+    int w = up ? 1 + 2 * i : 7 - 2 * i;
+    lcd_fill_rect((uint32_t)(x + 3 - w / 2), (uint32_t)(y + i), (uint32_t)w, 1, 1);
+  }
+}
+
+/* the table shows 6 of the bodies from *first (scrolled with 8 and 2); arrows by BODY when more are above / below */
+void view_split(Al *al, int *first) {
   c47_clear();
   const int HY = CY(77), HS = 58;
   horizon_chart(al, HY, HS);
@@ -268,10 +277,14 @@ void view_split(Al *al) {
   VBody B[NBODY];
   int nb = vbodies(al, B);
   int rows = (208 - 104) / R;
+  int f = *first;
+  if (f > nb - rows) f = nb - rows;
+  if (f < 0) f = 0;
+  *first = f;
   for (int i = 0; i < nb; i++) {
     plot_body(al, &B[i], HY, HS, NULL, NULL);
-    if (i < rows) {
-      int y = 104 + R * i;
+    if (i >= f && i < f + rows) {
+      int y = 104 + R * (i - f);
       c47_glyph(&SYMB, symbol(B[i].id), BL(y), 0);
       if (B[i].id > 0) c47_tiny_num(BL(y) + 7, 14, B[i].id);
     }
@@ -279,8 +292,10 @@ void view_split(Al *al) {
   c47_show();
   header(al, al->j);
   table_heads(88, &X);
-  for (int i = 0; i < nb && i < rows; i++) {
-    int y = 104 + R * i;
+  if (f > 0) tri(2, 91, 1);                       /* more above */
+  if (f + rows < nb) tri(2, 98, 0);               /* more below */
+  for (int i = f; i < nb && i < f + rows; i++) {
+    int y = 104 + R * (i - f);
     char s[24], nm[12];
     VBody *v = &B[i];
     snprintf(nm, sizeof nm, "%.11s", body_name(v->id));
