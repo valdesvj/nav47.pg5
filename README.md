@@ -18,7 +18,7 @@ everywhere.
 | `>>` F3 | **ROUTE** | | passage planning: waypoints, course and distance of each leg, the cumulative distance; rhumb line or great circle |
 | `>>` F4 | **ZONES** | [zones47](https://github.com/valdesvj/zones47) | the world map with the zone column, its time and date, DST computed on the calculator, the cities |
 | `>>` F5 | **STATNS** | tide47 | the station list (private, files, public) |
-| `>> >>` | **SET FILES INFO NOW** | | position, clock TZ, live or fixed time, wind; tide files; about; back to now |
+| `>> >>` | **SET FILES INFO NOW USB** | | position, clock TZ, live or fixed time, wind; tide files; about; back to now; the screen to the PC |
 
 The views are Almanac 47's (`python/native/c47screen21.py`): the same bodies, charts, glyphs47 symbols (☉ ☾ ♀ ♂ ♃ ♄
 ★ and the Moon phases), tinyFont scale labels and dotted celestial equator, in the 208 rows above the menu bar. The
@@ -47,6 +47,21 @@ Each row shows the leg from the waypoint before: **CRS** (true), **DIST** and **
 * **GC**, great circle: the distance on the sphere (1′ = 1 nm) and the **initial** course (ICRS).
 
 The route is saved in `/NAV47/ROUTE.TXT` (one `lat lon` per line, degrees), up to 40 waypoints.
+
+## The screen on your PC (USB)
+
+**`>> >>` USB** (it shows `USB*` while on) turns the USB port into a serial port and sends every new screen to the
+PC: the LCD as text (`NAV47 LCD 400 240`, 240 lines of 100 hex digits, `END`), with DMCP's `usb_acm_on` /
+`acm_puts`. NAV47 learns how the firmware stores the LCD lines at the start (it sets a pixel and looks which bit
+changes), so it relies on nothing undocumented. Press USB again to stop; the USB disk works again after that.
+
+```bash
+python3 tools/dm42view.py                      # the screen in the terminal (Braille dots), new at every key
+python3 tools/dm42view.py --zoom 200,16,200,160 # a part, bigger: the small letters readable
+python3 tools/dm42view.py --png shots/          # and a PNG of every screen (Pillow)
+```
+
+On Linux the port is `/dev/ttyACM0`; your user needs the `uucp` group (Arch) or `dialout` (Debian).
 
 ## Same precision as Almanac 47
 
@@ -139,6 +154,7 @@ make sim                   # PC simulator: build/sim, pictures with test/sim/ren
 | `src/ntext.c` | the page text in the C47 standard font on 16-pixel rows; the degree sign |
 | `src/moon47.c` | MOON47, the C twin of Almanac 47's `python/moon47.py` (`test/test_moon47.py`: 400 dates, identical) |
 | `src/route.c` | ROUTE: rhumb line and great circle |
+| `src/usbview.c`, `tools/dm42view.py` | the screen to the PC over USB, and its terminal viewer |
 | `src/gfx.c` `fonts.c` | the other pages, C47 standardFont and tinyFont (`tools/gen_fonts.py`) |
 | `src/main.c` | the pages, keys, settings |
 | memory | 262 KB of program flash. Static RAM 1.7 KB of 8 KB; the rest is on the heap |

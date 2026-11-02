@@ -22,6 +22,7 @@
 #include "views.h"
 #include "ntext.h"
 #include "route.h"
+#include "usbview.h"
 
 #define DIR       "/NAV47"
 #define TIDEDIR   "/NAV47/TIDES"
@@ -859,7 +860,7 @@ static void key_wp(int key) {
 static const char *MENUS[4][6] = {
   { "ALMAN", "SPLIT", "SKY", "ALLSK", "MOON", ">>" },
   { "ANIM", "TIDE", "ROUTE", "ZONES", "STATNS", ">>" },
-  { "SET", "FILES", "INFO", "NOW", "", ">>" },
+  { "SET", "FILES", "INFO", "NOW", "USB", ">>" },
   { "ADD", "EDIT", "DEL", "RL/GC", "HERE", ">>" },
 };
 static const char *FILE_MENU[6] = { "TID", "FLW", "CLEAR", "", "", "BACK" };
@@ -901,8 +902,10 @@ static void redraw(void) {
     case PG_PICK: draw_pick(); break;
     }
   if (page != PG_ROUTE && menu_page == 3) menu_page = 0;
+  MENUS[2][4] = usbview_is_on() ? "USB*" : "USB";
   lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0) ? EDIT_MENU : MENUS[menu_page]);
   lcd_refresh();
+  usbview_send();
 }
 
 static int digit(int key) {
@@ -958,6 +961,7 @@ static void softkey(int fn) {
   case 13: go(PG_FILES); N->msg[0] = 0; break;
   case 14: go(PG_INFO); break;
   case 15: toff = 0; flow_hw_step = flow_day_step = 0; N->valid = 0; break;
+  case 16: if (usbview_is_on()) usbview_off(); else usbview_on(); break;
   case 18: route_insert(N->nwp ? N->wlat[wp_cur] : N->cfg.lat, N->nwp ? N->wlon[wp_cur] : N->cfg.lon); wp_start_edit(); break;
   case 19: wp_start_edit(); break;
   case 20: route_delete(); route_save(); break;
@@ -1076,6 +1080,7 @@ void program_main(void) {
     if (ST(STAT_PGM_END) || ST(STAT_SUSPENDED)) {
       if (!ST(STAT_SUSPENDED)) {
         cfg_save();
+        usbview_off();
         lcd_set_buf_cleared(0);
         draw_power_off_image(1);
         LCD_power_off(0);

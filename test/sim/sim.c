@@ -79,6 +79,20 @@ void lcd_draw_menu_keys(const char *keys[]) {
     }
   }
 }
+/* the DMCP line buffer, packed as on the DM42n but with its own oddities (offset, mirrored, LSB first, inverted),
+   so usbview.c has to learn it; and the USB serial port into ./acm.out */
+uint8_t *lcd_line_addr(int y) {
+  static uint8_t lb[LCD_Y][54];
+  memset(lb[y], 0xFF, 54);
+  for (int x = 0; x < LCD_X; x++)
+    if (fb[y][x]) { int X = LCD_X - 1 - x; lb[y][2 + X / 8] &= (uint8_t)~(1u << (X % 8)); }
+  return lb[y];
+}
+static FILE *acm;
+void usb_acm_on(void) { if (!acm) acm = fopen("acm.out", "w"); }
+int usb_is_on(void) { return acm != NULL; }
+void usb_turn_off(void) { if (acm) fclose(acm); acm = NULL; }
+void acm_puts(const char *s) { if (acm) { fputs(s, acm); fflush(acm); } }
 void qrcode_disp(QRCode *qr, int xo, int yo, int z) { (void)qr; (void)xo; (void)yo; (void)z; }
 
 uint32_t sys_current_ms(void) { return fake_ms; }
