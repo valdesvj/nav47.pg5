@@ -142,27 +142,32 @@ static void header(const Al *al, double j) {
 
 /* ---------------------------------------------------------------- the body table (ALMANAC, SPLIT) */
 typedef struct { int name, gha, ns, dec, hc, zn; } Cols;
+static int NAMEW;
 static Cols cols(void) {
-  int c = nt_cw(), dm3 = 6 * c + 10, dm2 = 5 * c + 10;
+  int c = nt_cw(), dm3 = nt_w("000" NT_DEG "00.0"), dm2 = nt_w("00" NT_DEG "00.0");
+  if (!NAMEW) {
+    for (int i = 0; i < 58; i++) if (nt_w(STAR_NAME47[i]) > NAMEW) NAMEW = nt_w(STAR_NAME47[i]);
+    if (nt_w("JUPITER") > NAMEW) NAMEW = nt_w("JUPITER");
+  }
   Cols X;
-  X.name = 22;
-  X.gha = X.name + 9 * c + 2 + dm3;             /* right edges */
-  X.ns = X.gha + 3;
-  X.dec = X.ns + c + dm2;
-  X.hc = X.dec + 4 + dm2;
-  X.zn = X.hc + 4 + 4 * c + 5;
-  int e = (400 - X.zn) / 4;
+  X.name = 24;
+  X.gha = X.name + NAMEW + 4 + dm3;             /* right edges */
+  X.ns = X.gha + 6;
+  X.dec = X.ns + nt_w("N") + 2 + dm2;
+  X.hc = X.dec + 6 + dm2;
+  X.zn = X.hc + 6 + nt_w("000.0");
+  (void)c;
+  int e = (398 - X.zn) / 4;
   if (e > 0) { X.gha += e; X.ns += 2 * e; X.dec += 2 * e; X.hc += 3 * e; X.zn += 4 * e; }
   return X;
 }
 
 static void table_heads(int y, const Cols *X) {
-  int c = nt_cw();
   nt(X->name, y, "BODY");
-  nt_c(X->gha - (6 * c + 10) / 2, y, "GHA");
+  nt_c(X->gha - nt_w("000" NT_DEG "00.0") / 2, y, "GHA");
   nt_c((X->ns + X->dec) / 2, y, "DEC");
-  nt_c(X->hc - (5 * c + 10) / 2, y, "HC");
-  nt_c(X->zn - (4 * c + 5) / 2, y, "ZN");
+  nt_c(X->hc - nt_w("00" NT_DEG "00.0") / 2, y, "HC");
+  nt_c(X->zn - nt_w("000.0") / 2, y, "ZN");
 }
 
 /* ---------------------------------------------------------------- ALMANAC */
@@ -187,7 +192,7 @@ void view_almanac(Al *al) {
     int y = 3 * R + R * i;
     VBody *v = &B[i];
     char nm[12];
-    snprintf(nm, sizeof nm, "%.9s", body_name(v->id));
+    snprintf(nm, sizeof nm, "%.11s", body_name(v->id));
     nt(X.name, y, nm);
     f_dm(s, v->gha); nt_r(X.gha, y, s);
     nt(X.ns, y, v->dec < 0 ? "S" : "N");
@@ -198,18 +203,18 @@ void view_almanac(Al *al) {
   }
   lcd_fill_rect(0, 11 * R, LCD_X, 1, 1);
   /* the Sun's day and the Moon (Almanac 47's three footer lines in two) */
-  f_hm(a, al->times[1]); f_hm(b, al->times[3]);
-  sprintf(s, "RISE %s SET %s", a, b);
+  f_hm(a, al->times[1]); f_hm(b, al->times[3]); f_hm(t, al->times[2]);
+  sprintf(s, "RISE %s SET %s MER %s", a, b, t);
   nt(1, 11 * R + 2, s);
   f_hm(a, al->times[0]); f_hm(b, al->times[4]);
-  sprintf(s, "TWI %s %s", a, b);
-  nt_r(399, 11 * R + 2, s);
-  f_f1(t, al->age);
-  sprintf(s, "%ld%% %s %s d", (long)ipd(al->illum + 0.5), moon_word(al), t);
-  nt(16, 12 * R + 1, s);
-  f_hm(a, al->times[2]);
   f_f1(t, al->sun.sd);
-  sprintf(s, "MER %s SD %s", a, t);
+  sprintf(s, "TWI %s %s SD %s", a, b, t);
+  nt_r(399, 11 * R + 2, s);
+  char hp[24], sd[24];
+  f_f1(t, al->age); f_f1(hp, al->moon[2]); f_f1(sd, al->moon[3]);
+  sprintf(s, "MOON %ld%% %s  AGE %s d", (long)ipd(al->illum + 0.5), moon_word(al), t);
+  nt(16, 12 * R + 1, s);
+  sprintf(s, "HP %s  SD %s", hp, sd);
   nt_r(399, 12 * R + 1, s);
 }
 
@@ -278,7 +283,7 @@ void view_split(Al *al) {
     int y = 104 + R * i;
     char s[24], nm[12];
     VBody *v = &B[i];
-    snprintf(nm, sizeof nm, "%.9s", body_name(v->id));
+    snprintf(nm, sizeof nm, "%.11s", body_name(v->id));
     nt(X.name, y, nm);
     f_dm(s, v->gha); nt_r(X.gha, y, s);
     nt(X.ns, y, v->dec < 0 ? "S" : "N");

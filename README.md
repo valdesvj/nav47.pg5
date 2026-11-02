@@ -11,7 +11,7 @@ everywhere.
 | F1 | **ALMAN** | [almanac47](https://github.com/valdesvj/almanac47) | ARIES, the 8 bodies (Sun, Moon, a planet, the brightest stars): GHA, Dec, Hc, Zn; rise/set, twilight, meridian passage, SD, the Moon's phase and age |
 | F2 | **SPLIT** | almanac47 | the horizon chart with the celestial equator above the table (6 bodies) |
 | F3 | **SKY** | almanac47 | the horizon chart, sine scale, celestial equator; the names of the bodies in turn, one a second |
-| F4 | **ALLSKY** | almanac47 | the whole sky: all 58 stars, planets, Moon, Sun, above and below the horizon |
+| F4 | **ALLSK** | almanac47 | the whole sky: all 58 stars, planets, Moon, Sun, above and below the horizon |
 | F5 | **MOON** | almanac47 (MOON47) | the disc, phase, % lit, age, HP, SD, the next four phases, the eight phases; **+/−** the view from the south |
 | `>>` F1 | **ANIM** | almanac47 | the movie: the Sun and the Moon across the whole sky, 24 frames 30 min apart |
 | `>>` F2 | **TIDE** | [tide47](https://github.com/valdesvj/tide47) (ARTF47) | tide and current on one page, as ARTF47: HW−6 … HW+6 with the stream of the FLOW atlas at your position (set, knots, arrow), and the tide of the nearest port (curve, high and low waters). Without an atlas: the chosen station's heights or stream |
@@ -21,9 +21,10 @@ everywhere.
 | `>> >>` | **SET FILES INFO NOW** | | position, clock TZ, live or fixed time, wind; tide files; about; back to now |
 
 The views are Almanac 47's (`python/native/c47screen21.py`): the same bodies, charts, glyphs47 symbols (☉ ☾ ♀ ♂ ♃ ♄
-★ and the Moon phases), tinyFont scale labels and dotted celestial equator. The text is in the **DMCP5 system font**
-(t20), so the views are compressed into the 208 rows above the menu bar: 16-pixel rows, star names cut to 9
-letters, the degree sign and narrow `.` `:` drawn by NAV47. On the DM42n a view takes about 0.1 s (battery).
+★ and the Moon phases), tinyFont scale labels and dotted celestial equator, in the 208 rows above the menu bar. The
+text is in Almanac 47's **C47 standard font** (GRFNT 21) on 16-pixel rows, drawn pixel for pixel by NAV47 (what the
+simulator shows is what the DM42n shows); the DMCP system font is kept for the menu bar. On the DM42n a view takes
+about 0.1 s (battery).
 
 ![NAV47 views](docs/views1.png)
 
@@ -31,8 +32,8 @@ letters, the degree sign and narrow `.` `:` drawn by NAV47. On the DM42n a view 
 
 ![TIDE, ROUTE, ZONES, SET](docs/views3.png)
 
-*(Simulator pictures: the font stands in for the DMCP one; on the calculator the letters look a little different.
-The TIDE page with streams uses Tide 47's synthetic atlas: the real atlas is private.)*
+*(Simulator pictures; the menu bar's font stands in for the DMCP one. The TIDE page with streams uses Tide 47's
+synthetic atlas: the real atlas is private.)*
 
 ## ROUTE: passage planning
 
@@ -75,7 +76,7 @@ To go back to Free42: **RESET + F1 → Load program → DM42-x.yy.pg5**.
 
 | Key | Action |
 |---|---|
-| **F1-F6** | the soft keys; `>>` the next row (ALMAN SPLIT SKY ALLSKY MOON / ANIM TIDE ROUTE ZONES STATNS / SET FILES INFO NOW) |
+| **F1-F6** | the soft keys; `>>` the next row (ALMAN SPLIT SKY ALLSK MOON / ANIM TIDE ROUTE ZONES STATNS / SET FILES INFO NOW) |
 | **UP DOWN** | views: one hour later / earlier (as Almanac 47). ZONES: the cities. SET / STATNS / ROUTE: move |
 | **4 6 / 7 9** | views: 10 minutes / one day. ZONES: zone west / east. TIDE: High Water before / after |
 | **1 3** | TIDE: day before / after |
@@ -135,7 +136,7 @@ make sim                   # PC simulator: build/sim, pictures with test/sim/ren
 | `src/tide.c` `tidecons.c` `tidedata_pub.c` | Tide 47's engine, its 60 constituents, 32 public stations (`tools/gen_tides.py`) |
 | `src/tidefile.c` | the `.TID` / `.FLW` file reader |
 | `src/views.c` `c47scr.c` `fonts21.c` | Almanac 47's views on a C47 screen layer (PIXEL, AGRAPH), glyphs47 symbols and tinyFont (`tools/gen_fonts21.py`) |
-| `src/ntext.c` | text in the DMCP5 system font on 16-pixel rows; the degree sign |
+| `src/ntext.c` | the page text in the C47 standard font on 16-pixel rows; the degree sign |
 | `src/moon47.c` | MOON47, the C twin of Almanac 47's `python/moon47.py` (`test/test_moon47.py`: 400 dates, identical) |
 | `src/route.c` | ROUTE: rhumb line and great circle |
 | `src/gfx.c` `fonts.c` | the other pages, C47 standardFont and tinyFont (`tools/gen_fonts.py`) |

@@ -778,11 +778,11 @@ static void draw_route(void) {
   sprintf(s, "%d WP  TOTAL %.1f NM", N->nwp, tot);
   nt_r(LCD_X - 2, 0, s);
   lcd_fill_rect(0, 15, LCD_X, 1, 1);
-  int c = nt_cw();
-  int xw = 2 * c, xla = xw + 6 + 5 * c + 10 + c, xlo = xla + 6 + 6 * c + 10 + c, xc = xlo + 8 + 3 * c + 5,
-      xd = xc + 8 + 5 * c + 5, xcu = xd + 8 + 6 * c + 5;
-  if (xcu > 398) xcu = 398;
-  nt_r(xw, 16, "WP"); nt_c(xla - (7 * c + 10) / 2, 16, "LAT"); nt_c(xlo - (8 * c + 10) / 2, 16, "LON");
+  int xw = 6 + nt_w("40"), xla = xw + 10 + nt_w("00" NT_DEG "00.0N"), xlo = xla + 12 + nt_w("000" NT_DEG "00.0E"),
+      xc = xlo + 12 + nt_w("000" NT_DEG), xd = xc + 12 + nt_w("0000.0"), xcu = xd + 12 + nt_w("00000.0");
+  int e = (396 - xcu) / 5;
+  if (e > 0) { xla += e; xlo += 2 * e; xc += 3 * e; xd += 4 * e; xcu += 5 * e; }
+  nt_r(xw, 16, "WP"); nt_c(xla - nt_w("00" NT_DEG "00.0N") / 2, 16, "LAT"); nt_c(xlo - nt_w("000" NT_DEG "00.0E") / 2, 16, "LON");
   nt_r(xc, 16, N->cfg.gc ? "ICRS" : "CRS"); nt_r(xd, 16, "DIST"); nt_r(xcu, 16, "CUM");
   if (!N->nwp) {
     nt(4, 48, "No waypoints yet.");
@@ -795,11 +795,9 @@ static void draw_route(void) {
     nt(4, 176, "circle (initial course)");
     return;
   }
-  int vis = 11;
-  if (wp_edit >= 0) {
-    vis = 10;
-    nt_inv(2, 192, wp_edit ? "LON DDD.MMm  +/- WEST  ENTER" : "LAT DD.MMm  +/- SOUTH  ENTER");
-  }
+  int vis = 10;
+  if (wp_edit >= 0) nt_inv(2, 192, wp_edit ? "LON DDD.MMm  +/- WEST  ENTER" : "LAT DD.MMm  +/- SOUTH  ENTER");
+  else nt(2, 192, "UP DN select   ENTER edit");
   if (wp_cur >= N->nwp) wp_cur = N->nwp - 1;
   int top = wp_cur - vis / 2;
   if (top > N->nwp - vis) top = N->nwp - vis;
@@ -859,7 +857,7 @@ static void key_wp(int key) {
 /*  Menus, keys, main loop                                            */
 /* ------------------------------------------------------------------ */
 static const char *MENUS[4][6] = {
-  { "ALMAN", "SPLIT", "SKY", "ALLSKY", "MOON", ">>" },
+  { "ALMAN", "SPLIT", "SKY", "ALLSK", "MOON", ">>" },
   { "ANIM", "TIDE", "ROUTE", "ZONES", "STATNS", ">>" },
   { "SET", "FILES", "INFO", "NOW", "", ">>" },
   { "ADD", "EDIT", "DEL", "RL/GC", "HERE", ">>" },

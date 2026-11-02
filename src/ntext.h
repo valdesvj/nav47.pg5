@@ -1,5 +1,5 @@
-/* ntext.h - NAV47: text in the DMCP5 system font (t20) on 16-pixel rows, with the few symbols the font has not
- * (the degree ring, narrow '.' and ':') drawn here. GPL-3.0-or-later. */
+/* ntext.h - NAV47: the page text in the C47 standard font (GRFNT 21) on 16-pixel rows, and the degree ring.
+ * GPL-3.0-or-later. */
 #ifndef NAV47_NTEXT_H
 #define NAV47_NTEXT_H
 
