@@ -171,8 +171,8 @@ make sim                   # PC simulator: build/sim, pictures with test/sim/ren
 * Fonts: the C47 standardFont and tinyFont, (c) the C43/C47 authors, GPL v3.
 * `dmcp/`, `stm32_program.ld`: SwissMicros DMCP5 SDK (BSD-3, "NOMAS": not manufacturer supported).
 
-Written with the help of AI (Claude by Anthropic). I review and check the results and take responsibility for
-this project and its mistakes.
+Written with the help of AI. I review and check the results and take responsibility for this project and its
+mistakes. See `AI_ASSISTANCE.md` for the responsible-use statement.
 
 **DOES NOT REPLACE THE NAUTICAL ALMANAC OR OFFICIAL TIDE TABLES. Not for use as the primary means of navigation.**
 
