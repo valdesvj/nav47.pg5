@@ -12,7 +12,7 @@ everywhere.
 | F2 | **SPLIT** | almanac47 | the horizon chart with the celestial equator above the table: 6 bodies at a time, **8 2** scroll (the small arrows by BODY show more above / below) |
 | F3 | **SKY** | almanac47 | the horizon chart, sine scale, celestial equator; the names of the bodies in turn, one a second |
 | F4 | **ALLSK** | almanac47 | the whole sky: all 58 stars, planets, Moon, Sun, above and below the horizon |
-| F5 | **MOON** | almanac47 (MOON47) | the disc, phase, % lit, age, HP, SD, the next four phases, the eight phases; **+/−** the view from the south |
+| F5 | **MOON** | almanac47 (MOON47) | the disc, phase, % lit, age, HP, SD, the next four phases, the eight phases; **0** the view from the south |
 | `>>` F1 | **ANIM** | almanac47 | the movie: the Sun and the Moon across the whole sky, 24 frames 30 min apart |
 | `>>` F2 | **T&F** | [tide47](https://github.com/valdesvj/tide47) (ARTF47) | tide and current on one page, as ARTF47: HW−6 … HW+6 with the stream of the FLOW atlas at your position (set, knots, arrow), and the tide of the nearest port (curve, high and low waters). Without an atlas: the chosen station's heights or stream |
 | `>>` F3 | **TIDE** | tide47 | the chosen station's day: curve, high and low waters (or slack, flood, ebb), now, the range against springs, the next springs and neaps; **8 2** the previous / next station, **4 6** the day, **ENTER** the station list |
@@ -88,6 +88,7 @@ On Linux the port is `/dev/ttyACM0`; your user needs the `uucp` group (Arch) or 
 2. Press **RESET while holding F1** to open the DMCP menu, then **Load program → NAV47.pg5**.
 3. **SET** (key `>>`, then SET): your position in DD.MMm (as Almanac 47: `26.30` = 26°30′, **+/−** for south / west)
    and **CLOCK TZ**: how far the calculator clock is from UT (+3 for a clock on Gulf time).
+4. **SHOW TIMES**: UT or LOCAL (LT). Switch it any time with **+/−** on any page.
 
 To go back to Free42: **RESET + F1 → Load program → DM42-x.yy.pg5**.
 
@@ -100,7 +101,8 @@ To go back to Free42: **RESET + F1 → Load program → DM42-x.yy.pg5**.
 | **4 6 / 7 9** | views: 10 minutes / one day. ZONES: zone west / east. TIDE: High Water before / after |
 | **1 3** | TIDE: day before / after |
 | **5** | back to now (ZONES: the zone of your clock) |
-| **+/−** | MOON: the view from the south. Entering a position: south / west |
+| **+/−** | every page: the times in UT or local time (LT), saved. Entering a position: south / west |
+| **0** | MOON: the view from the south |
 | **ENTER** | TIDE: the station list. SET, ROUTE: edit (ENTER again to confirm, EXIT or CANCEL to cancel) |
 | **EXIT** | back to ALMANAC |
 | **SHIFT EXIT** | power off (settings saved to `/NAV47/NAV47.CFG`) |
@@ -108,6 +110,11 @@ To go back to Free42: **RESET + F1 → Load program → DM42-x.yy.pg5**.
 
 **Time:** LIVE uses the calculator clock minus CLOCK TZ. FIXED (SET → TIME) uses a date and UT you enter, for
 planning or for checking against the Nautical Almanac.
+
+**UT or LT:** SET → SHOW TIMES, or **+/−** on any page, shows every time in UT or in local time. The header says which
+(`UT` / `LT`). Local is the CLOCK TZ on the views (ALMANAC, SPLIT, SKY, ALLSKY, ANIM, MOON47: rise, set, meridian
+passage and twilights are then those of your local day), on T&F and on ZONES; TIDE keeps the station's own zone, as a
+tide table does (`UTC+3`), and in UT shows `UT (day UTC+3)`: the same station day, its times and hour axis in UT.
 
 ## Private data: Aramco tables, Admiralty constants, GEOSA streams, the FLOW atlas
 

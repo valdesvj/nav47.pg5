@@ -52,6 +52,7 @@ typedef struct {
   int    nfiles;
   int    south;             /* MOON47: the view from the south */
   int    gc;                /* ROUTE: great circle instead of rhumb line */
+  int    lt;                /* the screens' times: 1 local (the clock TZ; a tide station's own zone), 0 UT */
 } Cfg;
 
 typedef struct { int src, reg, st; } Row;
@@ -100,6 +101,10 @@ static double ut_now(void) {
   double base = N->cfg.live ? clock_jd_local() - N->cfg.tz / 24.0 : N->cfg.fixed_jd;
   return base + toff / 24.0;
 }
+
+/* the zone of the times shown (SET TIMES, +/- on any page): the clock TZ for local time, 0 for UT */
+static double show_tz(void) { return N->cfg.lt ? N->cfg.tz : 0.0; }
+static const char *show_name(void) { return N->cfg.lt ? "LT" : "UT"; }
 
 /* ------------------------------------------------------------------ */
 /*  Formatting                                                        */
@@ -171,12 +176,12 @@ static void draw_zones(void) {
   nt(150, 0, t);
   sprintf(s, "%s %d %s", WDAY[(n + 1) % 7], d, MON[m - 1]);
   nt_r(LCD_X - 2, 0, s);
-  fmt_off(o, N->cfg.tz);
-  sprintf(s, "TZ %s", o);
+  fmt_off(o, show_tz());                                  /* the second line: the clock (LT) or UT */
+  if (N->cfg.lt) sprintf(s, "TZ %s", o); else strcpy(s, "UT");
   nt(2, 17, s);
-  fmt_hm(t, fmod((ut + 0.5) * 24.0, 24.0) + N->cfg.tz);
+  fmt_hm(t, fmod((ut + 0.5) * 24.0, 24.0) + show_tz());
   nt(150, 17, t);
-  double dd = off - N->cfg.tz;
+  double dd = off - show_tz();
   if (dd == 0) strcpy(s, "same time"); else { fmt_off(o, dd); sprintf(s, "%s h", o); }
   nt_r(LCD_X - 2, 17, s);
   /* map: 120 x 45 dots, 3 px each, from x 20; zone column c (5 dots, 15 deg) is UTC c - 11 */
@@ -330,6 +335,20 @@ static void norm_day(long *n, double *h) {
   while (*h >= 24) { *h -= 24; (*n)++; }
 }
 
+/* the hour axis of a day graph: graph hours 0..24 of the graph's own zone; the ticks and labels at the shown hours u
+   (UT or LT, every step, labelled every 6), at graph hour u + shift (shift = the graph's zone - the shown zone) */
+static void hour_ticks(int gx, int gw, int y, double shift, int step, int ty, int th, int ly) {
+  char s[8];
+  for (int u = (int)ceil(-shift / step - 1e-9) * step; u + shift <= 24 + 1e-9; u += step) {
+    int x = gx + (int)lround((u + shift) / 24.0 * gw);
+    gfx_rect(x, y + ty, 1, th, 1);
+    if (((u % 6) + 6) % 6 == 0) {
+      sprintf(s, "%02d", ((u % 24) + 24) % 24);
+      draw_text(&TINY, x - 5, y + ly, s, 0);
+    }
+  }
+}
+
 /* TIDE: Tide 47's ARTF47 page. Left: the hours HW-6 ... HW+6 of the reference station's High Water, with the
    stream of the FLOW atlas at the position (springs scaled, the wind added), or the station's own height or stream.
    Right: the tide of the port nearest the position (the chosen station without an atlas): the day's curve, the
@@ -387,9 +406,9 @@ static void draw_tide(void) {
   if (first < 0) first = 0;
   if (first > 2) first = 2;
   nt(tidal ? 12 : 4, 16, tidal ? "HW" : "  ");
-  nt(46, 16, "TIME");
+  nt(46, 16, show_name());
   if (vec) { nt(114, 16, "SET"); nt_r(196, 16, "KN"); } else nt_r(196, 16, "HEIGHT");
-  double dclk = N->cfg.tz - tzl;
+  double dclk = show_tz() - tzl;
   for (int r = 0; r < 11; r++) {
     int k = first + r, y = 32 + NT_ROW * r;
     if (k == mark) nt(0, y, ">");
@@ -416,7 +435,7 @@ static void draw_tide(void) {
   /* right: now */
   int X = 206;
   if (off_now >= -6 && off_now <= 6) {
-    fmt_hm(t, h0 + N->cfg.tz - tzl);
+    fmt_hm(t, h0 + show_tz() - tzl);
     if (vec) {
       double u, v, se, kn;
       flow_now(U, V, off_now, &u, &v);
@@ -474,11 +493,7 @@ static void draw_tide(void) {
   }
   int ay = gy + gh + 6;
   gfx_hline_dotted(gx, gx + gw, ay, 2);
-  for (int k = 0; k <= 24; k += 6) {
-    gfx_rect(gx + k * gw / 24, ay - 1, 1, 3, 1);
-    sprintf(s, "%02d", k);
-    draw_text(&TINY, gx + k * gw / 24 - 5, ay + 3, s, 0);
-  }
+  hour_ticks(gx, gw, ay, rtz - show_tz(), 6, -1, 3, 3);
   {                                                             /* the table's 13 hours */
     double b0 = (double)(on - rn) * 24 + t0 - 6 + rtz - tzl, b1 = b0 + 12;
     if (b0 < 0) b0 = 0;
@@ -490,7 +505,7 @@ static void draw_tide(void) {
   int ey = 128;
   for (int i = 0; i < D->nev && ey <= 192; i++, ey += NT_ROW) {
     const TEvent *e = &D->ev[i];
-    fmt_hm(t, e->t + N->cfg.tz - rtz);
+    fmt_hm(t, e->t + show_tz() - rtz);
     if (!stream) sprintf(s, "%s %s %5.2f m", e->kind > 0 ? "HW" : "LW", t, e->val);
     else if (rst->kind == TK_RECT) {
       if (e->kind < 0) sprintf(s, "SLACK %s", t);
@@ -535,11 +550,14 @@ static void draw_station(void) {
   sprintf(s, "%s %02d-%02d-%04d", WDAY[(n + 1) % 7], d, m, y);
   nt_r(399, 0, s);
   lcd_fill_rect(0, 15, LCD_X, 1, 1);
-  char o[12];
+  /* the times: the station's own zone (LT) or UT; the day and its graph are the station's day */
+  char o[12], z[24];
+  double sh = N->cfg.lt ? 0.0 : D->tz;                   /* station hours -> shown hours: subtract sh */
   fmt_off(o, D->tz);
-  if (!stream) sprintf(s, "metres above %s   UTC%s%s", st->datum, o, N->cfg.tsrc == 1 ? "   PRIVATE" : N->cfg.tsrc == 2 ? "   FILE" : "");
-  else if (!rot) sprintf(s, "knots  flood %03.0f" NT_DEG " ebb %03.0f" NT_DEG "   UTC%s", st->flood, st->ebb, o);
-  else sprintf(s, "knots, rotary   UTC%s", o);
+  if (N->cfg.lt) sprintf(z, "UTC%s", o); else sprintf(z, "UT (day UTC%s)", o);
+  if (!stream) sprintf(s, "metres above %s   %s%s", st->datum, z, N->cfg.tsrc == 1 ? "   PRIVATE" : N->cfg.tsrc == 2 ? "   FILE" : "");
+  else if (!rot) sprintf(s, "knots  flood %03.0f" NT_DEG " ebb %03.0f" NT_DEG "   %s", st->flood, st->ebb, z);
+  else sprintf(s, "knots, rotary   %s", z);
   nt(2, 17, s);
   /* the day's curve */
   int gx = 24, gy = 38, gw = 222, gh = 104;
@@ -551,11 +569,7 @@ static void draw_station(void) {
   double pad = (hi - lo) * 0.06;
   lo -= pad; hi += pad;
   gfx_frame(gx, gy, gw + 1, gh + 1);
-  for (int k = 0; k <= 24; k += 3) {
-    int x = gx + k * gw / 24;
-    gfx_rect(x, gy + gh, 1, 3, 1);
-    if (k % 6 == 0) { sprintf(s, "%02d", k); draw_text(&TINY, x - 5, gy + gh + 4, s, 0); }
-  }
+  hour_ticks(gx, gw, gy + gh, sh, 3, 0, 3, 4);
   sprintf(s, "%.1f", hi); draw_text_r(&TINY, gx - 2, gy, s, 0);
   sprintf(s, "%.1f", lo); draw_text_r(&TINY, gx - 2, gy + gh - 8, s, 0);
   if (lo < 0 && hi > 0) gfx_hline_dotted(gx, gx + gw, gy + (int)(hi / (hi - lo) * gh), 3);
@@ -575,7 +589,7 @@ static void draw_station(void) {
   int ex = 254, ey = 36;
   for (int i = 0; i < D->nev && ey < 120; i++, ey += NT_ROW) {
     const TEvent *e = &D->ev[i];
-    fmt_hm(t, e->t);
+    fmt_hm(t, e->t - sh);
     if (!stream) sprintf(s, "%s %s %5.2f", e->kind > 0 ? "HW" : "LW", t, e->val);
     else if (!rot) {
       if (e->kind < 0) sprintf(s, "SLACK %s", t);
@@ -586,7 +600,7 @@ static void draw_station(void) {
   if (now_h >= 0) {
     double v, dir;
     stream_now(st, n, now_h, &v, &dir);
-    fmt_hm(t, now_h);
+    fmt_hm(t, now_h - sh);
     if (!stream) sprintf(s, "NOW %s %.2f m", t, v);
     else sprintf(s, "NOW %s %.1f kn %03.0f" NT_DEG, t, fabs(v), dir);
     nt_inv(ex, 132, s);
@@ -632,10 +646,11 @@ static void draw_station(void) {
 /* ------------------------------------------------------------------ */
 /*  SET                                                               */
 /* ------------------------------------------------------------------ */
-enum { F_LAT, F_LON, F_TZ, F_LIVE, F_DATE, F_TIME, F_WDIR, F_WKN, F_COUNT };
-static const char *FNAME[F_COUNT] = { "LATITUDE", "LONGITUDE", "CLOCK TZ", "TIME", "DATE (UT)", "TIME (UT)", "WIND FROM", "WIND KN" };
-static const char *FHELP[F_COUNT] = { "DD.MMm, +/- south", "DDD.MMm, +/- west", "clock - UT, hours", "ENTER switches",
-                                      "YYYY.MMDD", "HH.MM", "degrees true", "knots" };
+enum { F_LAT, F_LON, F_TZ, F_LT, F_LIVE, F_DATE, F_TIME, F_WDIR, F_WKN, F_COUNT };
+static const char *FNAME[F_COUNT] = { "LATITUDE", "LONGITUDE", "CLOCK TZ", "SHOW TIMES", "TIME", "DATE (UT)", "TIME (UT)",
+                                      "WIND FROM", "WIND KN" };
+static const char *FHELP[F_COUNT] = { "DD.MMm, +/- south", "DDD.MMm, +/- west", "clock - UT, hours",
+                                      "ENTER, or +/- on any page", "ENTER switches", "YYYY.MMDD", "HH.MM", "degrees true", "knots" };
 
 static void field_text(int f, char *s) {
   Cfg *c = &N->cfg;
@@ -646,6 +661,7 @@ static void field_text(int f, char *s) {
   case F_LAT: fmt_lat(s, c->lat); break;
   case F_LON: fmt_lon(s, c->lon); break;
   case F_TZ: fmt_off(s, c->tz); break;
+  case F_LT: strcpy(s, c->lt ? "LOCAL (LT)" : "UT"); break;
   case F_LIVE: strcpy(s, c->live ? "LIVE clock" : "FIXED"); break;
   case F_DATE: sprintf(s, "%04d-%02d-%02d", y, m, d); break;
   case F_TIME: { int mi = (int)floor(h * 60); sprintf(s, "%02d:%02d", mi / 60, mi % 60); break; }
@@ -701,7 +717,7 @@ static void draw_set(void) {
     if (f == sel_field) nt_inv(6, y, FNAME[f]); else nt(6, y, FNAME[f]);
     nt(140, y, v);
     draw_text_r(&TINY, LCD_X - 2, y + 5, FHELP[f], 0);
-    y += 20;
+    y += N->cfg.live ? 20 : 19;
   }
   draw_text(&TINY, 2, MENU_Y - LH, "As Almanac 47: 26.30 = 26" SYM_DEG "30'. Fixed time: date and UT (live off)", 0);
 }
@@ -775,9 +791,9 @@ static void cfg_save(void) {
   if (!b) return;
   Cfg *c = &N->cfg;
   char *o = b;
-  o += sprintf(o, "NAV47 CFG 1\nLAT %.9f\nLON %.9f\nTZ %.4f\nLIVE %d\nFIXED %.9f\nWIND %.1f %.1f\nTIDE %d %d %d\nZONE %d %d\nSOUTH %d\nGC %d\n",
+  o += sprintf(o, "NAV47 CFG 1\nLAT %.9f\nLON %.9f\nTZ %.4f\nLIVE %d\nFIXED %.9f\nWIND %.1f %.1f\nTIDE %d %d %d\nZONE %d %d\nSOUTH %d\nGC %d\nLT %d\n",
                c->lat, c->lon, c->tz, c->live, c->fixed_jd, c->wdir, c->wkn, c->tsrc, c->treg, c->tst, c->zone, c->city,
-               c->south, c->gc);
+               c->south, c->gc, c->lt);
   for (int i = 0; i < c->nfiles; i++) o += sprintf(o, "FILE %s\n", c->files[i]);
   sys_disk_write_enable(1);
   check_create_dir(DIR);
@@ -807,6 +823,7 @@ static void cfg_load(void) {
     else if (!strncmp(l, "ZONE ", 5)) sscanf(l + 5, "%d %d", &c->zone, &c->city);
     else if (!strncmp(l, "SOUTH ", 6)) c->south = atoi(l + 6);
     else if (!strncmp(l, "GC ", 3)) c->gc = atoi(l + 3);
+    else if (!strncmp(l, "LT ", 3)) c->lt = atoi(l + 3) != 0;
     else if (!strncmp(l, "FILE ", 5) && c->nfiles < 4) { strncpy(c->files[c->nfiles], l + 5, 39); c->files[c->nfiles++][39] = 0; }
     l = strtok(NULL, "\n");
   }
@@ -1004,11 +1021,12 @@ static const char *EDIT_MENU[6] = { "", "", "", "", "", "CANCEL" };
 /* the views' almanac at the current time (computed again only when the time or the position changes) */
 static void view_almanac_now(void) {
   double j = ut_now();
-  if (!N->valid || N->vjd != j || N->al.lat != N->cfg.lat || N->al.lon != N->cfg.lon) {
-    al_compute(&N->al, j, N->cfg.lat, N->cfg.lon);
+  if (!N->valid || N->vjd != j || N->al.lat != N->cfg.lat || N->al.lon != N->cfg.lon || N->al.tz != show_tz()) {
+    al_compute(&N->al, j, N->cfg.lat, N->cfg.lon, show_tz());
     N->vjd = j;
     N->valid = 1;
   }
+  N->al.local = N->cfg.lt;
 }
 
 static void redraw(void) {
@@ -1125,6 +1143,7 @@ static void handle_key(int key) {
   if (edit_field >= 0) { key_edit(key); return; }
   if (wp_edit >= 0) { key_wp(key); return; }
   if (key >= KEY_F1 && key <= KEY_F6) { softkey(key - KEY_F1); vframe = 0; return; }
+  if (key == KEY_CHS) { N->cfg.lt ^= 1; N->valid = 0; cfg_save(); return; }   /* +/-: the times in UT or LT, every page */
   if (IS_VIEW(page)) {
     /* as Almanac 47: up / down one hour later / earlier; 4 6 ten minutes, 7 9 a day, 5 now */
     if (key == KEY_UP) step_time(1);
@@ -1134,7 +1153,7 @@ static void handle_key(int key) {
     else if (key == KEY_7) step_time(-24);
     else if (key == KEY_9) step_time(24);
     else if (key == KEY_5) toff = 0;
-    else if (key == KEY_CHS && page == PG_VMOON) { N->cfg.south ^= 1; cfg_save(); }
+    else if (key == KEY_0 && page == PG_VMOON) { N->cfg.south ^= 1; cfg_save(); }
     else if (key == KEY_8 && page == PG_VSPLIT) split_first--;
     else if (key == KEY_2 && page == PG_VSPLIT) split_first++;
     else if (key == KEY_EXIT) go(PG_VALM);
@@ -1181,7 +1200,8 @@ static void handle_key(int key) {
     if (key == KEY_8 || key == KEY_UP) { do sel_field = (sel_field + F_COUNT - 1) % F_COUNT; while (N->cfg.live && (sel_field == F_DATE || sel_field == F_TIME)); }
     else if (key == KEY_2 || key == KEY_DOWN) { do sel_field = (sel_field + 1) % F_COUNT; while (N->cfg.live && (sel_field == F_DATE || sel_field == F_TIME)); }
     else if (key == KEY_ENTER) {
-      if (sel_field == F_LIVE) {
+      if (sel_field == F_LT) { N->cfg.lt ^= 1; N->valid = 0; cfg_save(); }
+      else if (sel_field == F_LIVE) {
         if (N->cfg.live) N->cfg.fixed_jd = ut_now();
         N->cfg.live ^= 1;
         toff = 0;
