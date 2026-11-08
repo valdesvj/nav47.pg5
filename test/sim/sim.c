@@ -3,7 +3,8 @@
  * 400x240 LCD as PBM snapshots (test/sim/render.py turns them into PNG).
  *
  *   build/sim KEY KEY ... SNAP:name ...
- *   keys: F1..F6 0..9 ENTER EXIT BSP UP DOWN SHIFT CHS DOT, WAIT:ms
+ *   keys: F1..F6 0..9 ENTER EXIT BSP UP DOWN SHIFT CHS DOT, WAIT:ms; HOSTL: the PC sends L on the serial console
+ *         (DMCP marks every row unsent and gives the program key 77)
  *   env:  NAV47_CLOCK="2026-11-02 12:00"  (the calculator clock), NAV47_FILE=path (the file chosen in FILES)
  *   files: ./simdisk/ is the calculator disk
  */
@@ -24,10 +25,13 @@ static uint32_t fake_ms;
 static int clk_y = 2026, clk_m = 11, clk_d = 2, clk_h = 12, clk_mi = 0;
 
 void lcd_clear_buf(void) { memset(fb, 0, sizeof fb); }
-void lcd_refresh(void) {}
+/* a refresh: DMCP's serial console sends the changed rows (test/sim/sercon_sim.c; nothing in the TinyUSB sim) */
+__attribute__((weak)) void sim_lcd_out(int forced) { (void)forced; }
+__attribute__((weak)) void sim_host_L(void) {}
+void lcd_refresh(void) { sim_lcd_out(0); }
 void lcd_refresh_wait(void) {}
 void lcd_refresh_lines(int ln, int cnt) { (void)ln; (void)cnt; }
-void lcd_forced_refresh(void) {}
+void lcd_forced_refresh(void) { sim_lcd_out(1); }
 void lcd_set_buf_cleared(int v) { (void)v; }
 int  lcd_get_buf_cleared(void) { return 0; }
 void LCD_power_on(void) {}
@@ -170,6 +174,7 @@ static void fill(void) {
     const char *t = script[spos++];
     if (!strncmp(t, "SNAP:", 5)) snap(t + 5);
     else if (!strncmp(t, "WAIT:", 5)) { fake_ms += (uint32_t)atoi(t + 5); idle = 1; return; }
+    else if (!strcmp(t, "HOSTL")) { void sim_host_L(void); sim_host_L(); pending = 77; }
     else pending = parse_key(t);
   }
 }

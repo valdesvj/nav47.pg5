@@ -59,6 +59,7 @@ void usbview_state(char *a, char *b, int n) {
   (void)tries;
 }
 int usbview_is_on(void) { return on; }
+void usbview_redraw_request(void) {}   /* the serial console's key 77: not in the TinyUSB build */
 
 void usbview_send(void) {
   if (!on || !ok || !usbser_connected()) return;

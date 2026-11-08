@@ -50,20 +50,35 @@ The route is saved in `/NAV47/ROUTE.TXT` (one `lat lon` per line, degrees), up t
 
 ## The screen on your PC (USB)
 
-**`>> >>` USB** (it shows `USB*` while on) turns the USB port into a serial port (`/dev/ttyACM0`) and sends every new
-screen to the PC: the LCD as text (`NAV47 LCD 400 240`, 240 lines of 100 hex digits, `END`).
+**`>> >>` USB** (it shows `USB*` while on) sends the screen to the PC over the USB cable. Two builds:
 
-The firmware's own `usb_acm_on()` leaves the port disconnected (USB47's register probe: `DCTL.SDIS` stays 1), so NAV47
-drives the USB itself with **TinyUSB** (`src/usb/`, `third_party/tinyusb`, MIT): the USB supply and 48 MHz clock, its
-own interrupt handler in a RAM copy of the vector table, one CDC serial port. While USB is on the calculator does not
-sleep (it would stop the USB); press USB again to stop and give the port back to the firmware (the USB disk). NAV47
-learns how the firmware stores the LCD lines (it sets a pixel and looks which bit changes).
+**`make` (USB=sercon): DMCP5 3.58's serial console.** Needs DMCP5 3.58 on the DM42n (SwissMicros' preliminary
+"DMCP5 Serial Console API", IFC 3.18: the .pg5 is built with IFC 18, and an older DMCP5 refuses to load it). USB turns
+on DMCP's serial console and its LCD stream (`SERIO_IS_ENABLED`, `SERIO_SEND_LCD`); DMCP itself sends every changed LCD
+row on channel 0 (`L <yy>` + 400 pixels). When the PC asks for the whole screen (`L`), DMCP gives NAV47 the key code 77:
+it redraws and calls `lcd_forced_refresh()`. NAV47 sleeps as usual (DMCP runs the USB), and gives your DMCP settings
+back when you press USB again or leave. INFO shows the state (cable in, PC port open). No TinyUSB, no frames of its own:
+`src/sercon.c`; the three calls are declared in `src/sercon_ifc.h` from the data sheet (replace with the official
+3.58 headers when you have them).
+
+**`make USB=tinyusb`: our own serial port, any DMCP5.** The firmware's `usb_acm_on()` leaves the port disconnected
+(USB47's register probe: `DCTL.SDIS` stays 1), so NAV47 drives the USB itself with **TinyUSB** (`src/usb/`,
+`third_party/tinyusb`, MIT) and sends the LCD as text (`NAV47 LCD 400 240`, 240 lines of 100 hex digits, `END`). While
+USB is on the calculator does not sleep; press USB again to give the port back to the firmware (the USB disk).
+
+`tools/dm42view.py` finds the format by itself. With the serial console it sends `V` and `L` when it opens the port,
+so the whole screen comes at once, then every change:
 
 ```bash
-python3 tools/dm42view.py                      # the screen in the terminal (Braille dots), new at every key
+python3 tools/dm42view.py                      # the screen in the terminal (Braille dots), new at every change
 python3 tools/dm42view.py --zoom 200,16,200,160 # a part, bigger: the small letters readable
 python3 tools/dm42view.py --png shots/          # and a PNG of every screen (Pillow)
+python3 tools/dm42view.py --once --png .        # one PNG, then exit
+python3 tools/dm42view.py --raw                 # also every line received (checking the stream)
 ```
+
+In the simulator (`make sim`) the serial console writes DMCP's stream to `./acm.out`; `HOSTL` in the key script is
+the PC sending L: `build/sim F6 F6 F5 F6 F1 HOSTL`, then `python3 tools/dm42view.py acm.out --once --png .`
 
 On Linux the port is `/dev/ttyACM0`; your user needs the `uucp` group (Arch) or `dialout` (Debian).
 
@@ -165,7 +180,7 @@ make sim                   # PC simulator: build/sim, pictures with test/sim/ren
 | `src/ntext.c` | the page text in the C47 standard font on 16-pixel rows; the degree sign |
 | `src/moon47.c` | MOON47, the C twin of Almanac 47's `python/moon47.py` (`test/test_moon47.py`: 400 dates, identical) |
 | `src/route.c` | ROUTE: rhumb line and great circle |
-| `src/usbview.c`, `tools/dm42view.py` | the screen to the PC over USB, and its terminal viewer |
+| `src/sercon.c`, `src/usbview.c`, `tools/dm42view.py` | the screen to the PC over USB (DMCP's serial console, or TinyUSB), and its viewer |
 | `src/gfx.c` `fonts.c` | the other pages, C47 standardFont and tinyFont (`tools/gen_fonts.py`) |
 | `src/main.c` | the pages, keys, settings |
 | memory | 262 KB of program flash. Static RAM 1.7 KB of 8 KB; the rest is on the heap |
