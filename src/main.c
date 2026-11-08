@@ -1281,7 +1281,10 @@ void program_main(void) {
     }
     if (!key_empty()) reset_auto_off();
     int key = key_pop();
-    if (key > 0) {
+    if (key == USBVIEW_KEY_REDRAW) {          /* DMCP's serial console: the PC sent L, it wants the whole screen */
+      redraw();
+      usbview_redraw_request();
+    } else if (key > 0) {
       handle_key(key);
       redraw();
       last = sys_current_ms();

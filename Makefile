@@ -7,6 +7,8 @@
 #                                 python/stations_private.py, streams_private.py, flow_private.py
 #                                 (written to build/gen/, never to src/: keep the .pg5 to yourself)
 #   make test                     PC tests: C engines against the Python twins (needs the 47 repos)
+#   make USB=tinyusb              the screen over our own TinyUSB serial port (any DMCP5); the default,
+#                                 USB=sercon, uses DMCP5 3.58's serial console (IFC 18: needs DMCP5 3.58)
 ######################################
 TARGET = NAV47
 BUILD_DIR = build
@@ -16,17 +18,24 @@ ALMANAC47 ?= ../almanac47
 ZONES47 ?= ../zones47
 TIDE47_TEST ?= $(if $(TIDE47),$(TIDE47),../tide47)
 
+USB ?= sercon
 C_INCLUDES += -Idmcp -Isrc -Isrc/usb -Ithird_party/tinyusb/src
 C_SOURCES  += dmcp/sys/pgm_syscalls.c
 ASM_SOURCES = dmcp/startup_pgm.s
 C_SOURCES += src/main.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
-             src/c47scr.c src/views.c src/fonts21.c src/ntext.c src/moon47.c src/route.c src/usbview.c \
+             src/c47scr.c src/views.c src/fonts21.c src/ntext.c src/moon47.c src/route.c \
              src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c
+ifeq ($(USB),sercon)
+# the screen through DMCP5 3.58's serial console: DMCP streams the LCD (tools/dm42view.py)
+C_SOURCES += src/sercon.c
+C_DEFS += -DPLATFORM_IFC_VER=18
+else
 # the USB serial port (our own, with TinyUSB: tools/dm42view.py)
 TUSB = third_party/tinyusb/src
-C_SOURCES += src/usb/usbser.c src/usb/usb_desc.c \
+C_SOURCES += src/usbview.c src/usb/usbser.c src/usb/usb_desc.c \
              $(TUSB)/tusb.c $(TUSB)/common/tusb_fifo.c $(TUSB)/device/usbd.c $(TUSB)/class/cdc/cdc_device.c \
              $(TUSB)/portable/synopsys/dwc2/dcd_dwc2.c $(TUSB)/portable/synopsys/dwc2/dwc2_common.c
+endif
 
 CC      = arm-none-eabi-gcc
 AS      = arm-none-eabi-gcc -x assembler-with-cpp
@@ -98,8 +107,10 @@ test:
 	$(PYTHON) test/test_zones.py $(ZONES47)
 	$(PYTHON) test/test_tide.py $(TIDE47_TEST)
 
+# the simulator's USB: sercon (test/sim/sercon_sim.c plays DMCP's serial console into ./acm.out) or tinyusb
+SIM_USB = $(if $(filter sercon,$(USB)),src/sercon.c test/sim/sercon_sim.c,src/usbview.c test/sim/usbser_sim.c)
 SIM_SRC = test/sim/sim.c src/main.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
-          src/c47scr.c src/views.c src/fonts21.c src/ntext.c src/moon47.c src/route.c src/usbview.c test/sim/usbser_sim.c \
+          src/c47scr.c src/views.c src/fonts21.c src/ntext.c src/moon47.c src/route.c $(SIM_USB) \
           src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c
 $(BUILD_DIR)/gen/simfont.h: test/sim/gen_simfont.py
 	@mkdir -p $(BUILD_DIR)/gen
@@ -107,7 +118,7 @@ $(BUILD_DIR)/gen/simfont.h: test/sim/gen_simfont.py
 
 sim: $(SIM_SRC) $(BUILD_DIR)/gen/simfont.h | $(BUILD_DIR)
 	gcc -std=gnu11 -O2 -w -ffp-contract=off '-D__packed=__attribute__((__packed__))' '-D__weak=__attribute__((weak))' \
-	    -Itest/sim -Isrc -Isrc/usb -I$(BUILD_DIR)/gen -o $(BUILD_DIR)/sim $(SIM_SRC) -lm
+	    -DNAV47_SIM -Itest/sim -Isrc -Isrc/usb -I$(BUILD_DIR)/gen -o $(BUILD_DIR)/sim $(SIM_SRC) -lm
 
 clean:
 	-rm -fR .dep $(BUILD_DIR)
