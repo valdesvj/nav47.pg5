@@ -24,9 +24,9 @@ static const char *const PNAME[5] = { "", "VENUS", "MARS", "JUPITER", "SATURN" }
 static long ipd(double x) { return (long)x; }
 
 /* ---------------------------------------------------------------- the Almanac (c47screen.py) */
-void al_compute(Al *al, double j, double lat, double lon) {
-  al->j = j; al->lat = lat; al->lon = lon;
-  double j0 = day0(j);
+void al_compute(Al *al, double j, double lat, double lon, double tz) {
+  al->j = j; al->lat = lat; al->lon = lon; al->tz = tz;
+  double j0 = day0(j + tz / 24.0) - tz / 24.0;           /* 0 h of the shown day (UT or local): its Sun events */
   al->times[0] = sun_event(j0, lat, lon, EV_NTWA);
   al->times[1] = sun_event(j0, lat, lon, EV_RISE);
   al->times[2] = sun_event(j0, lat, lon, EV_TRAN);
@@ -126,14 +126,14 @@ static void f_date(char *s, double j) {
   sprintf(s, "%02d-%02d-%04d", d, m, y);
 }
 
-/* the header row: date, time UT, the DR position (as Almanac 47's top line) */
+/* the header row: date, time (UT or LT, local), the DR position (as Almanac 47's top line) */
 static void header(const Al *al, double j) {
   char s[80], a[24], b[24], t[8], dt[16];
-  f_date(dt, j);
-  f_hm(t, ut_hours(j));
+  f_date(dt, j + al->tz / 24.0);
+  f_hm(t, ut_hours(j + al->tz / 24.0));
   f_dm(a, fabs(al->lat));
   f_dm(b, fabs(al->lon));
-  sprintf(s, "%s %s UT", dt, t);
+  sprintf(s, "%s %s %s", dt, t, al->local ? "LT" : "UT");
   nt(1, 0, s);
   sprintf(s, "%s%s %s%s%s", al->lat < 0 ? "S" : "N", a, al->lon < 0 ? "W" : "E", fabs(al->lon) < 100 ? "0" : "", b);
   nt_r(399, 0, s);
@@ -451,9 +451,9 @@ void view_moon(Al *al, int south) {
   }
   c47_show();
   char s[64], t[16], d[16];
-  f_date(d, al->j);
-  f_hm(t, ut_hours(al->j));
-  sprintf(s, "MOON47   %s %s UT", d, t);
+  f_date(d, al->j + al->tz / 24.0);
+  f_hm(t, ut_hours(al->j + al->tz / 24.0));
+  sprintf(s, "MOON47   %s %s %s", d, t, al->local ? "LT" : "UT");
   nt(1, 0, s);
   lcd_fill_rect(0, 15, LCD_X, 1, 1);
   const int X = 146;
@@ -465,11 +465,11 @@ void view_moon(Al *al, int south) {
   for (int k = 0; k < 4; k++) {
     int y, m, dd;
     double h;
-    jd_to_ymd(p.next_t[k] + 1e-9, &y, &m, &dd, &h);
+    jd_to_ymd(p.next_t[k] + al->tz / 24.0 + 1e-9, &y, &m, &dd, &h);
     f_hm(t, h);
     sprintf(s, "%-8s %02d-%02d %s", PHSHORT[p.next_k[k]], dd, m, t);
     nt(X, 80 + R * k, s);
   }
   nt(1, 192, south ? "AS SEEN FROM THE SOUTH" : "AS SEEN FROM THE NORTH");
-  nt_r(399, 192, "+/- FLIP");
+  nt_r(399, 192, "0 FLIP");
 }

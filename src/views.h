@@ -7,10 +7,12 @@
 
 typedef struct {                     /* c47screen.py Almanac: one JD and position */
   double j, lat, lon;
+  double tz;                         /* the times shown: hours added to UT (0 for UT) */
+  int local;                         /* the times are local (LT), not UT: the label */
   Sun sun;
   double moon[4];                    /* gha dec hp sd */
   double planets[5][4];              /* [1..4]: gha dec sha hp (PLN3) */
-  double times[5];                   /* NTWA RISE TRAN SET NTWP (UT hours) */
+  double times[5];                   /* NTWA RISE TRAN SET NTWP (hours of the shown day, UT or local) */
   double illum, age;
   double star[59][3];                /* gha dec sha, [n] for n = 1..58 */
   unsigned char have_star[59];
@@ -18,7 +20,7 @@ typedef struct {                     /* c47screen.py Almanac: one JD and positio
 
 typedef struct { int id; double gha, dec, hc, zn; } VBody;   /* id 0 Sun, -1 Moon, -2..-5 planets, n star */
 
-void al_compute(Al *al, double j, double lat, double lon);
+void al_compute(Al *al, double j, double lat, double lon, double tz);   /* tz: the shown time - UT, hours */
 int  vbodies(Al *al, VBody *out);                             /* the 8 bodies of the views */
 
 /* each draws the whole area above the menu bar (rows 0-207) */
