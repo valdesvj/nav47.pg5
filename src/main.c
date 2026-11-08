@@ -135,11 +135,10 @@ static void fmt_off(char *s, double o) {                  /* +3, -5:30 */
   if (m) sprintf(s, "%c%d:%02d", sg, h, m); else sprintf(s, "%c%d", sg, h);
 }
 
-static void header(const char *title, const char *right) {
-  nt_inv(2, 0, title);
-  if (right) nt_r(LCD_X - 2, 0, right);
-  lcd_fill_rect(0, 15, LCD_X, 1, 1);
-}
+/* the top bar, the same on every page (views.c top_bar): the date and time shown (UT or LT) on the left, the
+   position on the right, the page's name in the middle; bar_at: at another instant (a tide day stepped) */
+static void bar_at(double ut, const char *name) { top_bar(ut + show_tz() / 24.0, N->cfg.lt, N->cfg.lat, N->cfg.lon, name); }
+static void header(const char *name) { bar_at(ut_now(), name); }
 
 /* the degree sign of the system font text */
 static void fmt_dmn(char *s, double deg, int ddig, char hemi) {     /* 26°30.0N 050°10.0E */
@@ -169,18 +168,14 @@ static void draw_zones(void) {
   double h;
   jd_to_ymd(ut + off / 24.0, &y, &m, &d, &h);
   long n = jdn(y, m, d);
-  fmt_off(o, off);
+  header("ZONES");                                       /* the clock (UT or LT) in the bar */
+  fmt_off(o, off);                                        /* the zone's own time, and its difference from the bar */
   sprintf(s, "UTC%s", off == 0 ? "" : o);
-  nt_inv(2, 0, s);
+  nt_inv(2, 17, s);
   fmt_hm(t, h);
-  nt(150, 0, t);
+  nt(100, 17, t);
   sprintf(s, "%s %d %s", WDAY[(n + 1) % 7], d, MON[m - 1]);
-  nt_r(LCD_X - 2, 0, s);
-  fmt_off(o, show_tz());                                  /* the second line: the clock (LT) or UT */
-  if (N->cfg.lt) sprintf(s, "TZ %s", o); else strcpy(s, "UT");
-  nt(2, 17, s);
-  fmt_hm(t, fmod((ut + 0.5) * 24.0, 24.0) + show_tz());
-  nt(150, 17, t);
+  nt(160, 17, s);
   double dd = off - show_tz();
   if (dd == 0) strcpy(s, "same time"); else { fmt_off(o, dd); sprintf(s, "%s h", o); }
   nt_r(LCD_X - 2, 17, s);
@@ -239,7 +234,8 @@ static int list_rows(Row *rows, int max) {
 static void draw_pick(void) {
   Row *rows = N->rows;
   int n = list_rows(rows, MAXROWS);
-  header("STATIONS", "8 2 move  ENTER choose");
+  header("STATIONS");
+  draw_text_r(&TINY, LCD_X - 2, 16, "8 2 move  ENTER choose", 0);
   if (pick_cursor >= n) pick_cursor = n - 1;
   if (pick_cursor < 0) pick_cursor = 0;
   if (rows[pick_cursor].st < 0 && pick_cursor + 1 < n) pick_cursor++;
@@ -354,7 +350,7 @@ static void hour_ticks(int gx, int gw, int y, double shift, int step, int ty, in
    Right: the tide of the port nearest the position (the chosen station without an atlas): the day's curve, the
    table's 13 hours as a bar, now dotted, the high and low waters. */
 static void draw_tide(void) {
-  char s[96], t[8], a[24], b[24];
+  char s[96], t[8];
   double ut = ut_now();
   const FlowAtlas *fl = atlas();
   int rs = 0, rr = 0;
@@ -387,18 +383,7 @@ static void draw_tide(void) {
       if (!tidal) { U[k] = fabs(val[k]) * dsin(dir); V[k] = fabs(val[k]) * dcos(dir); }
     }
   int vec = have_flow || !tidal;
-  /* the top line */
-  fmt_dmn(a, N->cfg.lat, 2, N->cfg.lat < 0 ? 'S' : 'N');
-  fmt_dmn(b, N->cfg.lon, 3, N->cfg.lon < 0 ? 'W' : 'E');
-  sprintf(s, "%s %s", a, b);
-  nt(1, 0, s);
-  {
-    int y, m, d;
-    cal(on, &y, &m, &d);
-    sprintf(s, "%s %02d-%02d-%04d", WDAY[(on + 1) % 7], d, m, y);
-    nt_r(399, 0, s);
-  }
-  lcd_fill_rect(0, 15, LCD_X, 1, 1);
+  bar_at(ut + (double)(on - n0), "TIDE & FLOW");         /* the bar: the table's day */
   for (int y = 17; y < MENU_Y; y += 2) lcd_fill_rect(200, (uint32_t)y, 1, 1, 1);
   /* left: the table */
   int mark = off_now >= -6.5 && off_now < 6.5 ? (int)floor(off_now + 6.5) : -1;
@@ -545,20 +530,24 @@ static void draw_station(void) {
   char s[96], t[8], nm[40];
   int y, m, d;
   cal(n, &y, &m, &d);
-  snprintf(nm, sizeof nm, "%.26s", st->name);
-  nt_inv(2, 0, nm);
-  sprintf(s, "%s %02d-%02d-%04d", WDAY[(n + 1) % 7], d, m, y);
-  nt_r(399, 0, s);
-  lcd_fill_rect(0, 15, LCD_X, 1, 1);
+  bar_at(ut + st_day_off, "TIDE");                       /* the bar: the day shown */
+  (void)y; (void)m; (void)d;
   /* the times: the station's own zone (LT) or UT; the day and its graph are the station's day */
   char o[12], z[24];
   double sh = N->cfg.lt ? 0.0 : D->tz;                   /* station hours -> shown hours: subtract sh */
   fmt_off(o, D->tz);
   if (N->cfg.lt) sprintf(z, "UTC%s", o); else sprintf(z, "UT (day UTC%s)", o);
-  if (!stream) sprintf(s, "metres above %s   %s%s", st->datum, z, N->cfg.tsrc == 1 ? "   PRIVATE" : N->cfg.tsrc == 2 ? "   FILE" : "");
-  else if (!rot) sprintf(s, "knots  flood %03.0f" NT_DEG " ebb %03.0f" NT_DEG "   %s", st->flood, st->ebb, z);
-  else sprintf(s, "knots, rotary   %s", z);
+  if (!stream) sprintf(s, "m above %s  %s%s", st->datum, z, N->cfg.tsrc == 1 ? "  PRIV" : N->cfg.tsrc == 2 ? "  FILE" : "");
+  else if (!rot) sprintf(s, "kn  fl %03.0f" NT_DEG " eb %03.0f" NT_DEG "  %s", st->flood, st->ebb, z);
+  else sprintf(s, "kn rotary  %s", z);
+  if (nt_w(s) > 248) { char *c = strstr(s, "  UT"); if (!c) c = strstr(s, "  UTC"); if (c) *c = 0; }
   nt(2, 17, s);
+  /* the station's name: the first row of the column of the HW / LW times */
+  int ex = 254, ey = 36;
+  snprintf(nm, sizeof nm, "%s", st->name);
+  if (nt_w(nm) > LCD_X - 1 - ex && strchr(nm, ',')) *strchr(nm, ',') = 0;     /* "Mina Salman, Bahrain": the place */
+  while (nm[0] && nt_w(nm) > LCD_X - 1 - ex) nm[strlen(nm) - 1] = 0;
+  nt(ex, 17, nm);
   /* the day's curve */
   int gx = 24, gy = 38, gw = 222, gh = 104;
   double lo = 1e9, hi = -1e9;
@@ -586,7 +575,6 @@ static void draw_station(void) {
     for (int yy = gy; yy < gy + gh; yy += 2) gfx_pixel(x, yy, 1);
   }
   /* the events */
-  int ex = 254, ey = 36;
   for (int i = 0; i < D->nev && ey < 120; i++, ey += NT_ROW) {
     const TEvent *e = &D->ev[i];
     fmt_hm(t, e->t - sh);
@@ -702,7 +690,8 @@ static void field_commit(int f) {
 }
 
 static void draw_set(void) {
-  header("SET", "8 2 field  ENTER edit");
+  header("SET");
+  draw_text_r(&TINY, LCD_X - 2, 16, "8 2 field  ENTER edit", 0);
   char v[48];
   int y = 22;
   for (int f = 0; f < F_COUNT; f++) {
@@ -764,7 +753,7 @@ static int file_sel_cb(const char *fpath, const char *fname, void *data) {
 }
 
 static void draw_files(void) {
-  header("TIDE FILES", NULL);
+  header("FILES");
   char s[96];
   int y = 26;
   draw_text(&TINY, 2, y, "Stations (.TID) and atlas (.FLW) from " TIDEDIR, 0); y += LH;
@@ -834,9 +823,9 @@ static void cfg_load(void) {
 /*  INFO                                                              */
 /* ------------------------------------------------------------------ */
 static void draw_info(void) {
-  header("NAV47  v" PROGRAM_VERSION, NULL);
+  header("INFO");
   const char *L[] = {
-    "Almanac 47 + Zones 47 + Tide 47 for the SwissMicros DM42n (native DMCP5 program)",
+    "NAV47 v" PROGRAM_VERSION ": Almanac 47 + Zones 47 + Tide 47 for the DM42n (native DMCP5 program)",
     "(C) 2026 Victor Valdes - GPL-3.0-or-later. Written with the help of AI (Claude).",
     "",
     "ALMANAC: VSOP87D Sun and planets, IAU1980 nutation, Meeus Moon + DE421 fit, 58 stars",
@@ -924,10 +913,7 @@ static void draw_route(void) {
   char s[64];
   double tot = 0, crs, nm;
   for (int i = 1; i < N->nwp; i++) { leg(i, &crs, &nm); tot += nm; }
-  nt_inv(2, 0, N->cfg.gc ? "ROUTE GC" : "ROUTE RL");
-  sprintf(s, "%d WP  TOTAL %.1f NM", N->nwp, tot);
-  nt_r(LCD_X - 2, 0, s);
-  lcd_fill_rect(0, 15, LCD_X, 1, 1);
+  header(N->cfg.gc ? "ROUTE GC" : "ROUTE RL");
   int xw = 6 + nt_w("40"), xla = xw + 10 + nt_w("00" NT_DEG "00.0N"), xlo = xla + 12 + nt_w("000" NT_DEG "00.0E"),
       xc = xlo + 12 + nt_w("000" NT_DEG), xd = xc + 12 + nt_w("0000.0"), xcu = xd + 12 + nt_w("00000.0");
   int e = (396 - xcu) / 5;
@@ -948,6 +934,8 @@ static void draw_route(void) {
   int vis = 10;
   if (wp_edit >= 0) nt_inv(2, 192, wp_edit ? "LON DDD.MMm  +/- WEST  ENTER" : "LAT DD.MMm  +/- SOUTH  ENTER");
   else nt(2, 192, "UP DN select   ENTER edit");
+  sprintf(s, "%d WP  TOTAL %.1f NM", N->nwp, tot);
+  if (wp_edit < 0 || nt_w(s) < 150) nt_r(LCD_X - 2, 192, s);
   if (wp_cur >= N->nwp) wp_cur = N->nwp - 1;
   int top = wp_cur - vis / 2;
   if (top > N->nwp - vis) top = N->nwp - vis;

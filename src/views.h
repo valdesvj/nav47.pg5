@@ -31,4 +31,7 @@ void view_anim(Al *al, int frames, double step, int upto);   /* frames 0..upto d
 void view_allsky(Al *al);
 void view_moon(Al *al, int south);
 
+/* the top bar of every page: jl the shown local JD (UT + tz), local: LT or UT, the position, the page's name */
+void top_bar(double jl, int local, double lat, double lon, const char *name);
+
 #endif

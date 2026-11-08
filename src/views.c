@@ -126,19 +126,28 @@ static void f_date(char *s, double j) {
   sprintf(s, "%02d-%02d-%04d", d, m, y);
 }
 
-/* the header row: date, time (UT or LT, local), the DR position (as Almanac 47's top line) */
-static void header(const Al *al, double j) {
+/* the top bar of every NAV47 page: the date and time (UT or LT) on the left, the position on the right, the page's
+   name in the middle (inverted, centred in the space between); the line under it at row 15 */
+void top_bar(double jl, int local, double lat, double lon, const char *name) {
   char s[80], a[24], b[24], t[8], dt[16];
-  f_date(dt, j + al->tz / 24.0);
-  f_hm(t, ut_hours(j + al->tz / 24.0));
-  f_dm(a, fabs(al->lat));
-  f_dm(b, fabs(al->lon));
-  sprintf(s, "%s %s %s", dt, t, al->local ? "LT" : "UT");
-  nt(1, 0, s);
-  sprintf(s, "%s%s %s%s%s", al->lat < 0 ? "S" : "N", a, al->lon < 0 ? "W" : "E", fabs(al->lon) < 100 ? "0" : "", b);
-  nt_r(399, 0, s);
+  f_date(dt, jl);
+  f_hm(t, ut_hours(jl));
+  f_dm(a, fabs(lat));
+  f_dm(b, fabs(lon));
+  sprintf(s, "%s %s %s", dt, t, local ? "LT" : "UT");
+  int xl = nt(1, 0, s);
+  sprintf(s, "%s%s %s%s%s", lat < 0 ? "S" : "N", a, lon < 0 ? "W" : "E", fabs(lon) < 100 ? "0" : "", b);
+  int xr = 399 - nt_w(s);
+  nt(xr, 0, s);
+  if (name && *name) {
+    int w = nt_w(name), x = (xl + xr) / 2 - w / 2;
+    if (x < xl + 6) x = xl + 6;
+    if (x + w <= xr - 5) nt_inv(x, 0, name);
+  }
   lcd_fill_rect(0, 15, LCD_X, 1, 1);
 }
+
+static void header(const Al *al, double j, const char *name) { top_bar(j + al->tz / 24.0, al->local, al->lat, al->lon, name); }
 
 /* ---------------------------------------------------------------- the body table (ALMANAC, SPLIT) */
 typedef struct { int name, gha, ns, dec, hc, zn; } Cols;
@@ -183,7 +192,7 @@ void view_almanac(Al *al) {
   }
   c47_glyph(&SYMB, '0' + phase_index(al->age), BL(12 * R + 1), 0);
   c47_show();
-  header(al, al->j);
+  header(al, al->j, "ALMANAC");
   table_heads(R, &X);
   char s[64], a[8], b[8], t[16];
   nt(X.name, 2 * R, "ARIES");
@@ -290,7 +299,7 @@ void view_split(Al *al, int *first) {
     }
   }
   c47_show();
-  header(al, al->j);
+  header(al, al->j, "SPLIT");
   table_heads(88, &X);
   if (f > 0) tri(2, 91, 1);                       /* more above */
   if (f + rows < nb) tri(2, 98, 0);               /* more below */
@@ -318,7 +327,7 @@ int view_sky(Al *al, int frame) {
   int nb = vbodies(al, B), bx[NBODY], by[NBODY];
   for (int i = 0; i < nb; i++) plot_body(al, &B[i], HB, HS, &bx[i], &by[i]);
   c47_show();
-  header(al, al->j);
+  header(al, al->j, "SKY");
   nt_c(200, 192, daylight(B[0].hc));
   int fr[NBODY], nf = 0;                             /* the name loop (consecutive duplicates removed) */
   for (int i = 0; i < nb; i++) {
@@ -392,7 +401,7 @@ void view_anim(Al *al, int frames, double step, int upto) {
     c47_glyph(&SYMS, '(', ym - 3, xm - 3);
   }
   c47_show();
-  header(al, j);
+  header(al, j, "ANIM");
   nt_c(200, 192, daylight(hs));
 }
 
@@ -426,7 +435,7 @@ void view_allsky(Al *al) {
   apos(al->lat, al->lon, off, s->dec, s->gha, &hs, &x, &y);
   c47_glyph(&SYMS, '@', y - 3, x - 3);
   c47_show();
-  header(al, al->j);
+  header(al, al->j, "ALL SKY");
   nt_c(200, 192, daylight(hs));
 }
 
@@ -450,12 +459,8 @@ void view_moon(Al *al, int south) {
     if ((south ? (8 - i) % 8 : i) == p.index) c47_xor_box(BL(176) - 2, x - 3, 18, 16);
   }
   c47_show();
-  char s[64], t[16], d[16];
-  f_date(d, al->j + al->tz / 24.0);
-  f_hm(t, ut_hours(al->j + al->tz / 24.0));
-  sprintf(s, "MOON47   %s %s %s", d, t, al->local ? "LT" : "UT");
-  nt(1, 0, s);
-  lcd_fill_rect(0, 15, LCD_X, 1, 1);
+  char s[64], t[16];
+  header(al, al->j, "MOON");
   const int X = 146;
   nt(X, 20, M47_NAMES[p.index]);
   sprintf(s, "LIT %ld%%   AGE %.1f d", (long)floor(p.lit + 0.5), p.age);
