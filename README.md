@@ -77,6 +77,22 @@ python3 tools/dm42view.py --once --png .        # one PNG, then exit
 python3 tools/dm42view.py --raw                 # also every line received (checking the stream)
 ```
 
+**The keys from the PC** (serial console, DMCP5 3.58): DMCP takes keys from the PC on channel 0 (`KPhh` holds key
+`hh`, DMCP's key code, `KR` releases it) and the program gets them as real keys. Any program, the C47 too:
+
+```bash
+python3 tools/dm42view.py --keys                 # the screen and the PC keyboard: digits . + - * / Enter Backspace,
+                                                 # Esc = EXIT, arrows, Tab = SHIFT, F1-F6; ":SIN" Enter for any key
+python3 tools/dm42view.py --send "SHIFT 7 ENTER WAIT:500 F1"     # press these keys, then exit
+python3 tools/dm42view.py --c47 "2 ENTER 3 + SIN STO 01" --once --png .   # C47 commands keyed in, then a PNG
+python3 tools/c47keys.py --layout                # the C47 keyboard as read from ~/opt/c43/src/c47/assign.c
+```
+
+`tools/c47keys.py` turns C47 commands into keys: numbers (digits, `.`, `E`, `CHS`), any command on a key (primary,
+f or g: the names of Almanac 47's `C47_items_master.tsv`), a command's parameter (`STO 01`), `k:NAME` for a key as it
+is, `WAIT:ms`. A command only in a menu is reported (open the menu with `k:...`, then `k:F1`-`k:F6`). f = SHIFT,
+g = SHIFT SHIFT by default (`--f`, `--g`): check `--layout` against your C47.
+
 In the simulator (`make sim`) the serial console writes DMCP's stream to `./acm.out`; `HOSTL` in the key script is
 the PC sending L: `build/sim F6 F6 F5 F6 F1 HOSTL`, then `python3 tools/dm42view.py acm.out --once --png .`
 
