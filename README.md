@@ -74,6 +74,8 @@ instead of losing its end. `make test-usb` checks it on the PC against the data 
 `make sim` give the same `acm.out` for the same keys (only INFO's USB line differs). When DMCP5 3.58 is released,
 plain `make` is all that changes.
 
+`make both` builds the two side by side: `build/NAV47.pg5` (DMCP5 3.58) and `build/tinyusb/NAV47.pg5` (any DMCP5).
+
 `tools/dm42view.py` sends `V` and `L` when it opens the port, so the whole screen comes at once, then every change:
 
 ```bash

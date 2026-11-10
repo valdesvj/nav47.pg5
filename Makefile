@@ -8,6 +8,7 @@
 #                                 (written to build/gen/, never to src/: keep the .pg5 to yourself)
 #   make test                     PC tests: C engines against the Python twins (needs the 47 repos)
 #   make                          the USB through DMCP5 3.58's serial console (IFC 18: needs DMCP5 3.58)
+#   make both                     both: build/NAV47.pg5 and build/tinyusb/NAV47.pg5
 #   make USB=tinyusb              the same serial console over our own TinyUSB port (any DMCP5): the same stream,
 #                                 so tools/dm42view.py works the same with both
 ######################################
@@ -132,9 +133,14 @@ sim: $(SIM_SRC) $(BUILD_DIR)/gen/simfont.h | $(BUILD_DIR)
 	gcc -std=gnu11 -O2 -w -ffp-contract=off '-D__packed=__attribute__((__packed__))' '-D__weak=__attribute__((weak))' \
 	    -DNAV47_SIM $(SIM_DEFS) -Itest/sim -Isrc -Isrc/usb -I$(BUILD_DIR)/gen -o $(BUILD_DIR)/sim $(SIM_SRC) -lm
 
+# both .pg5 at once: build/<NAME>.pg5 (DMCP5 3.58's console) and build/tinyusb/<NAME>.pg5 (any DMCP5)
+both:
+	$(MAKE) USB=sercon
+	$(MAKE) USB=tinyusb BUILD_DIR=$(BUILD_DIR)/tinyusb
+
 clean:
 	-rm -fR .dep $(BUILD_DIR)
 
 -include $(shell mkdir .dep 2>/dev/null) $(wildcard .dep/*)
 
-.PHONY: clean all test test-usb data sim FORCE
+.PHONY: both clean all test test-usb data sim FORCE
