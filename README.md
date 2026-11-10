@@ -50,24 +50,31 @@ The route is saved in `/NAV47/ROUTE.TXT` (one `lat lon` per line, degrees), up t
 
 ## The screen on your PC (USB)
 
-**`>> >>` USB** (it shows `USB*` while on) sends the screen to the PC over the USB cable. Two builds:
+**`>> >>` USB** (it shows `USB*` while on) sends the screen to the PC over the USB cable, through **DMCP5's serial
+console** (SwissMicros' preliminary "DMCP5 Serial Console API", IFC 3.18). Two builds, **the same stream to the PC**,
+so the same tools and commands work with both:
 
-**`make` (USB=sercon): DMCP5 3.58's serial console.** Needs DMCP5 3.58 on the DM42n (SwissMicros' preliminary
-"DMCP5 Serial Console API", IFC 3.18: the .pg5 is built with IFC 18, and an older DMCP5 refuses to load it). USB turns
-on DMCP's serial console and its LCD stream (`SERIO_IS_ENABLED`, `SERIO_SEND_LCD`); DMCP itself sends every changed LCD
-row on channel 0 (`L <yy>` + 400 pixels). When the PC asks for the whole screen (`L`), DMCP gives NAV47 the key code 77:
-it redraws and calls `lcd_forced_refresh()`. NAV47 sleeps as usual (DMCP runs the USB), and gives your DMCP settings
-back when you press USB again or leave. INFO shows the state (cable in, PC port open). No TinyUSB, no frames of its own:
-`src/sercon.c`; the three calls are declared in `src/sercon_ifc.h` from the data sheet (replace with the official
-3.58 headers when you have them).
+| build | runs the USB | needs | the calculator while USB is on |
+|---|---|---|---|
+| `make` (USB=sercon) | DMCP5 3.58 itself | DMCP5 3.58 (the .pg5 has IFC 18; an older DMCP5 refuses to load it) | sleeps as usual |
+| `make USB=tinyusb` | NAV47, with **TinyUSB** (`src/usb/`, `third_party/tinyusb`, MIT) | any DMCP5 | does not sleep (it would stop the USB) |
 
-**`make USB=tinyusb`: our own serial port, any DMCP5.** The firmware's `usb_acm_on()` leaves the port disconnected
-(USB47's register probe: `DCTL.SDIS` stays 1), so NAV47 drives the USB itself with **TinyUSB** (`src/usb/`,
-`third_party/tinyusb`, MIT) and sends the LCD as text (`NAV47 LCD 400 240`, 240 lines of 100 hex digits, `END`). While
-USB is on the calculator does not sleep; press USB again to give the port back to the firmware (the USB disk).
+USB turns on the console and its LCD stream (`SERIO_IS_ENABLED`, `SERIO_SEND_LCD`); every changed LCD row goes out on
+channel 0 (`L <yy>` + 400 pixels). When the PC asks for the whole screen (`L`), NAV47 gets the key code 77: it redraws
+and calls `lcd_forced_refresh()`. Your DMCP settings come back when you press USB again or leave. INFO shows the state.
+The program side is one file, `src/sercon.c`, in both builds; the three calls are declared in `src/sercon_ifc.h` from
+the data sheet (replace with the official 3.58 headers when you have them).
 
-`tools/dm42view.py` finds the format by itself. With the serial console it sends `V` and `L` when it opens the port,
-so the whole screen comes at once, then every change:
+In the TinyUSB build `src/usb/usbcon.c` **plays DMCP's serial console** over our own port (the firmware's
+`usb_acm_on()` leaves the port disconnected, USB47's register probe: `DCTL.SDIS` stays 1): the same channels, the same
+`V`, `KPhh`/`KR`/`K hh` and `L` from the PC, the same LCD rows (the line buffer's layout is learnt once, then each row
+is sent as DMCP sends it). On purpose it differs only in: `V` answers `DMCP5 TinyUSB`, `B` (DFU) is ignored, no key
+reports (`SERIO_SEND_KEYS`: DMCP5 has no call for programs to read the keys held), and a write waits for the PC
+instead of losing its end. `make test-usb` checks it on the PC against the data sheet; `make sim USB=tinyusb` and
+`make sim` give the same `acm.out` for the same keys (only INFO's USB line differs). When DMCP5 3.58 is released,
+plain `make` is all that changes.
+
+`tools/dm42view.py` sends `V` and `L` when it opens the port, so the whole screen comes at once, then every change:
 
 ```bash
 python3 tools/dm42view.py                      # the screen in the terminal (Braille dots), new at every change
@@ -77,7 +84,7 @@ python3 tools/dm42view.py --once --png .        # one PNG, then exit
 python3 tools/dm42view.py --raw                 # also every line received (checking the stream)
 ```
 
-**The keys from the PC** (serial console, DMCP5 3.58): DMCP takes keys from the PC on channel 0 (`KPhh` holds key
+**The keys from the PC** (both builds): the console takes keys from the PC on channel 0 (`KPhh` holds key
 `hh`, DMCP's key code, `KR` releases it) and the program gets them as real keys. Any program, the C47 too:
 
 ```bash
@@ -93,7 +100,7 @@ f or g: the names of Almanac 47's `C47_items_master.tsv`), a command's parameter
 is, `WAIT:ms`. A command only in a menu is reported (open the menu with `k:...`, then `k:F1`-`k:F6`). f = SHIFT,
 g = SHIFT SHIFT by default (`--f`, `--g`): check `--layout` against your C47.
 
-In the simulator (`make sim`) the serial console writes DMCP's stream to `./acm.out`; `HOSTL` in the key script is
+In the simulator (`make sim`, or `make sim USB=tinyusb` for usbcon.c) the serial console writes its stream to `./acm.out`; `HOSTL` in the key script is
 the PC sending L: `build/sim F6 F6 F5 F6 F1 HOSTL`, then `python3 tools/dm42view.py acm.out --once --png .`
 
 On Linux the port is `/dev/ttyACM0`; your user needs the `uucp` group (Arch) or `dialout` (Debian).
@@ -196,7 +203,7 @@ make sim                   # PC simulator: build/sim, pictures with test/sim/ren
 | `src/ntext.c` | the page text in the C47 standard font on 16-pixel rows; the degree sign |
 | `src/moon47.c` | MOON47, the C twin of Almanac 47's `python/moon47.py` (`test/test_moon47.py`: 400 dates, identical) |
 | `src/route.c` | ROUTE: rhumb line and great circle |
-| `src/sercon.c`, `src/usbview.c`, `tools/dm42view.py` | the screen to the PC over USB (DMCP's serial console, or TinyUSB), and its viewer |
+| `src/sercon.c`, `src/usb/usbcon.c`, `tools/dm42view.py` | the screen to the PC over DMCP5's serial console (DMCP's own, or played over TinyUSB), and its viewer |
 | `src/gfx.c` `fonts.c` | the other pages, C47 standardFont and tinyFont (`tools/gen_fonts.py`) |
 | `src/main.c` | the pages, keys, settings |
 | memory | 262 KB of program flash. Static RAM 1.7 KB of 8 KB; the rest is on the heap |
