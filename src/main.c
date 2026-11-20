@@ -59,7 +59,7 @@ typedef struct {
 
 typedef struct { int src, reg, st; } Row;
 #define MAXROWS 400
-#define MAXWP   40
+#define MAXWP   100
 
 typedef struct {
   Cfg cfg;
@@ -75,6 +75,7 @@ typedef struct {
   char msg[64];
   double wlat[MAXWP], wlon[MAXWP];   /* ROUTE waypoints */
   int nwp;
+  double leg_crs[MAXWP], leg_nm[MAXWP];   /* ROUTE: each leg's course and distance (cache) */
 } Nav;
 
 static Nav *N;
@@ -920,7 +921,6 @@ static double cs_lim = 60.0;                 /* CS limiting latitude, deg N/S */
 static int plan_split = SPLIT_DLON;          /* 0 none, 1 every NM, 2 N legs, 3 meridians */
 static double plan_val = 10.0;
 static int legs_dirty = 1, legs_mode = -1, plan_dirty = 1, plan_cur, plan_rc;
-static double leg_crs[MAXWP], leg_nm[MAXWP];
 static char plan_msg[48];
 
 /* a CUSTOM ellipsoid NAV47 accepts: an Earth-sized a, and a sphere or f < 0.01 */
@@ -995,16 +995,16 @@ static void leg(int i, double *crs, double *nm) {   /* geo47: cached, recomputed
   if (legs_dirty || legs_mode != N->cfg.gc) {
     for (int k = 1; k < N->nwp; k++) {
       if (N->cfg.gc == 2)
-        geo_leg_cs(N->wlat[k - 1], N->wlon[k - 1], N->wlat[k], N->wlon[k], cs_lim, &leg_crs[k], &leg_nm[k]);
+        geo_leg_cs(N->wlat[k - 1], N->wlon[k - 1], N->wlat[k], N->wlon[k], cs_lim, &N->leg_crs[k], &N->leg_nm[k]);
       else
-        (N->cfg.gc ? leg_gc : leg_rl)(N->wlat[k - 1], N->wlon[k - 1], N->wlat[k], N->wlon[k], &leg_crs[k], &leg_nm[k]);
+        (N->cfg.gc ? leg_gc : leg_rl)(N->wlat[k - 1], N->wlon[k - 1], N->wlat[k], N->wlon[k], &N->leg_crs[k], &N->leg_nm[k]);
     }
     legs_dirty = 0;
     legs_mode = N->cfg.gc;
     plan_dirty = 1;                       /* geo_leg_cs used geo_route as scratch */
   }
-  *crs = leg_crs[i];
-  *nm = leg_nm[i];
+  *crs = N->leg_crs[i];
+  *nm = N->leg_nm[i];
 }
 
 static void draw_route(void) {
@@ -1013,7 +1013,7 @@ static void draw_route(void) {
   for (int i = 1; i < N->nwp; i++) { leg(i, &crs, &nm); tot += nm; }
   if (N->cfg.gc == 2) sprintf(s, "ROUTE CS %.0f", cs_lim); else strcpy(s, N->cfg.gc ? "ROUTE GC" : "ROUTE RL");
   header(s);
-  int xw = 6 + nt_w("40"), xla = xw + 10 + nt_w("00" NT_DEG "00.0N"), xlo = xla + 12 + nt_w("000" NT_DEG "00.0E"),
+  int xw = 4 + nt_w("100"), xla = xw + 10 + nt_w("00" NT_DEG "00.0N"), xlo = xla + 12 + nt_w("000" NT_DEG "00.0E"),
       xc = xlo + 12 + nt_w("000" NT_DEG), xd = xc + 12 + nt_w("0000.0"), xcu = xd + 12 + nt_w("00000.0");
   int e = (396 - xcu) / 5;
   if (e > 0) { xla += e; xlo += 2 * e; xc += 3 * e; xd += 4 * e; xcu += 5 * e; }

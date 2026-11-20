@@ -7,7 +7,7 @@
 
 extern struct geod_geodesic geo_ell;   /* active ellipsoid */
 extern rhumb_t geo_rh;
-extern route_t *geo_routep;            /* generated plan, 128 waypoints, on the heap */
+extern route_t *geo_routep;            /* generated plan, ROUTE_MAX_WPT (512) points, on the heap */
 #define geo_route (*geo_routep)
 int  geo_route_alloc(void);           /* 1 = ready (allocates on first call) */
 extern int geo_ell_index;

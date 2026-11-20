@@ -1,6 +1,6 @@
 /* route.h - passage planner for NAV47: geodesic / rhumb / composite legs,
  * waypoint splitting, CSV and NMEA 0183 export.  No malloc; one route_t
- * holds the whole generated plan (~9 KB with ROUTE_MAX_WPT = 128).
+ * holds the whole generated plan (~37 KB with ROUTE_MAX_WPT = 512: 100 waypoints, split).
  * Angles in degrees, distances in metres (NM = 1852 m).
  */
 #ifndef GEO_ROUTE_H
@@ -11,7 +11,7 @@
 #include "geo_rhumb.h"
 
 #ifndef ROUTE_MAX_WPT
-#define ROUTE_MAX_WPT 128
+#define ROUTE_MAX_WPT 512
 #endif
 #define NM 1852.0
 
