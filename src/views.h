@@ -29,6 +29,7 @@ int  view_sky(Al *al, int frame);     /* frame of the name loop (0..); returns t
 void view_split(Al *al, int *first);   /* *first: the first body in the table (8 / 2 scroll it) */
 void view_anim(Al *al, int frames, double step, int upto);   /* frames 0..upto drawn (the trail) */
 void view_allsky(Al *al);
+void view_sky2(Al *al);              /* the dome: the zenith in the centre, N up */
 void view_moon(Al *al, int south);
 
 /* the top bar of every page: jl the shown local JD (UT + tz), local: LT or UT, the position, the page's name */

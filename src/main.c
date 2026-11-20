@@ -38,9 +38,9 @@
 /* ------------------------------------------------------------------ */
 /*  State (heap: a DMCP5 program has 8 KB of static RAM)              */
 /* ------------------------------------------------------------------ */
-enum { PG_VALM, PG_VSPLIT, PG_VSKY, PG_VALLSKY, PG_VMOON, PG_VANIM,
+enum { PG_VALM, PG_VSPLIT, PG_VSKY, PG_VALLSKY, PG_VMOON, PG_VANIM, PG_VSKY2,
        PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP, PG_CHART };
-#define IS_VIEW(p) ((p) <= PG_VANIM)
+#define IS_VIEW(p) ((p) <= PG_VSKY2)
 
 typedef struct {
   double lat, lon;          /* degrees, N+ E+ */
@@ -1460,6 +1460,7 @@ static void redraw(void) {
     case PG_VALLSKY: view_allsky(&N->al); break;
     case PG_VMOON: view_moon(&N->al, N->cfg.south); break;
     case PG_VANIM: view_anim(&N->al, ANIM_FRAMES, ANIM_STEP, vframe < ANIM_FRAMES ? vframe : ANIM_FRAMES - 1); break;
+    case PG_VSKY2: view_sky2(&N->al); break;
     }
   } else
     switch (page) {
@@ -1477,6 +1478,7 @@ static void redraw(void) {
     }
   if (page != PG_ROUTE && menu_page == 3) menu_page = 0;
   MENUS[2][4] = usbview_is_on() ? "USB*" : "USB";
+  MENUS[0][2] = page == PG_VSKY ? "SKY2" : "SKY";
   CHART_MENU[3] = chart_globe ? "MERC" : "GLOBE";
   lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0) ? EDIT_MENU :
                      page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : MENUS[menu_page]);
@@ -1548,7 +1550,7 @@ static void softkey(int fn) {
   switch (menu_page * 6 + fn) {
   case 0: go(PG_VALM); break;
   case 1: go(PG_VSPLIT); break;
-  case 2: go(PG_VSKY); break;
+  case 2: go(page == PG_VSKY ? PG_VSKY2 : PG_VSKY); break;         /* SKY again: SKY2, the dome */
   case 3: go(PG_VALLSKY); break;
   case 4: go(PG_VMOON); break;
   case 6: go(PG_VANIM); break;
@@ -1603,6 +1605,8 @@ static void handle_key(int key) {
     else if (key == KEY_9) step_time(24);
     else if (key == KEY_5) toff = 0;
     else if (key == KEY_0 && page == PG_VMOON) { N->cfg.south ^= 1; cfg_save(); }
+    else if (key == KEY_0 && (page == PG_VSKY || page == PG_VALLSKY)) go(PG_VSKY2);
+    else if (key == KEY_0 && page == PG_VSKY2) go(PG_VSKY);
     else if (key == KEY_8 && page == PG_VSPLIT) split_first--;
     else if (key == KEY_2 && page == PG_VSPLIT) split_first++;
     else if (key == KEY_EXIT) go(PG_VALM);
