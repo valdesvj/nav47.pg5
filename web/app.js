@@ -99,7 +99,7 @@ const S = {
                        store.get("route", {})),
   objects: store.get("objects", []),
   view: store.get("view", { mode: "merc", lat0: 30, lon0: 10, k: 220 }),
-  tool: "move", objType: "platform", sel: null, showStreams: store.get("streams", false),
+  tool: "move", objType: "platform", sel: null, pass: { from: "", to: "" }, showStreams: store.get("streams", false),
 };
 const save = () => { store.set("route", S.route); store.set("objects", S.objects); store.set("view", S.view); store.set("pos", S.pos); store.set("times", S.times); };
 const zd = () => S.times === "zt" ? Math.round(S.pos[1] / 15) : 0;       /* the times shown: UT or ZT (the DR's zone) */
@@ -977,10 +977,27 @@ function refresh(first) {
   save(); draw(); routeCard(); checkCard(); planCard(); objList(); cmpCard(); voyCard();
 }
 
+/* a passage between two objects: the route replaced by them, planned round every zone */
+function passage(a, b) {
+  const A = S.objects.find(o => o.id === a), B = S.objects.find(o => o.id === b);
+  if (!A || !B || A === B) { alert("Choose two different objects: from and to."); return; }
+  S.pass = { from: a, to: b };
+  S.route.wps = [{ lat: A.lat, lon: A.lon, name: A.name, obj: A.id }, { lat: B.lat, lon: B.lon, name: B.name, obj: B.id }];
+  S.route.avoid = true; S.route.split = 0;
+  VOY.on = false; VOY.t = 0;
+  refresh(); fitRoute(); draw();
+}
 function routeCard() {
   const R = S.route, el = $("routecard"); if (!el) return;
   const ells = Array.from({ length: Module._api_ell_count() - 1 }, (_, i) => NAV.ell(i));
+  const objs = S.objects, opt = sel => objs.map(o => `<option value="${o.id}" ${o.id === sel ? "selected" : ""}>${esc(o.name)} (${OBJ[o.type].label})</option>`).join("");
   el.innerHTML = `<h2>Route</h2>
+    ${objs.length >= 2 ? `<div class="controls" style="background:var(--chip);border-radius:10px;padding:6px 8px;margin-bottom:8px">
+      <b>Passage</b> <label>from <select id="pfrom"><option value="">—</option>${opt(S.pass.from)}</select></label>
+      <label>to <select id="pto"><option value="">—</option>${opt(S.pass.to)}</select></label>
+      <button id="pgo" class="on">Plan</button>
+      <span class="meta" style="flex-basis:100%">The shortest way between the two, clear of every zone by ${R.clear} m; it starts and ends
+        ${R.margin} m outside their zones, on the side that makes it shortest.</span></div>` : ""}
     <div class="controls">
       <label>Sailing <select id="sail"><option value="0">RL rhumb line</option><option value="1">GC great circle</option><option value="2">CS composite</option></select></label>
       <label ${R.sail === 2 ? "" : "hidden"}>limit <input class="num" id="lim" type="number" min="10" max="85" step="1" value="${R.lim}">°</label>
@@ -1006,6 +1023,11 @@ function routeCard() {
     <div class="controls" style="margin-top:6px"><button id="wprev">Reverse</button><button id="wpclr">Clear</button>
       <button id="wpex">Example: Cape Town – Melbourne</button></div>`;
   $("sail").value = R.sail; $("ell").value = R.ell; $("split").value = R.split;
+  if ($("pgo")) {
+    $("pfrom").onchange = e => { S.pass.from = e.target.value; };
+    $("pto").onchange = e => { S.pass.to = e.target.value; };
+    $("pgo").onclick = () => passage(S.pass.from, S.pass.to);
+  }
   const upd = () => { refresh(); };
   $("sail").onchange = e => { R.sail = +e.target.value; upd(); };
   $("lim").onchange = e => { R.lim = Math.max(10, Math.min(85, +e.target.value || 60)); upd(); };
@@ -1123,7 +1145,7 @@ function objList() {
       <td><input class="name" data-on="${o.id}" value="${esc(o.name)}"></td>
       <td><input class="pos mono" data-op="${o.id}" value="${FMT.pos(o.lat, o.lon)}"></td>
       <td><input class="num" style="width:4.5em" type="number" min="0" step="10" data-or="${o.id}" value="${o.r}"></td>
-      <td><button class="small" data-ofrom="${o.id}" title="a waypoint at it">＋WP</button><button class="small" data-ox="${o.id}">✕</button></td></tr>`).join("")}</table></div>
+      <td style="white-space:nowrap"><button class="small ${S.pass.from === o.id ? "on" : ""}" data-pf="${o.id}" title="the passage from it">From</button><button class="small ${S.pass.to === o.id ? "on" : ""}" data-pt="${o.id}" title="the passage to it">To</button><button class="small" data-ofrom="${o.id}" title="a waypoint at it (added to the route)">＋WP</button><button class="small" data-ox="${o.id}">✕</button></td></tr>`).join("")}</table></div>
     <div class="meta">Load a CSV (<span class="mono">type, name, lat, lon[, zone m]</span> or <span class="mono">name, lat, lon</span>; positions as
       27.2 or 27 12.0N), GeoJSON, GPX or KML points. They stay in this browser, never sent anywhere.</div>`;
   const find = id => S.objects.find(o => o.id === id);
@@ -1135,6 +1157,9 @@ function objList() {
   document.querySelectorAll("[data-or]").forEach(s => s.onchange = e => { find(s.dataset.or).r = Math.max(0, +e.target.value || 0); upd(); });
   document.querySelectorAll("[data-ox]").forEach(b => b.onclick = () => { S.sel = { t: "o", id: b.dataset.ox }; delSel(); });
   document.querySelectorAll("[data-ofrom]").forEach(b => b.onclick = () => { const o = find(b.dataset.ofrom); S.route.wps.push({ lat: o.lat, lon: o.lon, name: o.name, obj: o.id }); upd(); });
+  /* From, then To: the passage is planned as soon as both are chosen */
+  document.querySelectorAll("[data-pf]").forEach(b => b.onclick = () => { S.pass.from = b.dataset.pf; if (S.pass.to && S.pass.to !== S.pass.from) passage(S.pass.from, S.pass.to); else { routeCard(); objList(); } });
+  document.querySelectorAll("[data-pt]").forEach(b => b.onclick = () => { S.pass.to = b.dataset.pt; if (S.pass.from && S.pass.to !== S.pass.from) passage(S.pass.from, S.pass.to); else { routeCard(); objList(); } });
   document.querySelectorAll("tr[data-oid]").forEach(tr => tr.onclick = e => { if (e.target.tagName !== "TD") return; S.sel = { t: "o", id: tr.dataset.oid }; const o = find(tr.dataset.oid);
     S.view.lat0 = o.lat; S.view.lon0 = o.lon; S.view.k = Math.max(S.view.k, CH.W / (0.15 * D2R)); clampView(); draw(); objList(); });
   $("objload").onchange = e => Promise.all([...e.target.files].map(f => f.text().then(t => parseObjects(t, f.name)))).then(ls => {
@@ -1318,6 +1343,8 @@ const APP = {
     const wq = location.hash.match(/wps=([-\d.,;]+)/);           /* #wps=26.5,50.8;25,52.2: waypoints (tests) */
     if (wq) { S.route.wps = wq[1].split(";").map(p => { const [a, b] = p.split(",").map(Number); return { lat: a, lon: b, name: "", obj: null }; });
               S.route.sail = 0; S.route.split = 0; refresh(); fitRoute(); draw(); }
+    const ps = location.hash.match(/pass=([^&]+)/);                 /* #pass=Alpha,Delta: a passage by names (demos) */
+    if (ps) { const [x, y] = decodeURIComponent(ps[1]).split(","), f = n => (S.objects.find(o => o.name === n) || {}).id; passage(f(x), f(y)); }
     const sp = location.hash.match(/spd=([\d.]+)/);               /* #spd=480: the speed (demos) */
     if (sp) { S.route.speed = +sp[1]; voyCard(); draw(); }
     const zm = location.hash.match(/zoom=([\d.]+)/);              /* #zoom=6: closer (demos) */

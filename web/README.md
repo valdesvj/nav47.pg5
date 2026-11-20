@@ -68,7 +68,9 @@ route (and 3 km round a Port object) are left out, since a route starts and ends
 
 ## Planning round the zones
 
-With *keep out of the zones* on:
+**A passage between two objects:** *Passage* (Route card) from one object to another and *Plan*, or *From* / *To* in
+the object list: the route becomes the shortest way between them, clear of every zone. More generally,
+with *keep out of the zones* on:
 
 - no leg enters a zone, and every zone is passed by the **clearance** (50 m by default);
 - a leg **from or to an object** (＋ Waypoint on an object, or ＋WP in the list) starts or ends on a circle its zone +
@@ -94,6 +96,6 @@ google-chrome web/index.html
 
 Never private data: `make web` makes the private tide table empty, whatever `TIDE47` says.
 
-Links for demos: `#tab=route&ex=field`, `#tab=route&wps=26.6,50.4;25,52.4` (a leg over Qatar), `#tab=route&ex=cape&mode=globe&voy=0.4`, `#tab=calc&keys=F6,F4,RUN,RUN,RUN`.
+Links for demos: `#tab=route&ex=field`, `#tab=route&ex=field&pass=Buoy%20N1,Echo`, `#tab=route&wps=26.6,50.4;25,52.4` (a leg over Qatar), `#tab=route&ex=cape&mode=globe&voy=0.4`, `#tab=calc&keys=F6,F4,RUN,RUN,RUN`.
 
 Not for navigation: check against official charts, the Nautical Almanac and the tide tables.
