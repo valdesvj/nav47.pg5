@@ -22,7 +22,7 @@ const FMT = {
   hm(h) { if (!(h < 98)) return "--:--"; const m = Math.round(h * 60); return String(Math.floor(m / 60) % 24).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"); },
   dur(h) { const m = Math.max(0, Math.round(h * 60)), d = Math.floor(m / 1440); return (d ? d + "d " : "") + String(Math.floor(m / 60) % 24).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0"); },
   dt(jd, off) {                                               /* dd-mm hh:mm in UT + off hours */
-    const t = new Date((jd - 2440587.5) * 864e5 + (off || 0) * 36e5);
+    const t = new Date(Math.round(((jd - 2440587.5) * 864e5 + (off || 0) * 36e5) / 6e4) * 6e4);   /* to the minute */
     const p = n => String(n).padStart(2, "0");
     return p(t.getUTCDate()) + "-" + p(t.getUTCMonth() + 1) + " " + p(t.getUTCHours()) + ":" + p(t.getUTCMinutes());
   },
@@ -99,13 +99,121 @@ const S = {
                        store.get("route", {})),
   objects: store.get("objects", []),
   view: store.get("view", { mode: "merc", lat0: 30, lon0: 10, k: 220 }),
-  tool: "move", objType: "platform", sel: null,
+  tool: "move", objType: "platform", sel: null, showStreams: store.get("streams", false),
 };
 const save = () => { store.set("route", S.route); store.set("objects", S.objects); store.set("view", S.view); store.set("pos", S.pos); store.set("times", S.times); };
 const zd = () => S.times === "zt" ? Math.round(S.pos[1] / 15) : 0;       /* the times shown: UT or ZT (the DR's zone) */
 const nowJd = () => S.live ? jdOf(Date.now()) : S.jd;
 let uid = Date.now();
 const newId = () => "o" + (uid++).toString(36);
+
+/* ---------------------------------------------------------------- tide files: NOAA's currents (in the page) and yours
+ * Your .TID stations and .FLW atlas (made by tools/gen_tides.py files) stay in this browser (localStorage), never sent
+ * anywhere; the calculator's own parsers read them. They also go to the Calculator tab's disk (/NAV47/TIDES/). */
+const TFILES = {
+  KEY: "nav47web:tidefile:",
+  call(fn, text, extra) {
+    const n = Module.lengthBytesUTF8(text) + 1, p = Module._malloc(n);
+    Module.stringToUTF8(text, p, n);
+    const r = extra === undefined ? fn(p) : fn(p, extra);
+    Module._free(p);
+    return r;
+  },
+  names() { return Object.keys(localStorage).filter(k => k.startsWith(TFILES.KEY)).map(k => k.slice(TFILES.KEY.length)).sort(); },
+  noaa: [],
+  init() {
+    try { TFILES.noaa = Module.FS.readdir("/noaa").filter(f => /\.TID$/i.test(f)).sort(); } catch (e) { TFILES.noaa = []; }
+    for (const f of TFILES.noaa) TFILES.call(Module._api_tid_load, Module.FS.readFile("/noaa/" + f, { encoding: "utf8" }), 1);
+    TFILES.reload();
+  },
+  reload() {                                                 /* your files, again from the start */
+    Module._api_tid_forget(); Module._api_flw_forget();
+    const out = [];
+    for (const nm of TFILES.names()) {
+      const t = localStorage.getItem(TFILES.KEY + nm), flw = /^NAV47 FLOW/.test(t);
+      const r = TFILES.call(flw ? Module._api_flw_load : Module._api_tid_load, t, flw ? undefined : 0);
+      out.push({ name: nm, flw, n: r, err: r > 0 ? "" : NAV.str(Module._api_err()) });
+    }
+    TFILES.loaded = out;
+    STREAMS.list = null;
+    return out;
+  },
+  add(files, done) {
+    Promise.all([...files].map(f => f.text().then(t => {
+      t = t.replace(/\r/g, "");
+      if (!/^NAV47 (TIDES|FLOW)/.test(t)) return `${f.name}: not a NAV47 .TID or .FLW file`;
+      try { localStorage.setItem(TFILES.KEY + f.name.toUpperCase(), t); } catch (e) { return `${f.name}: too big for this browser's storage`; }
+      return "";
+    }))).then(errs => { TFILES.reload(); done(errs.filter(Boolean)); });
+  },
+  remove(nm) { localStorage.removeItem(TFILES.KEY + nm); TFILES.reload(); },
+  /* the card: load, the list, forget (the Tide and Flow tabs) */
+  card(redraw) {
+    const L = TFILES.loaded || [];
+    return `<div class="card"><h2>Your tide files <span class="meta">.TID stations, .FLW atlas</span></h2>
+      <div class="controls"><label>Load <input type="file" class="tfload" accept=".tid,.TID,.flw,.FLW,.txt" multiple></label></div>
+      <table>${L.map(f => `<tr><td class="mono">${esc(f.name)}</td><td>${f.flw ? "FLOW atlas" : "stations"}</td>
+        <td class="num">${f.n > 0 ? f.n + (f.flw ? " sea cells" : " stations") : `<span style="color:var(--now)">${esc(f.err)}</span>`}</td>
+        <td><button class="small tfx" data-n="${esc(f.name)}">forget</button></td></tr>`).join("") || `<tr><td class="meta">None loaded.</td></tr>`}</table>
+      <div class="meta">Your own stations and FLOW atlas (Aramco, Admiralty ...): <span class="mono">make tidefiles TIDE47=~/opt/tide47</span>
+        writes them to <span class="mono">build/tidefiles/</span> (as for the calculator's /NAV47/TIDES/). They stay in this browser,
+        never sent anywhere and never in the repository; the Calculator tab gets them too (its FILES, TIDE, T&amp;F pages).
+        The page itself has NOAA's ${TFILES.noaa.length ? "current stations (" + TFILES.noaa.join(", ") + ")" : "public stations"}.</div></div>`;
+  },
+  bind(el, redraw) {
+    el.querySelectorAll(".tfload").forEach(i => i.onchange = e => TFILES.add(e.target.files, errs => { if (errs.length) alert(errs.join("\n")); redraw(); }));
+    el.querySelectorAll(".tfx").forEach(b => b.onclick = () => { TFILES.remove(b.dataset.n); redraw(); });
+  },
+};
+/* the stream stations (NOAA's, yours): their positions, for the chart and the Flow tab */
+const STREAMS = {
+  list: null,
+  all() {
+    if (STREAMS.list) return STREAMS.list;
+    const n = Module._api_tide_count(), out = [];
+    for (let i = 0; i < n; i++) {
+      Module._api_tide_info(i); const o = NAV.o();
+      if (o[3] !== 0) out.push({ i, lat: o[0], lon: o[1], kind: o[3], name: NAV.str(Module._api_tide_name(i)), src: Module._api_tide_src(i) });
+    }
+    return (STREAMS.list = out);
+  },
+  now(i, jd) { if (!Module._api_stream_now(i, jd)) return null; const o = NAV.o(); return { kn: o[0], set: o[1] }; },
+};
+function arrowPath(g, x, y, set, len) {
+  const a = set * D2R, x1 = x + len * Math.sin(a), y1 = y - len * Math.cos(a);
+  g.beginPath(); g.moveTo(x - len * 0.3 * Math.sin(a), y + len * 0.3 * Math.cos(a)); g.lineTo(x1, y1);
+  g.moveTo(x1, y1); g.lineTo(x1 - 6 * Math.sin(a - 0.45), y1 + 6 * Math.cos(a - 0.45));
+  g.moveTo(x1, y1); g.lineTo(x1 - 6 * Math.sin(a + 0.45), y1 + 6 * Math.cos(a + 0.45)); g.stroke();
+}
+const rateCol = kn => kn < 0.5 ? "#4f8fc0" : kn < 1.5 ? "#2a9d6a" : kn < 3 ? "#d99a00" : "#c0392b";
+/* the streams on the chart at the shown time: the stations, and the atlas's cells when the view is small */
+function drawStreams() {
+  if (!S.showStreams) return;
+  const g = CH.g, J = nowJd(), span = spanDeg();
+  g.save(); g.lineWidth = 2.2;
+  for (const st of STREAMS.all()) {
+    const [x, y, v] = proj(st.lat, st.lon);
+    if (!v || x < -20 || y < -20 || x > CH.W + 20 || y > CH.H + 20) continue;
+    const q = STREAMS.now(st.i, J); if (!q) continue;
+    const kn = Math.abs(q.kn);
+    g.strokeStyle = rateCol(kn); arrowPath(g, x, y, q.set, 10 + 7 * Math.min(kn, 4));
+    if (span < 3) { g.fillStyle = css("--ink"); g.font = "11px system-ui"; g.fillText(`${kn.toFixed(1)} kn`, x + 8, y + 12); }
+  }
+  if (Module._api_flw_have() && span < 4) {
+    const c = unproj(CH.W / 2, CH.H / 2);
+    if (c && Module._api_flow(c[0], c[1], J, 0, 0, 0) !== undefined) {
+      Module._api_flw_grid(); const o = NAV.o(), la0 = o[0], lo0 = o[1], st = o[2] / 60, nla = o[3], nlo = o[4];
+      for (let a = 0; a < nla; a++) for (let b = 0; b < nlo; b++) {
+        const la = la0 + (a + 0.5) * st, lo = lo0 + (b + 0.5) * st, [x, y, v] = proj(la, lo);
+        if (!v || x < 0 || y < 0 || x > CH.W || y > CH.H) continue;
+        if (!Module._api_flow_at(la, lo, -1)) continue;
+        const q = NAV.o(), kn = q[1];
+        g.strokeStyle = rateCol(kn); g.lineWidth = 1.6; arrowPath(g, x, y, q[0], 6 + 6 * Math.min(kn, 3));
+      }
+    }
+  }
+  g.restore();
+}
 
 /* ---------------------------------------------------------------- the coastline (COAST_C/L.BIN inside nav47.js) */
 const COAST = {};
@@ -278,10 +386,54 @@ function compute() {
   const plan = NAV.plan(pts, R.sail, R.lim, [0, 1, 2, 3][R.split], R.val);
   ROUTE = { pts, plan, check: check(plan.rows, zones, warn) };
 }
-/* every leg of the plan, sampled every ~25 m (or 400 a leg), against every zone near it: exact distances */
+/* land: does a leg as sailed cross the coastline (Natural Earth 50 m, its land polygons)? The pieces of the leg, every
+   ~2 km, against the polygons' edges; the first and last 3 km of the route and 3 km round a port are left out
+   (a route starts and ends in harbour). Returns the crossings [lat, lon]. */
+function segX(ax, ay, bx, by, cx, cy, dx, dy) {
+  const d = (bx - ax) * (dy - cy) - (by - ay) * (dx - cx);
+  if (Math.abs(d) < 1e-15) return null;
+  const t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / d, u = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / d;
+  return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : null;
+}
+function landCrossings(P, exempt) {
+  const polys = loadCoast("L"), out = [];
+  for (let i = 1; i < P.length; i++) {
+    let [a1, o1] = P[i - 1], [a2, o2] = P[i];
+    o2 = nearLon(o2, o1);
+    const s = Math.min(a1, a2), n = Math.max(a1, a2), w = Math.min(o1, o2), e = Math.max(o1, o2);
+    for (const Q of polys) {
+      if (Q.lev !== 1 || Q.n < s || Q.s > n) continue;
+      for (const off of [-360, 0, 360]) {
+        if (Q.e + off < w || Q.w + off > e) continue;
+        const la = Q.lat, lo = Q.lon;
+        for (let j = 1; j < la.length; j++) {
+          const x1 = lo[j - 1] + off, y1 = la[j - 1], x2 = lo[j] + off, y2 = la[j];
+          if (Math.max(x1, x2) < w || Math.min(x1, x2) > e || Math.max(y1, y2) < s || Math.min(y1, y2) > n) continue;
+          const t = segX(o1, a1, o2, a2, x1, y1, x2, y2);
+          if (t === null) continue;
+          const p = [a1 + (a2 - a1) * t, nearLon(o1 + (o2 - o1) * t, 0)];
+          if (!exempt(p)) out.push(p);
+        }
+      }
+    }
+  }
+  return out;
+}
+/* every leg of the plan, sampled every ~25 m (or 400 a leg), against every zone near it: exact distances; and land */
 function check(rows, zones, warn) {
-  const out = { min: Infinity, minObj: null, minLeg: 0, hits: [], warn: warn.slice() };
-  if (rows.length < 2 || !zones.length) return out;
+  const out = { min: Infinity, minObj: null, minLeg: 0, hits: [], warn: warn.slice(), land: [] };
+  if (rows.length < 2) return out;
+  /* land */
+  const ports = S.objects.filter(o => o.type === "port"), first = rows[0], last = rows[rows.length - 1];
+  const exempt = p => NAV.inv(p[0], p[1], first.lat, first.lon).s < 3000 || NAV.inv(p[0], p[1], last.lat, last.lon).s < 3000 ||
+    ports.some(o => NAV.inv(p[0], p[1], o.lat, o.lon).s < 3000);
+  for (let i = 1; i < rows.length; i++) {
+    const a = rows[i - 1], b = rows[i], k = rows[i].kind !== "G" && (S.route.sail === 0 || rows[i].kind === "P" || rows[i].kind === "R");
+    const n = Math.max(2, Math.min(600, Math.ceil(rows[i].leg / 2000)));
+    const X = landCrossings(sailPts(a, b, n, k), exempt);
+    if (X.length) out.land.push({ leg: i, at: X[0], n: X.length });
+  }
+  if (!zones.length) return out;
   const rhumb = S.route.sail === 0;
   for (let i = 1; i < rows.length; i++) {
     const a = rows[i - 1], b = rows[i], len = rows[i].leg;
@@ -563,6 +715,7 @@ function draw() {
   const step = drawGrid();
   const which = drawCoast();
   if (V.mode === "globe") { g.beginPath(); g.arc(CH.W / 2, CH.H / 2, V.k, 0, 2 * Math.PI); g.strokeStyle = css("--soft"); g.lineWidth = 1.5; g.stroke(); }
+  drawStreams();
   for (const o of S.objects) drawObj(o, S.sel && S.sel.t === "o" && S.sel.id === o.id);
   /* the route */
   const R = S.route, wps = R.wps, rows = ROUTE.plan.rows;
@@ -580,8 +733,12 @@ function draw() {
   }
   g.strokeStyle = css("--track"); g.lineWidth = 3;
   for (let i = 1; i < rows.length; i++) polyline(rows[i].kind === "G" ? geodLine(rows[i - 1], rows[i]) : rhumbLine(rows[i - 1], rows[i]));
-  if (ROUTE.check) for (const h of ROUTE.check.hits) {        /* legs into a zone: red */
+  if (ROUTE.check) for (const h of ROUTE.check.hits.concat(ROUTE.check.land)) {   /* legs into a zone or over land: red */
     g.strokeStyle = css("--now"); g.lineWidth = 4; polyline(geodLine(rows[h.leg - 1], rows[h.leg]));
+  }
+  if (ROUTE.check) for (const L of ROUTE.check.land) {         /* where: a red cross */
+    const [x, y, v] = proj(L.at[0], L.at[1]); if (!v) continue;
+    g.strokeStyle = css("--now"); g.lineWidth = 3; g.beginPath(); g.moveTo(x - 7, y - 7); g.lineTo(x + 7, y + 7); g.moveTo(x + 7, y - 7); g.lineTo(x - 7, y + 7); g.stroke();
   }
   g.font = "12px system-ui";
   rows.forEach((w, i) => {
@@ -612,6 +769,12 @@ function draw() {
   }
   g.fillStyle = css("--soft"); g.fillText(`${which === "L" ? "Natural Earth 50 m" : "Natural Earth 110 m"} · grid ${step}°`, 10, CH.H - (VOY.on ? 8 : 10));
   hud();
+  const al = $("alarm");
+  if (al) {
+    const c = ROUTE.check, n1 = c ? c.land.length : 0, n2 = c ? c.hits.length : 0;
+    al.hidden = !(n1 || n2);
+    al.textContent = `⛔ Not a safe route: ${[n1 ? n1 + " leg" + (n1 > 1 ? "s" : "") + " over land" : "", n2 ? n2 + " leg" + (n2 > 1 ? "s" : "") + " into a keep-out zone" : ""].filter(Boolean).join(", ")}`;
+  }
 }
 function resize() {
   const cv = CH.cv; if (!cv) return;
@@ -674,9 +837,12 @@ function routeTab() {
       <select id="objtype">${Object.entries(OBJ).map(([k, v]) => `<option value="${k}">${v.label}${v.r ? " (" + v.r + " m)" : ""}</option>`).join("")}</select>
       <span style="flex:1"></span>
       <button id="mode">${S.view.mode === "merc" ? "🌍 Globe" : "🗺 Mercator"}</button>
+      <button id="streams" title="the tidal streams at the time shown (NOAA's stations, yours, your FLOW atlas)">〰 Streams</button>
       <button id="fit">Fit</button> <button id="del" title="delete the selected waypoint or object (Delete key)">Delete</button>
     </div>
-    <div class="chartwrap"><canvas id="chart"></canvas><div class="hud" id="hud" hidden></div><div class="tip" id="tip"></div></div>
+    <div class="chartwrap"><canvas id="chart"></canvas><div class="hud" id="hud" hidden></div><div class="tip" id="tip"></div>
+      <div id="alarm" hidden style="position:absolute;top:10px;left:50%;transform:translateX(-50%);background:var(--now);color:#fff;font-weight:700;
+        padding:6px 14px;border-radius:999px;box-shadow:0 2px 10px rgba(0,0,0,.25)"></div></div>
     <div class="legend">
       <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--track)" stroke-width="3"/></svg> the plan</span>
       <span><svg width="26" height="8"><line x1="0" y1="4" x2="26" y2="4" stroke="var(--soft)" stroke-dasharray="7 5" stroke-width="1.3"/></svg> rhumb line</span>
@@ -701,6 +867,8 @@ function routeTab() {
     S.view.k = S.view.mode === "merc" ? CH.W / (s0 * D2R) : (CH.W / 2) / Math.sin(Math.min(89, s0 / 2) * D2R); clampView();
     $("mode").textContent = S.view.mode === "merc" ? "🌍 Globe" : "🗺 Mercator"; save(); draw(); };
   $("fit").onclick = () => { fitRoute(); save(); draw(); };
+  $("streams").classList.toggle("on", !!S.showStreams);
+  $("streams").onclick = () => { S.showStreams = !S.showStreams; store.set("streams", S.showStreams); $("streams").classList.toggle("on", S.showStreams); draw(); };
   $("del").onclick = delSel;
   chartEvents();
   tools();
@@ -866,6 +1034,8 @@ function checkCard() {
   if (rows.length < 2) { el.innerHTML = `<h2>Check</h2><div class="meta">Two waypoints or more make a route.</div>`; return; }
   const zones = S.objects.filter(o => o.r > 0);
   const chips = [`<span class="chip">${FMT.nm(rows[rows.length - 1].cum)} NM</span>`, `<span class="chip">${ROUTE.pts.length} points, ${rows.length} with the split</span>`];
+  if (c.land.length) chips.unshift(`<span class="chip warn">⛔ ${c.land.length} leg${c.land.length > 1 ? "s" : ""} over land</span>`);
+  else chips.push(`<span class="chip ok">✓ no leg over land</span>`);
   if (zones.length) {
     if (c.hits.length) chips.push(`<span class="chip warn">⚠ ${c.hits.length} leg${c.hits.length > 1 ? "s" : ""} into a zone</span>`);
     else if (c.min < Infinity) chips.push(`<span class="chip ${c.min >= Math.min(R.clear, R.margin) - 1 ? "ok" : "warn"}">✓ clear of every zone: the closest ${FMT.m(c.min)} off ${esc(c.minObj.name)} (leg ${c.minLeg})</span>`);
@@ -878,8 +1048,11 @@ function checkCard() {
   const inz = [];
   R.wps.forEach((w, i) => { if (w.obj) return; for (const z of zones) { const d = NAV.inv(w.lat, w.lon, z.lat, z.lon).s; if (d < z.r) inz.push(`WP ${i + 1} is inside the ${z.r} m zone of ${esc(z.name)} (${Math.round(d)} m off).`); } });
   el.innerHTML = `<h2>Check</h2><div class="chips">${chips.join("")}</div>
-    ${c.hits.map(h => `<div class="meta warn" style="color:var(--now)">Leg ${h.leg} goes ${FMT.m(h.by)} into the ${h.obj.r} m zone of ${esc(h.obj.name)}.</div>`).join("")}
+    ${c.land.map(L => `<div class="meta" style="color:var(--now)">⛔ Leg ${L.leg} crosses the coast near ${FMT.pos(L.at[0], L.at[1])}${L.n > 1 ? ` (${L.n} times)` : ""}.</div>`).join("")}
+    ${c.hits.map(h => `<div class="meta warn" style="color:var(--now)">⛔ Leg ${h.leg} goes ${FMT.m(h.by)} into the ${h.obj.r} m zone of ${esc(h.obj.name)}.</div>`).join("")}
     ${c.warn.concat(inz).map(w => `<div class="meta" style="color:var(--now)">${w}</div>`).join("")}
+    <div class="meta">Land: the Natural Earth 50 m coastline (simplified to ~2 km): it finds a leg across a headland, an island or a
+      peninsula, not close inshore; the first and last 3 km of the route (and round a Port object) are left out. Check on the official chart.</div>
     <div class="meta">${R.avoid ? `The route passes every zone by ${R.clear} m or more; from or to an object it starts or ends ${R.margin} m outside its zone (${500 + R.margin} m from a platform), on the side that makes the route shortest. Checked on the ${["rhumb lines", "great circles", "legs"][R.sail]} as sailed, with exact distances.` : "Keeping out of the zones is off."} ${ROUTE.ms ? `(${Math.round(ROUTE.ms)} ms)` : ""}</div>`;
 }
 function planCard() {
@@ -1057,6 +1230,8 @@ function voyCard() {
       <label>Departure UT <input type="datetime-local" id="etd" value="${iso}" step="60"></label><button id="etdnow" class="small">now</button></div>
     <div class="controls" style="margin-top:6px"><button id="voyplay">Play</button><input type="range" id="voyt" min="0" max="1000" value="${Math.round(VOY.t * 1000)}" style="flex:1">
       <label><input type="checkbox" id="follow" checked> follow</label></div>
+    ${ROUTE.check && (ROUTE.check.land.length || ROUTE.check.hits.length) ? `<div class="meta" style="color:var(--now);font-weight:600">⛔ Not a safe route
+      (${[ROUTE.check.land.length ? "over land" : "", ROUTE.check.hits.length ? "into a keep-out zone" : ""].filter(Boolean).join(", ")}): see Check.</div>` : ""}
     <div class="meta">${FMT.nm(VOY.total())} NM in ${FMT.dur(H)}: arrival ${FMT.dt(etd + H / 24, zd())} ${zd() ? "ZT" : "UT"}. The whole voyage plays in ${VOY.dur} s.</div>`;
   $("vlen").onchange = e => { R.len = Math.max(5, Math.min(500, +e.target.value || 100)); save(); draw(); };
   $("speed").onchange = e => { R.speed = Math.max(1, Math.min(1000, +e.target.value || 12)); save(); voyCard(); planCard(); draw(); };
@@ -1069,13 +1244,14 @@ function voyCard() {
 }
 
 /* ---------------------------------------------------------------- the page */
-const TABS = [["route", "Route"], ["almanac", "Almanac"], ["sky", "Sky"], ["tide", "Tide"], ["zones", "Zones"], ["calc", "Calculator"]];
+const TABS = [["route", "Route"], ["weather", "Weather"], ["almanac", "Almanac"], ["sky", "Sky"], ["tide", "Tide"], ["flow", "Flow"], ["zones", "Zones"], ["calc", "Calculator"]];
 function showTab(t) {
   S.tab = t; store.set("tab", t);
   document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
   TABS.forEach(([k]) => $("t-" + k).hidden = k !== t);
   if (t === "route") resize();
   else if (t === "calc") CALC.start();
+  else if (t === "weather") WX.show();
   else if (typeof TABS2 !== "undefined" && TABS2[t]) TABS2[t]();
 }
 function header() {
@@ -1127,6 +1303,7 @@ const APP = {
   start() {
     $("tabs").innerHTML = TABS.map(([k, t]) => `<button class="tab" data-tab="${k}">${t}</button>`).join("");
     document.querySelectorAll(".tab").forEach(b => b.onclick = () => showTab(b.dataset.tab));
+    TFILES.init();
     header();
     routeTab();
     const h = location.hash.match(/tab=(\w+)/);
@@ -1138,10 +1315,14 @@ const APP = {
     if (/test=avoid/.test(location.hash)) selfTest();
     const vt = location.hash.match(/voy=([\d.]+)/);              /* #voy=0.5: the voyage half-way (demos) */
     if (vt) { VOY.on = true; VOY.t = Math.min(1, +vt[1]); const p = VOY.at(); if (p) { S.view.lat0 = p.lat; S.view.lon0 = p.lon; clampView(); } draw(); voyUI(); }
+    const wq = location.hash.match(/wps=([-\d.,;]+)/);           /* #wps=26.5,50.8;25,52.2: waypoints (tests) */
+    if (wq) { S.route.wps = wq[1].split(";").map(p => { const [a, b] = p.split(",").map(Number); return { lat: a, lon: b, name: "", obj: null }; });
+              S.route.sail = 0; S.route.split = 0; refresh(); fitRoute(); draw(); }
     const sp = location.hash.match(/spd=([\d.]+)/);               /* #spd=480: the speed (demos) */
     if (sp) { S.route.speed = +sp[1]; voyCard(); draw(); }
     const zm = location.hash.match(/zoom=([\d.]+)/);              /* #zoom=6: closer (demos) */
     if (zm) { S.view.k *= +zm[1]; clampView(); draw(); }
   },
-  download, fmt: FMT, nav: NAV, state: S, parsePos,
+  route: () => ROUTE.plan.rows,
+  download, fmt: FMT, nav: NAV, state: S, parsePos, tfiles: TFILES, streams: STREAMS, loadCoast, arrowPath, rateCol, showTab,
 };

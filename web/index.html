@@ -96,9 +96,11 @@
 <nav class="tabs" id="tabs"></nav>
 <main>
   <section id="t-route"></section>
+  <section id="t-weather" hidden></section>
   <section id="t-almanac" hidden></section>
   <section id="t-sky" hidden></section>
   <section id="t-tide" hidden></section>
+  <section id="t-flow" hidden></section>
   <section id="t-zones" hidden></section>
   <section id="t-calc" hidden>
     <div class="calcwrap">
@@ -138,6 +140,7 @@
 <script src="calc.js"></script>
 <script src="app.js"></script>
 <script src="tabs.js"></script>
+<script src="weather.js"></script>
 <script>
 window.Module = {
   nav47_lcd: fb => CALC.lcd(fb),

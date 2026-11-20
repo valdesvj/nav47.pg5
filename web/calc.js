@@ -86,6 +86,7 @@ const CALC = (() => {
   function saveAll() {
     const FS = Module.FS;
     for (const p of walk(FS, "/simdisk", [])) {
+      if (p.startsWith("/simdisk/NAV47/TIDES/")) continue;  /* your tide files: kept once, by the page */
       try { localStorage.setItem(PREFIX + p, FS.readFile(p, { encoding: "utf8" })); } catch (e) { /* full */ }
     }
     listFiles();
@@ -105,6 +106,13 @@ const CALC = (() => {
       FS.writeFile("/simdisk/NAV47/NAV47.CFG", "NAV47 CFG 1\nTZ " + tz.toFixed(4) + "\n");
     }
     if (!localStorage.getItem(PREFIX + "/simdisk/NAV47/ROUTE.TXT")) FS.writeFile("/simdisk/NAV47/ROUTE.TXT", ROUTES.cape);
+    /* your tide files (the page's Tide / Flow tabs): on the calculator's disk, and in its NAV47.CFG (4 at most) */
+    const TK = "nav47web:tidefile:", mine = Object.keys(localStorage).filter(k => k.startsWith(TK)).sort();
+    FS.mkdirTree("/simdisk/NAV47/TIDES");
+    for (const k of mine) FS.writeFile("/simdisk/NAV47/TIDES/" + k.slice(TK.length), localStorage.getItem(k));
+    let cfg = FS.readFile("/simdisk/NAV47/NAV47.CFG", { encoding: "utf8" }).split("\n").filter(l => l && !l.startsWith("FILE /NAV47/TIDES/"));
+    mine.slice(0, 4).forEach(k => cfg.push("FILE /NAV47/TIDES/" + k.slice(TK.length)));
+    FS.writeFile("/simdisk/NAV47/NAV47.CFG", cfg.join("\n") + "\n");
     listFiles();
     if (/keys=/.test(location.hash) || /tab=calc/.test(location.hash)) start();
   }

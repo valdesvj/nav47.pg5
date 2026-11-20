@@ -98,12 +98,13 @@ const TABS2 = (() => {
     const el = document.getElementById("t-tide"), n = Module._api_tide_count();
     const list = Array.from({ length: n }, (_, i) => {
       Module._api_tide_info(i); const o = N().o();
-      return { i, name: N().str(Module._api_tide_name(i)), region: N().str(Module._api_tide_region(i)), lat: o[0], lon: o[1], tz: o[2], kind: o[3] };
+      return { i, name: N().str(Module._api_tide_name(i)), region: N().str(Module._api_tide_region(i)), lat: o[0], lon: o[1], tz: o[2], kind: o[3],
+               src: Module._api_tide_src(i) };
     });
     if (tideSt === null) {                                    /* the nearest to the DR */
       const [la, lo] = S().pos;
       let best = 1e18;
-      for (const s of list) { const d = N().inv(la, lo, s.lat, s.lon).s; if (d < best) { best = d; tideSt = s.i; } }
+      for (const s of list) { if (s.kind !== 0) continue; const d = N().inv(la, lo, s.lat, s.lon).s; if (d < best) { best = d; tideSt = s.i; } }
     }
     const st = list[tideSt], t0 = new Date((jd() - 2440587.5) * 864e5 + st.tz * 36e5 + tideDay * 864e5);
     const y = t0.getUTCFullYear(), m = t0.getUTCMonth() + 1, d = t0.getUTCDate();
@@ -124,16 +125,19 @@ const TABS2 = (() => {
       g += `<line x1="${X(nowH)}" y1="${y0}" x2="${X(nowH)}" y2="${y1}" stroke="var(--now)" stroke-dasharray="4 3"/>`;
     }
     const regions = [...new Set(list.map(s => s.region))];
+    const srcTag = r => { const s0 = list.find(s => s.region === r); return s0 && s0.src === 2 ? " (your file)" : ""; };
     el.innerHTML = `<div class="card"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><h2>Tide · ${st.name}</h2>
       <span class="meta">${String(d).padStart(2, "0")}-${String(m).padStart(2, "0")}-${y} · zone time UTC${tz >= 0 ? "+" : ""}${tz} · ${F().pos(st.lat, st.lon)}</span></div>
-      <div class="controls"><select id="tst">${regions.map(r => `<optgroup label="${r}">${list.filter(s => s.region === r).map(s => `<option value="${s.i}" ${s.i === st.i ? "selected" : ""}>${s.name}</option>`).join("")}</optgroup>`).join("")}</select>
+      <div class="controls"><select id="tst">${regions.map(r => `<optgroup label="${r}${srcTag(r)}">${list.filter(s => s.region === r).map(s => `<option value="${s.i}" ${s.i === st.i ? "selected" : ""}>${s.name}</option>`).join("")}</optgroup>`).join("")}</select>
         <button id="tprev">← day</button><button id="ttoday">today</button><button id="tnext">day →</button></div>
       <div class="two" style="margin-top:8px"><svg viewBox="0 0 ${W} ${H}">${g}</svg>
       <div><table><tr><th></th><th class="num">Time</th><th class="num">${stream ? "Rate" : "Height"}</th>${stream ? '<th class="num">Set</th>' : ""}</tr>
       ${ev.map(e => `<tr><td>${stream ? (e.kind > 0 ? "Flood max" : e.kind < 0 ? "Ebb max" : "Slack") : (e.kind > 0 ? "HW" : "LW")}</td><td class="num mono">${F().hm(e.t)}</td>
         <td class="num mono">${e.v.toFixed(2)} ${unit}</td>${stream ? `<td class="num mono">${Math.round(e.set)}°</td>` : ""}</tr>`).join("")}</table>
-      <div class="meta">The calculator's own tide engine (Tide 47, the Schureman harmonic method), the public stations (NOAA, TICON-3).
-        ${stream ? "Rates in knots." : "Heights above the chart datum, metres."} Not for navigation: check against the official tide tables.</div></div></div></div>`;
+      <div class="meta">The calculator's own tide engine (Tide 47, the Schureman harmonic method); ${st.src === 2 ? "a station of your file" : st.src === 1 ? "NOAA's current stations (public domain)" : "the public stations (NOAA, TICON-3)"}.
+        ${stream ? "Rates in knots." : "Heights above the chart datum, metres."} Not for navigation: check against the official tide tables.</div></div></div></div>
+      ${APP.tfiles.card()}`;
+    APP.tfiles.bind(el, () => { tideSt = null; tide(); });
     document.getElementById("tst").onchange = e => { tideSt = +e.target.value; tide(); };
     document.getElementById("tprev").onclick = () => { tideDay--; tide(); };
     document.getElementById("tnext").onclick = () => { tideDay++; tide(); };
@@ -249,5 +253,94 @@ const TABS2 = (() => {
       });
     }
   }
-  return { almanac, sky, tide, zones };
+  /* ---------------------------------------------------------------- Flow: your FLOW atlas (as T&F), the stream stations */
+  let fStep = 0, fHour = -1, fWind = { dir: 0, kn: 0 };
+  function flow() {
+    const el = document.getElementById("t-flow"), [lat, lon] = S().pos, J = jd(), have = Module._api_flw_have();
+    let h = "";
+    if (have) {
+      Module._api_flow(lat, lon, J, fWind.dir, fWind.kn, fStep);
+      const o = Array.from(N().o().subarray(0, 40)), ref = N().str(Module._api_flw_ref()), src = N().str(Module._api_flw_source());
+      if (!o[36]) h += `<div class="card"><h2>Flow</h2><div class="meta" style="color:var(--now)">The atlas's reference station, ${esc(ref)}, is not loaded: load its .TID file below.</div></div>`;
+      else {
+        const tz = o[1], t0 = o[2], day = o[3], off = o[7], inAtlas = !!o[0];
+        const hwJd = Math.floor(J + tz / 24 + 0.5) - 0.5 + day + t0 / 24 - tz / 24;   /* the HW, UT */
+        const zl = `UTC${tz >= 0 ? "+" : ""}${tz}`;
+        const now = off >= -6 && off <= 6 ? Math.round(off) + 6 : -1;
+        const rows = Array.from({ length: 13 }, (_, k) => ({ k, set: o[8 + 2 * k], kn: o[9 + 2 * k], t: F().hm(((t0 + k - 6) % 24 + 24) % 24) }));
+        const svgArrow = (set, kn) => { const L = 8 + 9 * Math.min(kn, 2) / 2, a = set * Math.PI / 180;
+          return `<svg width="26" height="26" viewBox="-13 -13 26 26" style="display:inline-block;width:26px;vertical-align:middle"><g transform="rotate(${set})"><line x1="0" y1="${L / 2}" x2="0" y2="${-L / 2}" stroke="${APP.rateCol(kn)}" stroke-width="2.4"/><path d="M0 ${-L / 2 - 1}l-4 6h8z" fill="${APP.rateCol(kn)}"/></g></svg>`; };
+        h += `<div class="card"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><h2>Flow · ${esc(src || "FLOW atlas")}</h2>
+          <span class="meta">DR ${F().pos(lat, lon)} · reference ${esc(ref)}: HW ${F().dt(hwJd, tz)} ${zl} · ${o[4].toFixed(2)} m · range ${o[5].toFixed(2)} m · springs × ${o[6].toFixed(2)}</span></div>
+          <div class="controls"><button id="fprev">← HW</button><button id="fnow">this tide</button><button id="fnext">HW →</button>
+            <label>Wind from <input class="num" id="fwd" type="number" min="0" max="360" step="10" value="${fWind.dir}">°</label>
+            <label><input class="num" id="fwk" type="number" min="0" max="80" step="1" value="${fWind.kn}"> kn</label></div>
+          ${inAtlas ? `<div class="two" style="margin-top:8px"><div><table><tr><th></th><th>${zl}</th><th></th><th class="num">Set</th><th class="num">Rate</th></tr>
+            ${rows.map(r => `<tr class="click${r.k === now ? " sel" : ""}${r.k === fHour ? " sel" : ""}" data-fh="${r.k}"><td>${r.k === 6 ? "HW" : (r.k < 6 ? "" : "+") + (r.k - 6)}</td>
+              <td class="mono">${r.t}</td><td>${svgArrow(r.set, r.kn)}</td><td class="num mono">${String(Math.round(r.set) % 360).padStart(3, "0")}°</td>
+              <td class="num mono">${r.kn.toFixed(2)} kn</td></tr>`).join("")}</table>
+            <div class="chips">${o[35] >= 0 ? `<span class="chip" style="color:var(--now);font-weight:600">now ${String(Math.round(o[34]) % 360).padStart(3, "0")}° ${o[35].toFixed(2)} kn</span>` : `<span class="chip">now: outside this tide (← →)</span>`}</div></div>
+            <div><canvas id="fmap" style="width:100%;height:440px;border:1px solid var(--line);border-radius:10px;background:var(--sea)"></canvas>
+            <div class="controls" style="margin-top:4px"><label>Hour <select id="fhour"><option value="-1">now</option>${rows.map(r => `<option value="${r.k}" ${r.k === fHour ? "selected" : ""}>${r.k === 6 ? "HW" : (r.k < 6 ? "HW" : "HW+") + (r.k - 6)} ${r.t}</option>`).join("")}</select></label>
+              <span class="meta">the atlas round the DR (+), the selected hour</span></div></div></div>`
+          : `<div class="meta" style="color:var(--now);margin-top:6px">The DR is outside the atlas (or on land): set the DR at the top inside it.</div>`}
+          <div class="meta">The calculator's own T&amp;F (Tide 47's FLOW47): the atlas's hourly streams from the reference port's High Water, scaled
+            for springs and neaps, the wind added. Not for navigation.</div></div>`;
+      }
+    } else h += `<div class="card"><h2>Flow</h2><div class="meta">No FLOW atlas loaded: load your <span class="mono">FLOW.FLW</span> below
+      (with the .TID of its reference port). Meanwhile, the stream stations near the DR.</div></div>`;
+    /* the stream stations near the DR */
+    const near = APP.streams.all().map(s => ({ s, d: N().inv(lat, lon, s.lat, s.lon) })).filter(x => x.d.s < 500 * 1852)
+      .sort((a, b) => a.d.s - b.d.s).slice(0, 14);
+    h += `<div class="card"><h2>Stream stations near the DR</h2><table><tr><th>Station</th><th></th><th class="num">Distance</th><th class="num">Bearing</th><th class="num">Now</th><th></th></tr>
+      ${near.map(({ s, d }) => { const q = APP.streams.now(s.i, J) || { kn: 0, set: 0 };
+        return `<tr class="click" data-st="${s.i}"><td>${esc(s.name)}</td><td class="meta">${s.src === 2 ? "yours" : s.src === 1 ? "NOAA" : "NOAA (Tide 47)"}${s.kind === 2 ? ", rotary" : ""}</td>
+        <td class="num mono">${(d.s / 1852).toFixed(0)} NM</td><td class="num mono">${String(Math.round(((d.a1 % 360) + 360) % 360)).padStart(3, "0")}°</td>
+        <td class="num mono">${String(Math.round(((q.set % 360) + 360) % 360)).padStart(3, "0")}° ${Math.abs(q.kn).toFixed(2)} kn</td>
+        <td>${s.kind === 1 ? (q.kn >= 0 ? "flood" : "ebb") : ""}</td></tr>`; }).join("")}</table>
+      ${near.length ? "" : `<div class="meta">None within 500 NM of the DR.</div>`}
+      <div class="meta">Click a station for its day (Tide tab). NOAA's harmonic current stations (public domain); the chart shows them with 〰 Streams.</div></div>`;
+    h += APP.tfiles.card();
+    el.innerHTML = h;
+    APP.tfiles.bind(el, flow);
+    el.querySelectorAll("tr[data-st]").forEach(tr => tr.onclick = () => { tideSt = +tr.dataset.st; tideDay = 0; APP.showTab("tide"); });
+    const b = id => document.getElementById(id);
+    if (b("fprev")) {
+      b("fprev").onclick = () => { fStep--; flow(); }; b("fnext").onclick = () => { fStep++; flow(); }; b("fnow").onclick = () => { fStep = 0; flow(); };
+      b("fwd").onchange = e => { fWind.dir = +e.target.value || 0; flow(); }; b("fwk").onchange = e => { fWind.kn = +e.target.value || 0; flow(); };
+      el.querySelectorAll("tr[data-fh]").forEach(tr => tr.onclick = () => { fHour = +tr.dataset.fh; flow(); });
+    }
+    if (b("fhour")) { b("fhour").value = fHour; b("fhour").onchange = e => { fHour = +e.target.value; flowMap(); }; }
+    flowMap();
+  }
+  /* the atlas round the DR: the coast, the cells' arrows at the selected hour */
+  function flowMap() {
+    const cv = document.getElementById("fmap"); if (!cv) return;
+    const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    cv.width = r.width * dpr; cv.height = r.height * dpr;
+    const g = cv.getContext("2d"); g.scale(dpr, dpr);
+    Module._api_flw_grid(); const o = N().o(), la0 = o[0], lo0 = o[1], st = o[2] / 60, nla = o[3], nlo = o[4];
+    const [lat, lon] = S().pos, half = Math.max(0.3, Math.min(1.2, 14 * st));
+    const s0 = lat - half, n0 = lat + half, c = Math.cos(lat * Math.PI / 180), w0 = lon - half * r.width / r.height / c, e0 = lon + half * r.width / r.height / c;
+    const K = r.height / (n0 - s0), X = lo => (lo - w0) * c * K, Y = la => (n0 - la) * K;
+    const polys = APP.loadCoast("L"), css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+    g.fillStyle = css("--land"); g.strokeStyle = css("--coast"); g.lineWidth = 0.8;
+    for (const P of polys) {
+      if (P.n < s0 || P.s > n0 || P.e < w0 || P.w > e0) continue;
+      g.beginPath(); for (let j = 0; j < P.lat.length; j++) j ? g.lineTo(X(P.lon[j]), Y(P.lat[j])) : g.moveTo(X(P.lon[j]), Y(P.lat[j]));
+      g.closePath(); g.fill(); g.stroke();
+    }
+    for (let a = 0; a < nla; a++) for (let b = 0; b < nlo; b++) {
+      const la = la0 + (a + 0.5) * st, lo = lo0 + (b + 0.5) * st;
+      if (la < s0 || la > n0 || lo < w0 || lo > e0) continue;
+      if (!Module._api_flow_at(la, lo, fHour)) continue;
+      const q = N().o(), kn = q[1];
+      g.strokeStyle = APP.rateCol(kn); g.lineWidth = 1.8; APP.arrowPath(g, X(lo), Y(la), q[0], 5 + 7 * Math.min(kn, 2.5));
+    }
+    g.strokeStyle = css("--now"); g.lineWidth = 2.5; const x = X(lon), y = Y(lat);
+    g.beginPath(); g.moveTo(x - 9, y); g.lineTo(x + 9, y); g.moveTo(x, y - 9); g.lineTo(x, y + 9); g.stroke();
+    g.fillStyle = css("--soft"); g.font = "11px system-ui";
+    g.fillText("< 0.5 kn blue · 1.5 green · 3 amber · more red", 8, r.height - 8);
+  }
+  return { almanac, sky, tide, zones, flow };
 })();

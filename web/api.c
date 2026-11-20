@@ -16,6 +16,7 @@
 #include "geo_rhumb.h"
 #include "geo_route.h"
 #include "geo_ellipsoids.h"
+#include "tidefile.h"
 
 #define K EMSCRIPTEN_KEEPALIVE
 static double OUT[8192], IN[4096];
@@ -120,14 +121,42 @@ K void api_moon(double jd) {
 K const char *api_moon_name(int i) { return M47_NAMES[i]; }
 
 /* ---------------------------------------------------------------- tides (the public stations) */
+/* the stations: the compiled public ones, then the loaded files (NOAA's currents in the page, your own .TID) */
+static TRegion *WR;
+static int WN, WN_PUBLIC;                 /* loaded regions; the first WN_PUBLIC of them are the page's own (NOAA) */
 static const TStation *station(int i, const TRegion **reg) {
   for (int r = 0; r < PUB_NREGIONS; r++) {
     if (i < PUB_REGIONS[r].n) { if (reg) *reg = &PUB_REGIONS[r]; return &PUB_REGIONS[r].st[i]; }
     i -= PUB_REGIONS[r].n;
   }
+  for (int r = 0; r < WN; r++) {
+    if (i < WR[r].n) { if (reg) *reg = &WR[r]; return &WR[r].st[i]; }
+    i -= WR[r].n;
+  }
   return NULL;
 }
-K int api_tide_count(void) { int n = 0; for (int r = 0; r < PUB_NREGIONS; r++) n += PUB_REGIONS[r].n; return n; }
+K int api_tide_count(void) { int n = 0; for (int r = 0; r < PUB_NREGIONS; r++) n += PUB_REGIONS[r].n; for (int r = 0; r < WN; r++) n += WR[r].n; return n; }
+/* 0 compiled public, 1 the page's NOAA files, 2 your files */
+K int api_tide_src(int i) {
+  const TRegion *r = NULL;
+  station(i, &r);
+  if (!r || (r >= PUB_REGIONS && r < PUB_REGIONS + PUB_NREGIONS)) return 0;
+  return (int)(r - WR) < WN_PUBLIC ? 1 : 2;
+}
+/* a .TID file (its text, copied: the parser works in place); public = 1 for the page's own files.
+   Returns the stations read, -1 an error (api_err) */
+static char ERR[64];
+K const char *api_err(void) { return ERR; }
+K int api_tid_load(const char *text, int public) {
+  char *t = strdup(text);
+  if (!t) return -1;
+  if (public && WN != WN_PUBLIC) { free(t); strcpy(ERR, "public files first"); return -1; }
+  int r = tid_parse(t, &WR, &WN, ERR, sizeof ERR);
+  free(t);
+  if (r > 0 && public) WN_PUBLIC = WN;
+  return r;
+}
+K void api_tid_forget(void) { WN = WN_PUBLIC; }            /* your files (their memory stays: small) */
 K const char *api_tide_name(int i) { const TStation *s = station(i, NULL); return s ? s->name : ""; }
 K const char *api_tide_region(int i) { const TRegion *r = NULL; station(i, &r); return r ? r->title : ""; }
 K const char *api_tide_datum(int i) { const TStation *s = station(i, NULL); return s && s->datum ? s->datum : ""; }
@@ -167,3 +196,86 @@ K int api_zone_col(int i) { return ZONES[i].col; }
 /* a place: 0 no summer time, 1 by rule, 2 irregular */
 K int api_city_kind(int i, int j) { return ZONES[i].c[j].kind; }
 K const char *api_city_tzid(int i, int j) { return ZONES[i].c[j].tzid ? ZONES[i].c[j].tzid : ""; }
+
+/* ---------------------------------------------------------------- the FLOW atlas (your .FLW), as T&F on the calculator */
+static FlowAtlas WF;
+static int WF_have;
+K int api_flw_load(const char *text) {
+  char *t = strdup(text);
+  if (!t) return -1;
+  int r = flw_parse(t, &WF, ERR, sizeof ERR);
+  free(t);
+  if (r > 0) WF_have = 1;
+  return r;
+}
+K void api_flw_forget(void) { WF_have = 0; }
+K int api_flw_have(void) { return WF_have; }
+K const char *api_flw_ref(void) { return WF_have && WF.ref ? WF.ref : ""; }
+K const char *api_flw_source(void) { return WF_have && WF.source ? WF.source : ""; }
+/* OUT: lat0 lon0 step_min nlat nlon */
+K void api_flw_grid(void) { OUT[0] = WF.lat0; OUT[1] = WF.lon0; OUT[2] = WF.step_min; OUT[3] = WF.nlat; OUT[4] = WF.nlon; }
+
+/* the station's zone time (with US summer time): its date (jdn) and hour at UT jd */
+static double st_local(const TStation *st, double ut, long *n, double *h) {
+  int y, m, d;
+  double tz = st->tz;
+  jd_to_ymd(ut + tz / 24.0, &y, &m, &d, h);
+  *n = jdn(y, m, d);
+  if (tide_dst(st, *n)) { tz += 1; jd_to_ymd(ut + tz / 24.0, &y, &m, &d, h); *n = jdn(y, m, d); }
+  return tz;
+}
+static const TStation *flow_ref_station(void) {
+  int n = api_tide_count();
+  for (int i = 0; i < n; i++) { const TStation *s = station(i, NULL); if (WF.ref && strstr(s->name, WF.ref)) return s; }
+  return NULL;
+}
+static double F_fac = 1, F_off;
+static double F_wdir, F_wkn;
+/* the stream at (lat, lon) at UT jd, from the atlas: the reference's High Water (hw_step cycles on), springs scaled,
+   the wind added. OUT: [0] in the atlas, [1] the reference's zone, [2] HW's hour (zone time) on [3] its day - today,
+   [4] HW height, [5] range, [6] springs factor, [7] now - HW (hours), [8..33] HW-6..HW+6 (set, kn), [34 35] now,
+   [36] reference found */
+K int api_flow(double lat, double lon, double jd, double wdir, double wkn, int hw_step) {
+  memset(OUT, 0, 40 * sizeof *OUT);
+  if (!WF_have) return 0;
+  const TStation *st = flow_ref_station();
+  OUT[36] = st != NULL;
+  if (!st) return 0;
+  long n0, on;
+  int om;
+  double h0, t0, hh, rng, fac, tz = st_local(st, jd, &n0, &h0);
+  flow_pick(st, n0, h0, &on, &om);
+  for (int k = 0; k < hw_step; k++) flow_step(st, on, om, 1, &on, &om);
+  for (int k = 0; k > hw_step; k--) flow_step(st, on, om, -1, &on, &om);
+  flow_cycle(st, on, om, &t0, &hh, &rng, &fac);
+  F_fac = fac; F_off = (double)(n0 - on) * 24.0 + h0 - t0; F_wdir = wdir; F_wkn = wkn;
+  OUT[1] = tz; OUT[2] = t0; OUT[3] = (double)(on - n0); OUT[4] = hh; OUT[5] = rng; OUT[6] = fac; OUT[7] = F_off;
+  double FU[13], FV[13], U[13], V[13];
+  if (!flow_cell(&WF, lat, lon, FU, FV)) return 0;
+  flow_rows(FU, FV, fac, wdir, wkn, U, V);
+  for (int k = 0; k < 13; k++) setkn(U[k], V[k], &OUT[8 + 2 * k], &OUT[9 + 2 * k]);
+  if (F_off >= -6 && F_off <= 6) { double u, v; flow_now(U, V, F_off, &u, &v); setkn(u, v, &OUT[34], &OUT[35]); }
+  else OUT[34] = OUT[35] = -1;
+  OUT[0] = 1;
+  return 1;
+}
+/* after api_flow: the stream at another position, hour k (0..12 = HW-6..HW+6) or k < 0 now. OUT: set, kn */
+K int api_flow_at(double lat, double lon, int k) {
+  double FU[13], FV[13], U[13], V[13], u, v;
+  if (!WF_have || !flow_cell(&WF, lat, lon, FU, FV)) return 0;
+  flow_rows(FU, FV, F_fac, F_wdir, F_wkn, U, V);
+  if (k < 0) { if (F_off < -6 || F_off > 6) return 0; flow_now(U, V, F_off, &u, &v); }
+  else { u = U[k]; v = V[k]; }
+  setkn(u, v, &OUT[0], &OUT[1]);
+  return 1;
+}
+/* a stream station now: OUT rate (kn, + flood), set (deg true) */
+K int api_stream_now(int i, double jd) {
+  const TStation *s = station(i, NULL);
+  if (!s || s->kind == TK_TIDE) return 0;
+  long n;
+  double h;
+  st_local(s, jd, &n, &h);
+  stream_now(s, n, h, &OUT[0], &OUT[1]);
+  return 1;
+}
