@@ -81,6 +81,9 @@ static int page = PG_VALM, menu_page, shift, vframe;
 static double toff;                      /* hours added to the time by the arrows */
 static int edit_field = -1, sel_field, pick_cursor, flow_hw_step, flow_day_step;
 static int split_first, st_day_off, pick_back;   /* SPLIT scroll; TIDE (station) day; where STATNS returns */
+static int cmp_edit = -1;                 /* COMPARE: editing CUSTOM 0 a, 1 1/f */
+static double cmp_a;
+static char cmp_msg[32];
 static int wp_cur, wp_edit = -1;          /* ROUTE: the cursor; editing 0 lat, 1 lon */
 static double wp_lat;
 static char ebuf[16];
@@ -864,13 +867,17 @@ static int legs_dirty = 1, legs_mode = -1, plan_dirty = 1, plan_cur, plan_rc;
 static double leg_crs[MAXWP], leg_nm[MAXWP];
 static char plan_msg[48];
 
+/* a CUSTOM ellipsoid NAV47 accepts: an Earth-sized a, and a sphere or f < 0.01 */
+static int ell_ok(double a, double rf) { return a >= 6.0e6 && a <= 7.0e6 && (rf == 0 || rf > 100); }
+
 static void route_save(void) {
   legs_dirty = plan_dirty = 1;
   if (!sys_disk_ok()) return;
-  char *b = (char *)malloc(64 + 48 * MAXWP);
+  char *b = (char *)malloc(128 + 48 * MAXWP);
   if (!b) return;
   char *o = b;
-  o += sprintf(o, "NAV47 ROUTE 1\n%s\nLIM %.1f\nSPLIT %d %.3f\nELL %d\n", SAIL_NAME[N->cfg.gc % 3], cs_lim, plan_split, plan_val, geo_ell_index);
+  o += sprintf(o, "NAV47 ROUTE 1\n%s\nLIM %.1f\nSPLIT %d %.3f\nELLC %.4f %.9f\nELL %d\n", SAIL_NAME[N->cfg.gc % 3], cs_lim,
+               plan_split, plan_val, ellipsoids[ELL_CUSTOM].a, ellipsoids[ELL_CUSTOM].rf, geo_ell_index);
   for (int i = 0; i < N->nwp; i++) o += sprintf(o, "%.7f %.7f\n", N->wlat[i], N->wlon[i]);
   sys_disk_write_enable(1);
   check_create_dir(DIR);
@@ -894,6 +901,10 @@ static void route_load(void) {
     else if (!strcmp(l, "CS")) N->cfg.gc = 2;
     else if (sscanf(l, "LIM %lf", &v) == 1) { if (v >= 10 && v <= 85) cs_lim = v; }
     else if (sscanf(l, "SPLIT %d %lf", &m, &v) == 2) { if (m >= 0 && m <= 3) { plan_split = m; plan_val = v; } }
+    else if (sscanf(l, "ELLC %lf %lf", &a, &b) == 2) {     /* CUSTOM's a and 1/f */
+      if (ell_ok(a, b)) { ellipsoids[ELL_CUSTOM].a = a; ellipsoids[ELL_CUSTOM].rf = b; }
+      if (geo_ell_index == ELL_CUSTOM) geo_set_ellipsoid(ELL_CUSTOM);
+    }
     else if (sscanf(l, "ELL %d", &m) == 1) geo_set_ellipsoid(m);
     else if (sscanf(l, "%lf %lf", &a, &b) == 2 && N->nwp < MAXWP && fabs(a) <= 90 && fabs(b) <= 180) {
       N->wlat[N->nwp] = a; N->wlon[N->nwp] = b; N->nwp++;
@@ -1154,6 +1165,26 @@ static void plan_key(int key) {
 /* ------------------------------------------------------------------ */
 static int cmp_leg(void) { return wp_cur > 0 ? wp_cur : 1; }   /* the leg that ends at the cursor */
 
+/* row 16: the ellipsoid in use (while editing CUSTOM: the field being typed) */
+static void cmp_ell_line(void) {
+  char s[64];
+  const ellipsoid_t *e = &ellipsoids[geo_ell_index];
+  if (cmp_edit == 0) { sprintf(s, "CUSTOM a m: %s_", ebuf); nt_inv(4, 16, s); return; }
+  if (cmp_edit == 1) { sprintf(s, "CUSTOM a %.1f  1/f (0 sphere): %s_", cmp_a, ebuf); nt_inv(4, 16, s); return; }
+  if (e->rf) sprintf(s, "%s  a %.1f m  1/f %.6f", e->name, e->a, e->rf);
+  else sprintf(s, "%s  R %.1f m", e->name, e->a);
+  nt(4, 16, s);
+}
+
+static void cmp_footer(void) {
+  char s[64];
+  if (cmp_msg[0]) { nt_inv(2, 192, cmp_msg); return; }
+  if (cmp_edit >= 0) { nt_inv(2, 192, cmp_edit ? "1/f: 0 sphere or over 100  ENTER" : "a: 6000000..7000000 m  ENTER"); return; }
+  sprintf(s, "7 9 %s%s  8 2 leg", ellipsoids[geo_ell_index].name, geo_ell_index == ELL_CUSTOM ? " ENTER edit" : "");
+  nt(2, 192, s);
+  if (nt_w(s) < 300) nt_r(LCD_X - 2, 192, "EXIT back");
+}
+
 static void draw_cmp(void) {
   char s[64], t[32];
   int i = cmp_leg(), y;
@@ -1166,6 +1197,7 @@ static void draw_cmp(void) {
   const int xg = 268, xr = 396;
   sprintf(s, "COMPARE LEG %d-%d", i, i + 1);
   header(s);
+  cmp_ell_line();
   y = 32;  nt(4, y, "FROM");
   fmt_dmn(t, la1, 2, la1 < 0 ? 'S' : 'N'); nt_r(xg, y, t); fmt_dmn(t, lo1, 3, lo1 < 0 ? 'W' : 'E'); nt_r(xr, y, t);
   y = 48;  nt(4, y, "TO");
@@ -1194,14 +1226,39 @@ static void draw_cmp(void) {
   } else {
     sprintf(s, "CS %.0f" NT_DEG, cs_lim); nt(4, y, s); nt_r(xr, y, "limit not reached");
   }
-  sprintf(s, "7 9 %s  8 2 leg", ellipsoids[geo_ell_index].name);
-  nt(2, 192, s);
-  nt_r(LCD_X - 2, 192, "EXIT back");
+  cmp_footer();
+}
+
+/* CUSTOM: ENTER takes a, then 1/f; an empty field keeps the value; out of range: the field again */
+static void cmp_edit_key(int key) {
+  int d = digit(key);
+  cmp_msg[0] = 0;
+  if (key == KEY_ENTER) {
+    double v = elen ? atof(ebuf) : (cmp_edit == 0 ? ellipsoids[ELL_CUSTOM].a : ellipsoids[ELL_CUSTOM].rf);
+    if (cmp_edit == 0) {
+      if (!ell_ok(v, 0)) strcpy(cmp_msg, "a: 6000000..7000000 m");
+      else { cmp_a = v; cmp_edit = 1; }
+    } else if (!ell_ok(cmp_a, v)) strcpy(cmp_msg, "1/f: 0 (sphere) or over 100");
+    else {
+      ellipsoids[ELL_CUSTOM].a = cmp_a; ellipsoids[ELL_CUSTOM].rf = v;
+      geo_set_ellipsoid(ELL_CUSTOM);
+      cmp_edit = -1;
+      route_save();
+    }
+    elen = 0; ebuf[0] = 0;
+    return;
+  }
+  if (key == KEY_EXIT) { cmp_edit = -1; return; }
+  if (key == KEY_BSP) { if (elen) ebuf[--elen] = 0; return; }
+  if (key == KEY_DOT && elen < 14 && !strchr(ebuf, '.')) { ebuf[elen++] = '.'; ebuf[elen] = 0; return; }
+  if (d >= 0 && elen < 14) { ebuf[elen++] = (char)('0' + d); ebuf[elen] = 0; }
 }
 
 static void cmp_key(int key) {
-  if (key == KEY_7 || key == KEY_9) {                  /* ellipsoid: presets only, not CUSTOM */
-    int n = ELL_CUSTOM, e = (geo_ell_index + (key == KEY_9 ? 1 : n - 1)) % n;
+  cmp_msg[0] = 0;
+  if (key == KEY_ENTER && geo_ell_index == ELL_CUSTOM) { cmp_edit = 0; elen = 0; ebuf[0] = 0; }
+  else if (key == KEY_7 || key == KEY_9) {             /* ellipsoid: the presets and CUSTOM */
+    int n = ELL_COUNT, e = (geo_ell_index + (key == KEY_9 ? 1 : n - 1)) % n;
     geo_set_ellipsoid(e);
     route_save();                                      /* saves ELL, marks legs and plan to redo */
   }
@@ -1260,7 +1317,7 @@ static void redraw(void) {
     }
   if (page != PG_ROUTE && menu_page == 3) menu_page = 0;
   MENUS[2][4] = usbview_is_on() ? "USB*" : "USB";
-  lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0) ? EDIT_MENU : MENUS[menu_page]);
+  lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0) ? EDIT_MENU : MENUS[menu_page]);
   lcd_refresh();
   lcd_refresh_wait();        /* the LCD goes out by DMA: done before the next frame clears the buffer (no flicker) */
   usbview_send();
@@ -1346,9 +1403,10 @@ static void handle_key(int key) {
       return;
     }
   }
-  if ((edit_field >= 0 || wp_edit >= 0) && key == KEY_F6) key = KEY_EXIT;
+  if ((edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0) && key == KEY_F6) key = KEY_EXIT;
   if (edit_field >= 0) { key_edit(key); return; }
   if (wp_edit >= 0) { key_wp(key); return; }
+  if (cmp_edit >= 0) { cmp_edit_key(key); return; }
   if (key >= KEY_F1 && key <= KEY_F6) { softkey(key - KEY_F1); vframe = 0; return; }
   if (key == KEY_CHS) { N->cfg.lt ^= 1; N->valid = 0; cfg_save(); return; }   /* +/-: the times in UT or LT, every page */
   if (IS_VIEW(page)) {
