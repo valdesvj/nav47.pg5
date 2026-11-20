@@ -263,8 +263,12 @@ void map_mark(const map_t *m, double lat, double lon, int kind) {
 }
 
 /* 13 x 13, the top row first, bit 12 the left */
-static const uint16_t SHIP[13] = { 0x0000, 0x0040, 0x0040, 0x00E0, 0x01F0, 0x03F8, 0x0040, 0x0040, 0x1FFF, 0x0FFE,
-                                   0x07FC, 0x03F8, 0x0000 };
+/* the ship: an offshore construction vessel (Mermaid Asiana) from the starboard side, the bow to the right: the
+   helideck over the bridge forward, the accommodation, the main crane parked forward on its rest, the open deck
+   aft; 31 x 13, bit 30 the left */
+#define SHIP_W 31
+#define SHIP_H 13
+static const uint32_t SHIP[SHIP_H] = { 0x00000000, 0x00000FFF, 0x00000494, 0x00000FF8, 0x00380AA8, 0x003C0FFC, 0x001E0AAE, 0x00138FFF, 0x0010FFFF, 0x7FFFFFFF, 0x7FFFFFFE, 0x3FFFFFF8, 0x0FFFFFF0 };
 static const uint16_t PLANE[13] = { 0x0040, 0x00E0, 0x00E0, 0x00E0, 0x01F0, 0x0FFE, 0x1FFF, 0x00E0, 0x00E0, 0x00E0,
                                     0x01F0, 0x03F8, 0x0000 };
 
@@ -278,12 +282,13 @@ void map_icon(const map_t *m, double lat, double lon, double crs, int plane) {
   int x = (int)lroundf(fx), y = (int)lroundf(fy);
   if (l > 1e-4f) {
     dx /= l; dy /= l;
-    for (int i = 8; i < 20; i++) {                            /* the heading line, white edged */
+    int i0 = plane ? 8 : 17, i1 = plane ? 20 : 30;
+    for (int i = i0; i < i1; i++) {                           /* the heading line, white edged */
       int px = x + (int)lroundf(dx * i), py = y + (int)lroundf(dy * i);
       if (outcode(m, (float)px, (float)py)) break;
       gfx_rect(px - 1, py - 1, 3, 3, 0);
     }
-    for (int i = 8; i < 20; i++) {
+    for (int i = i0; i < i1; i++) {
       int px = x + (int)lroundf(dx * i), py = y + (int)lroundf(dy * i);
       if (outcode(m, (float)px, (float)py)) break;
       gfx_pixel(px, py, 1);
@@ -302,12 +307,18 @@ void map_icon(const map_t *m, double lat, double lon, double crs, int plane) {
       }
     return;
   }
-  const uint16_t *b = plane ? PLANE : SHIP;
-  gfx_rect(x - 7, y - 7, 15, 15, 0);
-  for (int r = 0; r < 13; r++)
-    for (int k = 0; k < 13; k++)
-      if (b[r] & (1u << (12 - k))) gfx_pixel(x - 6 + k, y - 6 + r, 1);
-  gfx_frame(x - 7, y - 7, 15, 15);
+  if (plane) {                                                /* (no course yet: upright) */
+    gfx_rect(x - 7, y - 7, 15, 15, 0);
+    for (int r = 0; r < 13; r++)
+      for (int k = 0; k < 13; k++)
+        if (PLANE[r] & (1u << (12 - k))) gfx_pixel(x - 6 + k, y - 6 + r, 1);
+    return;
+  }
+  int flip = l > 1e-4f && dx < 0;                             /* heading west on the LCD: the bow to the left */
+  gfx_rect(x - SHIP_W / 2 - 1, y - SHIP_H / 2 - 1, SHIP_W + 2, SHIP_H + 2, 0);
+  for (int r = 0; r < SHIP_H; r++)
+    for (int k = 0; k < SHIP_W; k++)
+      if (SHIP[r] & (1u << (SHIP_W - 1 - k))) gfx_pixel(x - SHIP_W / 2 + (flip ? SHIP_W - 1 - k : k), y - SHIP_H / 2 + r, 1);
 }
 
 /* ---------------------------------------------------------------- graticule */
