@@ -828,33 +828,87 @@ static void cfg_load(void) {
 /* ------------------------------------------------------------------ */
 /*  INFO                                                              */
 /* ------------------------------------------------------------------ */
+/* INFO: paragraphs word-wrapped to the LCD in the tiny font, 8 2 scroll. A paragraph "HEAD:   text" wraps under
+   its text (a hanging indent); "" is an empty line. */
+static int info_top, info_lines;
+
+/* one paragraph: the lines from *n on; those inside [top, top + vis) drawn from row y0 */
+static void info_par(const char *p, int *n, int top, int vis, int y0) {
+  char line[100];
+  const char *c = strstr(p, ":   ");
+  int xt = 2, w = LCD_X - 4 - 6;                       /* 6 px for the scroll bar */
+  if (!*p) { (*n)++; return; }
+  if (c && c - p < 12) {                               /* "HEAD:   text": the head, the text in its column */
+    memcpy(line, p, (size_t)(c - p) + 1); line[c - p + 1] = 0;
+    if (*n >= top && *n < top + vis) draw_text(&TINY, 2, y0 + (*n - top) * LH, line, 0);
+    xt = 2 + text_width(&TINY, "ALMANAC: ");
+    p = c + 1;
+    while (*p == ' ') p++;
+  }
+  while (*p) {
+    int len = 0, last = 0;
+    while (p[len] && len < 98) {                         /* as many words as fit */
+      memcpy(line, p, (size_t)len + 1); line[len + 1] = 0;
+      if (xt + text_width(&TINY, line) > 2 + w) break;
+      len++;
+      if (p[len] == ' ' || !p[len]) last = len;
+    }
+    if (!p[len]) last = len;
+    if (!last) last = len ? len : 1;                     /* one word longer than the line: cut it */
+    memcpy(line, p, (size_t)last); line[last] = 0;
+    if (*n >= top && *n < top + vis) draw_text(&TINY, xt, y0 + (*n - top) * LH, line, 0);
+    (*n)++;
+    p += last;
+    while (*p == ' ') p++;
+  }
+}
+
 static void draw_info(void) {
   header("INFO");
-  const char *L[] = {
-    "NAV47 v" PROGRAM_VERSION ": Almanac 47 + Zones 47 + Tide 47 for the DM42n (native DMCP5 program)",
-    "(C) 2026 Victor Valdes - GPL-3.0-or-later. Written with the help of AI (Claude).",
+  char s1[96], s2[96], s3[64];
+  sprintf(s1, "tzdata %s, free heap %d KB, tide stations: %d public regions, %d private, %d files loaded.",
+          TZDATA_VERSION, sys_free_mem() / 1024, PUB_NREGIONS, PRIV_NREGIONS, N->nfr);
+  sprintf(s2, "CPU %s.", usb_powered() ? "160 MHz (USB power)" : "80 MHz (battery)");
+  sprintf(s3, "Version " PROGRAM_VERSION ".");
+  const char *P[] = {
+    "NAV47: Almanac 47 + Zones 47 + Tide 47 + passage planning for the DM42n, a native DMCP5 program.", s3,
+    "(C) 2026 Victor Valdes, Master Mariner. GPL-3.0-or-later. Written with the help of AI (Claude).",
     "",
-    "ALMANAC: VSOP87D Sun and planets, IAU1980 nutation, Meeus Moon + DE421 fit, 58 stars",
-    "         (Almanac 47 NAVINIT_FULL series, double precision, no tables needed)",
-    "ZONES:   IANA tz database, DST computed on the calculator. Map: GLOBE (NOAA)",
-    "TIDES:   Schureman harmonic method (Tide 47). NOAA (public domain), TICON-3 (CC-BY 4.0)",
-    "FONTS:   C47 standardFont and tinyFont (C43/C47 authors, GPL v3)",
+    "ALMANAC:   VSOP87D Sun and planets, IAU1980 nutation, Meeus Moon with a DE421 fit, the 57 navigational stars "
+    "and Polaris (Almanac 47 NAVINIT_FULL series, double precision, no tables).",
+    "VIEWS:   ALMAN SPLIT SKY ALLSK MOON ANIM, and SKY2: the dome, the zenith in the centre (SKY again, or 0).",
+    "ZONES:   IANA tz database, summer time computed on the calculator. Map: GLOBE (NOAA).",
+    "TIDES:   Schureman harmonic method (Tide 47). NOAA (public domain), TICON-3 (CC-BY 4.0).",
+    "ROUTE:   RL rhumb line, GC great circle, CS composite (the limit with 4 6), on the WGS84 ellipsoid or another "
+    "(COMPARE, 7 9). Geodesics: GeographicLib (C. F. F. Karney, MIT); rhumb lines exact on the ellipsoid.",
+    "PLAN:   the route split every N NM, into N legs or on whole meridians; ENTER PLAN.CSV, shift ENTER "
+    "PLAN.NMEA (and USB channel 2), R/S VOYAGE.",
+    "CHART:   Mercator or GLOBE (F4) over the coastline, Natural Earth 110 m and 50 m (public domain), "
+    "/NAV47/COAST_C.BIN and COAST_L.BIN. 8 2 4 6 pan or turn, 7 9 zoom, 5 fit; ROUTE 0 opens it.",
+    "VOYAGE:   the plan sailed or flown on a globe that follows: the ship (from 100 kn a plane), the date and "
+    "time on board, DEP ARR, run and to go. R/S play, 4 6 a step, + - knots, 1 3 the departure.",
+    "FONTS:   C47 standardFont and tinyFont (C43 / C47 authors, GPL v3).",
     "",
-    "DOES NOT REPLACE THE NAUTICAL ALMANAC OR OFFICIAL TIDE TABLES.",
-    "Not for use as the primary means of navigation.",
+    "DOES NOT REPLACE THE NAUTICAL ALMANAC, OFFICIAL CHARTS OR TIDE TABLES. Not for use as the primary "
+    "means of navigation.",
+    "",
+    s1, s2,
   };
-  int y = 26;
-  for (unsigned i = 0; i < sizeof L / sizeof *L; i++, y += LH) draw_text(&TINY, 2, y, L[i], 0);
-  char s[96];
-  sprintf(s, "tzdata %s   free heap %d KB   stations: %d public regions, %d private, %d files", TZDATA_VERSION,
-          sys_free_mem() / 1024, PUB_NREGIONS, PRIV_NREGIONS, N->nfr);
-  draw_text(&TINY, 2, y + 4, s, 0);
-  sprintf(s, "CPU %s", usb_powered() ? "160 MHz (USB)" : "80 MHz (battery)");
-  draw_text(&TINY, 2, y + 4 + LH, s, 0);
-  char u[64];
+  const int y0 = 17, vis = (174 - y0) / LH;
+  int n = 0;
+  for (unsigned i = 0; i < sizeof P / sizeof *P; i++) info_par(P[i], &n, info_top, vis, y0);
+  info_lines = n;
+  if (info_top > n - vis) info_top = n - vis > 0 ? n - vis : 0;
+  if (n > vis) {                                         /* the scroll bar */
+    int h = vis * LH, bh = h * vis / n, by = y0 + (h - bh) * info_top / (n - vis);
+    gfx_rect(LCD_X - 4, y0, 1, h, 1);
+    gfx_rect(LCD_X - 6, by, 5, bh < 6 ? 6 : bh, 1);
+  }
+  char s[64], u[64];
   usbview_state(s, u, 64);
   nt_inv(4, 176, s);
   nt(4, 192, u);
+  if (n > vis) { sprintf(s, "8 2 %d/%d", info_top + vis < n ? info_top + vis : n, n); nt_r(LCD_X - 2, 192, s); }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1791,6 +1845,16 @@ static void handle_key(int key) {
     else if (key == KEY_ENTER) pick_open();
     if (key != KEY_EXIT) cfg_save();
     break;
+  case PG_INFO: {                                       /* 8 2 scroll, 7 9 a page */
+    int vis = (174 - 17) / LH, mx = info_lines - vis > 0 ? info_lines - vis : 0;
+    if (key == KEY_8 || key == KEY_UP) info_top--;
+    else if (key == KEY_2 || key == KEY_DOWN) info_top++;
+    else if (key == KEY_7) info_top -= vis - 1;
+    else if (key == KEY_9) info_top += vis - 1;
+    if (info_top > mx) info_top = mx;
+    if (info_top < 0) info_top = 0;
+    return;
+  }
   case PG_PICK:
     if (key == KEY_8 || key == KEY_UP) pick_move(-1);
     else if (key == KEY_2 || key == KEY_DOWN) pick_move(1);
