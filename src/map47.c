@@ -263,12 +263,13 @@ void map_mark(const map_t *m, double lat, double lon, int kind) {
 }
 
 /* 13 x 13, the top row first, bit 12 the left */
-/* the ship: an offshore construction vessel (Mermaid Asiana) from the starboard side, the bow to the right: the
-   helideck over the bridge forward, the accommodation, the main crane parked forward on its rest, the open deck
-   aft; 31 x 13, bit 30 the left */
-#define SHIP_W 31
-#define SHIP_H 13
-static const uint32_t SHIP[SHIP_H] = { 0x00000000, 0x00000FFF, 0x00000494, 0x00000FF8, 0x00380AA8, 0x003C0FFC, 0x001E0AAE, 0x00138FFF, 0x0010FFFF, 0x7FFFFFFF, 0x7FFFFFFE, 0x3FFFFFF8, 0x0FFFFFF0 };
+/* the ship: the Mermaid Asiana from the starboard side, the bow to the right, after a photograph: the square stern
+   and the low working deck aft, the main crane's pedestal aft with its boom parked forward, the rescue boat, the
+   accommodation and the bridge, the lattice mast, the helideck over the bow on its struts, the high raked bow;
+   37 x 16, bit 36 the left */
+#define SHIP_W 37
+#define SHIP_H 16
+static const uint64_t SHIP[SHIP_H] = { 0x0000004000ULL, 0x000000E000ULL, 0x0000004000ULL, 0x000000E000ULL, 0x0000004000ULL, 0x000001F000ULL, 0x000003FFFFULL, 0x000002AB02ULL, 0x00FFE3FE84ULL, 0x007FDFFF48ULL, 0x0060BFFFB0ULL, 0x00607FFFFCULL, 0x00F1FFFFFCULL, 0x1FFFFFFFFCULL, 0x1FFFFFFFF8ULL, 0x1FFFFFFFF0ULL };
 static const uint16_t PLANE[13] = { 0x0040, 0x00E0, 0x00E0, 0x00E0, 0x01F0, 0x0FFE, 0x1FFF, 0x00E0, 0x00E0, 0x00E0,
                                     0x01F0, 0x03F8, 0x0000 };
 
@@ -282,7 +283,7 @@ void map_icon(const map_t *m, double lat, double lon, double crs, int plane) {
   int x = (int)lroundf(fx), y = (int)lroundf(fy);
   if (l > 1e-4f) {
     dx /= l; dy /= l;
-    int i0 = plane ? 8 : 17, i1 = plane ? 20 : 30;
+    int i0 = plane ? 8 : 20, i1 = plane ? 20 : 33;
     for (int i = i0; i < i1; i++) {                           /* the heading line, white edged */
       int px = x + (int)lroundf(dx * i), py = y + (int)lroundf(dy * i);
       if (outcode(m, (float)px, (float)py)) break;
@@ -318,7 +319,7 @@ void map_icon(const map_t *m, double lat, double lon, double crs, int plane) {
   gfx_rect(x - SHIP_W / 2 - 1, y - SHIP_H / 2 - 1, SHIP_W + 2, SHIP_H + 2, 0);
   for (int r = 0; r < SHIP_H; r++)
     for (int k = 0; k < SHIP_W; k++)
-      if (SHIP[r] & (1u << (SHIP_W - 1 - k))) gfx_pixel(x - SHIP_W / 2 + (flip ? SHIP_W - 1 - k : k), y - SHIP_H / 2 + r, 1);
+      if (SHIP[r] & (1ULL << (SHIP_W - 1 - k))) gfx_pixel(x - SHIP_W / 2 + (flip ? SHIP_W - 1 - k : k), y - SHIP_H / 2 + r, 1);
 }
 
 /* ---------------------------------------------------------------- graticule */
