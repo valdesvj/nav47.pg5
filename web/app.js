@@ -95,7 +95,7 @@ const S = {
   live: true, jd: jdOf(Date.now()),
   pos: store.get("pos", [26.5, 50.1667]),
   times: store.get("times", "ut"),
-  route: Object.assign({ wps: [], sail: 1, lim: 60, split: 0, val: 10, ell: 0, avoid: true, speed: 12, etd: null, margin: 50, clear: 50 },
+  route: Object.assign({ wps: [], sail: 1, lim: 60, split: 0, val: 10, ell: 0, avoid: true, speed: 12, etd: null, margin: 50, clear: 50, len: 100 },
                        store.get("route", {})),
   objects: store.get("objects", []),
   view: store.get("view", { mode: "merc", lat0: 30, lon0: 10, k: 220 }),
@@ -491,36 +491,63 @@ function drawObj(o, sel) {
 /* the ship (the Mermaid Asiana, as on the calculator) and the plane */
 const SHIP = [0x0000004000, 0x000000E000, 0x0000004000, 0x000000E000, 0x0000004000, 0x000001F000, 0x000003FFFF, 0x000002AB02,
               0x00FFE3FE84, 0x007FDFFF48, 0x0060BFFFB0, 0x00607FFFFC, 0x00F1FFFFFC, 0x1FFFFFFFFC, 0x1FFFFFFFF8, 0x1FFFFFFFF0];
+/* the vessel on the chart, as on an ECDIS: seen from above, turned to the course; at true scale when that is big
+   enough (the Mermaid Asiana 100 m x 20 m, the plane 64 m long, 60 m span), else a symbol of a fixed size; a course
+   vector ahead (6 minutes' run, at least 40 px). Its side profile (the photograph) is the HUD's badge. */
+const VESSEL = { len: 100, beam: 20, planeLen: 64, minPx: 44 };
 function drawVessel(la, lo, crs, plane) {
   const g = CH.g, [x, y, v] = proj(la, lo);
   if (!v) return;
-  const [ax, ay] = proj(la + 0.01 * Math.cos(crs * D2R), lo + 0.01 * Math.sin(crs * D2R) / Math.max(0.01, Math.cos(la * D2R)));
-  let dx = ax - x, dy = ay - y; const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
+  const [ax, ay] = proj(la + 0.001 * Math.cos(crs * D2R), lo + 0.001 * Math.sin(crs * D2R) / Math.max(0.01, Math.cos(la * D2R)));
+  let fx = ax - x, fy = ay - y; const l = Math.hypot(fx, fy) || 1; fx /= l; fy /= l;   /* forward on the LCD */
+  const ppm = pxPerM(la), L = plane ? VESSEL.planeLen : (S.route.len || VESSEL.len);
+  const scale = Math.max(ppm, VESSEL.minPx / L);                   /* px per metre of the drawing */
+  VOY.trueScale = ppm >= VESSEL.minPx / L;
+  /* the course vector: 6 minutes' run */
+  const run = S.route.speed * NM / 10 * ppm, vl = Math.max(40, run) + L / 2 * scale;
   g.save();
-  g.strokeStyle = css("--now"); g.lineWidth = 2; g.beginPath(); g.moveTo(x + dx * 22, y + dy * 22); g.lineTo(x + dx * 48, y + dy * 48); g.stroke();
-  g.fillStyle = css("--ink");
+  g.strokeStyle = css("--now"); g.lineWidth = 2;
+  g.beginPath(); g.moveTo(x + fx * L / 2 * scale, y + fy * L / 2 * scale); g.lineTo(x + fx * vl, y + fy * vl); g.stroke();
+  g.beginPath(); g.moveTo(x + fx * vl, y + fy * vl); g.lineTo(x + fx * (vl - 7) - fy * 4, y + fy * (vl - 7) + fx * 4);
+  g.lineTo(x + fx * (vl - 7) + fy * 4, y + fy * (vl - 7) - fx * 4); g.closePath(); g.fillStyle = css("--now"); g.fill();
+  /* the vessel's own frame: +X forward, +Y to starboard, metres */
+  g.setTransform(CH.dpr * fx * scale, CH.dpr * fy * scale, -CH.dpr * fy * scale, CH.dpr * fx * scale, CH.dpr * x, CH.dpr * y);
+  const lw = 1.2 / scale;
   if (plane) {
-    g.translate(x, y); g.rotate(Math.atan2(dy, dx) + Math.PI / 2); g.scale(1.6, 1.6);
+    const k = 3.2;                                                  /* the path is in units of ~3.2 m */
     g.beginPath();
-    g.moveTo(0, -9); g.lineTo(1.4, -6); g.lineTo(1.4, -2); g.lineTo(10, 3); g.lineTo(10, 5); g.lineTo(1.4, 2.5); g.lineTo(1.2, 6.5);
-    g.lineTo(4, 8.5); g.lineTo(4, 10); g.lineTo(0, 9); g.lineTo(-4, 10); g.lineTo(-4, 8.5); g.lineTo(-1.2, 6.5); g.lineTo(-1.4, 2.5);
-    g.lineTo(-10, 5); g.lineTo(-10, 3); g.lineTo(-1.4, -2); g.lineTo(-1.4, -6); g.closePath();
-    g.fill(); g.strokeStyle = css("--card"); g.lineWidth = 0.8; g.stroke();
+    [[10, 0], [6, 1.4], [2, 1.4], [-3, 10], [-5, 10], [-2.5, 1.4], [-6.5, 1.2], [-8.5, 4], [-10, 4], [-9, 0]]
+      .forEach(([X, Y], i) => i ? g.lineTo(X * k, Y * k) : g.moveTo(X * k, Y * k));
+    [[-10, -4], [-8.5, -4], [-6.5, -1.2], [-2.5, -1.4], [-5, -10], [-3, -10], [2, -1.4], [6, -1.4]].forEach(([X, Y]) => g.lineTo(X * k, Y * k));
+    g.closePath(); g.fillStyle = css("--ink"); g.fill(); g.strokeStyle = css("--card"); g.lineWidth = lw; g.stroke();
   } else {
-    const flip = dx < 0, s = 2, W = 37, H = 16, X0 = x - W * s / 2, Y0 = y - H * s / 2;
-    const on = (r, k) => r >= 0 && r < H && k >= 0 && k < W && Math.floor(SHIP[r] / 2 ** (W - 1 - k)) % 2;
-    /* the colours of the photograph: the red hull, the white crane and superstructure, the orange rescue boat,
-       the grey mast and helideck */
-    const col = (r, k) => r >= 11 || (r >= 10 && k >= 29) || (r === 9 && k >= 31) ? "#d63a2a"
-      : r <= 6 || (r === 7 && k >= 27) ? "#5b6470" : r === 9 && k >= 15 && k <= 18 ? "#f08a24" : "#f4f4f2";
-    const px = k => X0 + (flip ? W - 1 - k : k) * s;
-    g.fillStyle = "#1b2129";                                  /* the outline */
-    for (let r = 0; r < H; r++) for (let k = 0; k < W; k++) if (on(r, k)) g.fillRect(px(k) - 1, Y0 + r * s - 1, s + 2, s + 2);
-    for (let r = 0; r < H; r++) for (let k = 0; k < W; k++) if (on(r, k)) { g.fillStyle = col(r, k); g.fillRect(px(k), Y0 + r * s, s, s); }
-    for (let k = 20; k <= 26; k += 2) if (on(7, k - 1)) { g.fillStyle = "#1b2129"; g.fillRect(px(k), Y0 + 8 * s, s, s); }   /* bridge windows */
+    const H = L / 2, B = VESSEL.beam / 2 * L / VESSEL.len;
+    /* the hull: a square stern, straight sides, a pointed bow */
+    g.beginPath(); g.moveTo(-H, -B); g.lineTo(H * 0.45, -B); g.quadraticCurveTo(H * 0.9, -B, H, 0); g.quadraticCurveTo(H * 0.9, B, H * 0.45, B);
+    g.lineTo(-H, B); g.closePath(); g.fillStyle = "#d63a2a"; g.fill(); g.strokeStyle = "#1b2129"; g.lineWidth = lw * 1.4; g.stroke();
+    g.fillStyle = "#c3c8cd"; g.fillRect(-H * 0.95, -B * 0.82, H * 1.05, B * 1.64);                         /* the working deck */
+    g.fillStyle = "#f4f4f2"; g.fillRect(H * 0.08, -B * 0.8, H * 0.5, B * 1.6); g.strokeRect(H * 0.08, -B * 0.8, H * 0.5, B * 1.6);  /* superstructure */
+    g.beginPath(); g.arc(H * 0.62, 0, B * 1.05, 0, 2 * Math.PI); g.fillStyle = "#4d5560"; g.fill(); g.stroke();   /* the helideck */
+    g.save(); g.translate(H * 0.62, 0); g.rotate(Math.PI / 2); g.fillStyle = "#f2d14a";
+    g.font = `bold ${B * 1.1}px system-ui`; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("H", 0, 0); g.restore();
+    g.beginPath(); g.arc(-H * 0.76, B * 0.45, B * 0.32, 0, 2 * Math.PI); g.fillStyle = "#f4f4f2"; g.fill(); g.stroke();  /* the crane */
+    g.fillStyle = "#f4f4f2"; g.fillRect(-H * 0.76, B * 0.32, H * 0.62, B * 0.26); g.strokeRect(-H * 0.76, B * 0.32, H * 0.62, B * 0.26); /* its boom, forward */
+    g.fillStyle = "#f08a24"; g.fillRect(-H * 0.02, B * 0.55, H * 0.12, B * 0.4);                                 /* the rescue boat */
   }
   g.restore();
 }
+/* the HUD's badge: the side profile of the photograph */
+function vesselBadge() {
+  const c = document.createElement("canvas"), W = 37, H = 16, s = 2; c.width = W * s + 4; c.height = H * s + 4;
+  const g = c.getContext("2d"), on = (r, k) => r >= 0 && r < H && k >= 0 && k < W && Math.floor(SHIP[r] / 2 ** (W - 1 - k)) % 2;
+  const col = (r, k) => r >= 11 || (r >= 10 && k >= 29) || (r === 9 && k >= 31) ? "#d63a2a"
+    : r <= 6 || (r === 7 && k >= 27) ? "#5b6470" : r === 9 && k >= 15 && k <= 18 ? "#f08a24" : "#f4f4f2";
+  g.fillStyle = "#1b2129";
+  for (let r = 0; r < H; r++) for (let k = 0; k < W; k++) if (on(r, k)) g.fillRect(2 + k * s - 1, 2 + r * s - 1, s + 2, s + 2);
+  for (let r = 0; r < H; r++) for (let k = 0; k < W; k++) if (on(r, k)) { g.fillStyle = col(r, k); g.fillRect(2 + k * s, 2 + r * s, s, s); }
+  return c.toDataURL();
+}
+let BADGE = null;
 
 function draw() {
   if (!CH.g || $("t-route").hidden) return;
@@ -623,7 +650,11 @@ function hud() {
   if (!VOY.on || ROUTE.plan.rows.length < 2) { h.hidden = true; return; }
   h.hidden = false;
   const p = VOY.at(), H = VOY.hours(), gone = H * VOY.t, etd = VOY.etd(), off = zd(), lab = off ? "ZT" : "UT";
-  h.innerHTML = `<div class="big">${FMT.dt(etd + gone / 24, off)} ${lab}</div>
+  const plane = S.route.speed >= 100;
+  if (!BADGE) BADGE = vesselBadge();
+  h.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">${plane ? '<span style="font-size:22px">✈</span>' : `<img src="${BADGE}" width="78" height="36" alt="">`}
+      <span class="meta">${plane ? "Airliner, 64 m" : `Mermaid Asiana, ${S.route.len || VESSEL.len} m`} · ${VOY.trueScale ? "true scale" : "symbol (too small at this scale)"}</span></div>
+    <div class="big">${FMT.dt(etd + gone / 24, off)} ${lab}</div>
     <table><tr><td>DEP</td><td class="num">${FMT.dt(etd, off)}</td><td>ARR</td><td class="num">${FMT.dt(etd + H / 24, off)}</td></tr>
     <tr><td>Gone</td><td class="num">${FMT.dur(gone)}</td><td>To go</td><td class="num">${FMT.dur(H - gone)}</td></tr>
     <tr><td>Run</td><td class="num">${FMT.nm(p.s)} NM</td><td>DTG</td><td class="num">${FMT.nm(VOY.total() - p.s)} NM</td></tr>
@@ -1022,10 +1053,12 @@ function voyCard() {
   const iso = new Date(msOf(etd)).toISOString().slice(0, 16);
   el.innerHTML = `<h2>Voyage <span class="meta">${R.speed >= 100 ? "✈ flight" : "🚢 the Mermaid Asiana"}</span></h2>
     <div class="controls"><label>Speed <input class="num" id="speed" type="number" min="1" max="1000" step="0.5" value="${R.speed}"> kn</label>
+      <label ${R.speed >= 100 ? "hidden" : ""}>Length <input class="num" id="vlen" type="number" min="5" max="500" step="1" value="${R.len || 100}"> m</label>
       <label>Departure UT <input type="datetime-local" id="etd" value="${iso}" step="60"></label><button id="etdnow" class="small">now</button></div>
     <div class="controls" style="margin-top:6px"><button id="voyplay">Play</button><input type="range" id="voyt" min="0" max="1000" value="${Math.round(VOY.t * 1000)}" style="flex:1">
       <label><input type="checkbox" id="follow" checked> follow</label></div>
     <div class="meta">${FMT.nm(VOY.total())} NM in ${FMT.dur(H)}: arrival ${FMT.dt(etd + H / 24, zd())} ${zd() ? "ZT" : "UT"}. The whole voyage plays in ${VOY.dur} s.</div>`;
+  $("vlen").onchange = e => { R.len = Math.max(5, Math.min(500, +e.target.value || 100)); save(); draw(); };
   $("speed").onchange = e => { R.speed = Math.max(1, Math.min(1000, +e.target.value || 12)); save(); voyCard(); planCard(); draw(); };
   $("etd").onchange = e => { const t = Date.parse(e.target.value + "Z"); if (isFinite(t)) R.etd = jdOf(t); save(); voyCard(); planCard(); draw(); };
   $("etdnow").onclick = () => { R.etd = null; save(); voyCard(); planCard(); draw(); };
@@ -1105,6 +1138,10 @@ const APP = {
     if (/test=avoid/.test(location.hash)) selfTest();
     const vt = location.hash.match(/voy=([\d.]+)/);              /* #voy=0.5: the voyage half-way (demos) */
     if (vt) { VOY.on = true; VOY.t = Math.min(1, +vt[1]); const p = VOY.at(); if (p) { S.view.lat0 = p.lat; S.view.lon0 = p.lon; clampView(); } draw(); voyUI(); }
+    const sp = location.hash.match(/spd=([\d.]+)/);               /* #spd=480: the speed (demos) */
+    if (sp) { S.route.speed = +sp[1]; voyCard(); draw(); }
+    const zm = location.hash.match(/zoom=([\d.]+)/);              /* #zoom=6: closer (demos) */
+    if (zm) { S.view.k *= +zm[1]; clampView(); draw(); }
   },
   download, fmt: FMT, nav: NAV, state: S, parsePos,
 };

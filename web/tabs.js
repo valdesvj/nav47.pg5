@@ -166,6 +166,25 @@ const TABS2 = (() => {
     stops.forEach((z, k) => { if (Math.abs(z.off - here) < Math.abs(stops[mine].off - here)) mine = k; });
     if (zcur === null) { const v = localStorage.getItem("nav47web:zone"); zcur = v !== null && +v < stops.length ? +v : mine; }
     const Z = stops[zcur]; zcity = Math.min(zcity, Z.cities.length - 1);
+    const hv = location.hash.match(/zview=(map|list)/);           /* #zview=list (demos) */
+    if (hv) { localStorage.setItem("nav47web:zview", hv[1]); history.replaceState(null, "", location.href.replace(/&?zview=(map|list)/, "")); }
+    const view = localStorage.getItem("nav47web:zview") || "map";
+    const sw = `<span style="display:inline-flex;gap:4px"><button class="small ${view === "map" ? "on" : ""}" data-zv="map">Map</button>` +
+               `<button class="small ${view === "list" ? "on" : ""}" data-zv="list">List</button></span>`;
+    const bindSw = () => el.querySelectorAll("[data-zv]").forEach(b => b.onclick = () => { localStorage.setItem("nav47web:zview", b.dataset.zv); zones(); });
+    if (view === "list") {                                    /* every zone, every place, the time now */
+      el.innerHTML = `<div class="card"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:baseline">
+        <h2>Zones ${sw}</h2><span class="meta">${F().dt(J, 0)} UT · tzdata ${N().str(Module._api_tzdata())} · summer time computed as on the calculator</span></div>
+        <div class="scroll"><table><tr><th>Zone</th><th class="num">Now</th><th>Places (★ summer time now)</th></tr>
+        ${stops.map((r, k) => `<tr class="click${k === mine ? " sel" : ""}" data-z="${k}"><td class="mono">${zfo(r.off)}${r.off === -12 ? " at sea" : ""}</td>
+          <td class="num mono">${zlocal(J, r.off).slice(-5)}</td>
+          <td style="white-space:normal">${r.cities.map(c => `${c.name}${c.cc ? " " + c.cc : ""}${c.on ? ` ★ ${zfo(c.off)} ${zlocal(J, c.off).slice(-5)}` : ""}`).join(", ")}</td></tr>`).join("")}</table></div>
+        <div class="meta">ZONE47: the official offsets (−12 at sea); your clock's zone highlighted. Click a zone for it on the map.</div></div>`;
+      bindSw();
+      el.querySelectorAll("tr[data-z]").forEach(tr => tr.onclick = () => { zcur = +tr.dataset.z; zcity = 0; localStorage.setItem("nav47web:zone", zcur);
+        localStorage.setItem("nav47web:zview", "map"); zones(); });
+      return;
+    }
     const c0 = Z.cities[zcity];
     /* the dot map */
     const ncol = Module._api_map_ncol(), nrow = Module._api_map_nrow();
@@ -192,7 +211,7 @@ const TABS2 = (() => {
     const dst = c => c.kind === 2 ? "varies" : c.kind === 1 ? (c.on ? "summer now" : "winter now") : "";
     el.innerHTML = `<div class="card">
       <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:baseline">
-        <h2 style="font-size:22px">${zfo(Z.off)}${Z.off === -12 ? " at sea" : ""}</h2>
+        <h2 style="font-size:22px">${zfo(Z.off)}${Z.off === -12 ? " at sea" : ""} ${sw}</h2>
         <div style="font-size:26px;font-weight:700;font-variant-numeric:tabular-nums">${zlocal(J, c0.off)}</div></div>
       <div class="meta">${Z.cities.length} ${Z.cities.length === 1 ? "place" : "places"} · stop ${zcur + 1} of ${stops.length} ·
         your clock ${zfo(here)} (▲) · IANA tzdata ${N().str(Module._api_tzdata())} · summer time computed as on the calculator</div>
@@ -204,16 +223,13 @@ const TABS2 = (() => {
         <td class="mono">${zlocal(J, c.off)}</td><td class="num mono">${zfo(c.off)}</td><td>${dst(c)}</td></tr>`).join("")}</table></div>
       <div class="meta">Keys: ← → the stop west / east, ↑ ↓ the place. Click a column of the map for its zone. The stops: every official
         standard offset plus −12 at sea; the highlighted column is the offset's own 15°. The calculator's ZONES page, in the browser.</div>
-      <details style="margin-top:10px"><summary class="meta" style="cursor:pointer">All zones</summary>
-      <div class="scroll"><table><tr><th>Zone</th><th class="num">Now</th><th>Places (★ summer time now)</th></tr>
-      ${stops.map((r, k) => `<tr class="click${k === zcur ? " sel" : ""}" data-z="${k}"><td class="mono">${zfo(r.off)}</td><td class="num mono">${zlocal(J, r.off).slice(-5)}</td>
-        <td style="white-space:normal">${r.cities.map(c => `${c.name}${c.cc ? " " + c.cc : ""}${c.on ? ` ★ ${zfo(c.off)}` : ""}`).join(", ")}</td></tr>`).join("")}</table></div></details></div>`;
+</div>`;
     const go = k => { zcur = ((k % stops.length) + stops.length) % stops.length; zcity = 0; localStorage.setItem("nav47web:zone", zcur); zones(); };
     el.querySelector("#zw").onclick = () => go(zcur - 1);
     el.querySelector("#ze").onclick = () => go(zcur + 1);
     el.querySelector("#zm").onclick = () => go(mine);
     el.querySelectorAll("tr[data-k]").forEach(tr => tr.onclick = () => { zcity = +tr.dataset.k; zones(); });
-    el.querySelectorAll("tr[data-z]").forEach(tr => tr.onclick = () => go(+tr.dataset.z));
+    bindSw();
     el.querySelectorAll("rect[data-c]").forEach(r => r.onclick = () => {
       const c = +r.dataset.c, k = stops.findIndex(z => z.col === c && Number.isInteger(z.off));
       go(k >= 0 ? k : stops.findIndex(z => z.col === c));
@@ -222,6 +238,7 @@ const TABS2 = (() => {
       zkeys = true;
       document.addEventListener("keydown", e => {
         if (document.getElementById("t-zones").hidden || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+        if ((localStorage.getItem("nav47web:zview") || "map") !== "map") return;
         const n = zdata(jd()).length;
         if (e.key === "ArrowLeft") { zcur = (zcur - 1 + n) % n; zcity = 0; }
         else if (e.key === "ArrowRight") { zcur = (zcur + 1) % n; zcity = 0; }
