@@ -38,7 +38,7 @@
 /*  State (heap: a DMCP5 program has 8 KB of static RAM)              */
 /* ------------------------------------------------------------------ */
 enum { PG_VALM, PG_VSPLIT, PG_VSKY, PG_VALLSKY, PG_VMOON, PG_VANIM,
-       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN };
+       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP };
 #define IS_VIEW(p) ((p) <= PG_VANIM)
 
 typedef struct {
@@ -870,7 +870,7 @@ static void route_save(void) {
   char *b = (char *)malloc(64 + 48 * MAXWP);
   if (!b) return;
   char *o = b;
-  o += sprintf(o, "NAV47 ROUTE 1\n%s\nLIM %.1f\nSPLIT %d %.3f\n", SAIL_NAME[N->cfg.gc % 3], cs_lim, plan_split, plan_val);
+  o += sprintf(o, "NAV47 ROUTE 1\n%s\nLIM %.1f\nSPLIT %d %.3f\nELL %d\n", SAIL_NAME[N->cfg.gc % 3], cs_lim, plan_split, plan_val, geo_ell_index);
   for (int i = 0; i < N->nwp; i++) o += sprintf(o, "%.7f %.7f\n", N->wlat[i], N->wlon[i]);
   sys_disk_write_enable(1);
   check_create_dir(DIR);
@@ -894,6 +894,7 @@ static void route_load(void) {
     else if (!strcmp(l, "CS")) N->cfg.gc = 2;
     else if (sscanf(l, "LIM %lf", &v) == 1) { if (v >= 10 && v <= 85) cs_lim = v; }
     else if (sscanf(l, "SPLIT %d %lf", &m, &v) == 2) { if (m >= 0 && m <= 3) { plan_split = m; plan_val = v; } }
+    else if (sscanf(l, "ELL %d", &m) == 1) geo_set_ellipsoid(m);
     else if (sscanf(l, "%lf %lf", &a, &b) == 2 && N->nwp < MAXWP && fabs(a) <= 90 && fabs(b) <= 180) {
       N->wlat[N->nwp] = a; N->wlon[N->nwp] = b; N->nwp++;
     }
@@ -963,7 +964,7 @@ static void draw_route(void) {
   }
   int vis = 10;
   if (wp_edit >= 0) nt_inv(2, 192, wp_edit ? "LON DDD.MMm  +/- WEST  ENTER" : "LAT DD.MMm  +/- SOUTH  ENTER");
-  else nt(2, 192, N->cfg.gc == 2 ? "4 6 limit  R/S plan" : "ENTER edit  R/S plan");
+  else nt(2, 192, N->cfg.gc == 2 ? "4 6 limit 5 cmp R/S plan" : "ENTER edit 5 cmp R/S plan");
   sprintf(s, "%d WP  TOTAL %.1f NM", N->nwp, tot);
   if (wp_edit < 0 || nt_w(s) < 150) nt_r(LCD_X - 2, 192, s);
   if (wp_cur >= N->nwp) wp_cur = N->nwp - 1;
@@ -1129,6 +1130,67 @@ static void plan_key(int key) {
   else if (key == KEY_EXIT) { go(PG_ROUTE); menu_page = 3; }
 }
 
+/* ------------------------------------------------------------------ */
+/*  COMPARE: one leg as geodesic, rhumb and composite (geo47)         */
+/* ------------------------------------------------------------------ */
+static int cmp_leg(void) { return wp_cur > 0 ? wp_cur : 1; }   /* the leg that ends at the cursor */
+
+static void draw_cmp(void) {
+  char s[64], t[32];
+  int i = cmp_leg(), y;
+  if (N->nwp < 2 || i >= N->nwp) { header("COMPARE"); nt(4, 48, "Needs 2 waypoints on ROUTE."); return; }
+  double la1 = N->wlat[i - 1], lo1 = N->wlon[i - 1], la2 = N->wlat[i], lo2 = N->wlon[i];
+  double sg, a1, a2, sr, ar, latv, lonv, sv;
+  geod_inverse(&geo_ell, la1, lo1, la2, lo2, &sg, &a1, &a2);
+  rhumb_inverse(&geo_rh, la1, lo1, la2, lo2, &sr, &ar);
+  int in = geod_vertex(&geo_ell, la1, lo1, la2, lo2, &latv, &lonv, &sv);
+  const int xg = 268, xr = 396;
+  sprintf(s, "COMPARE LEG %d-%d", i, i + 1);
+  header(s);
+  y = 32;  nt(4, y, "FROM");
+  fmt_dmn(t, la1, 2, la1 < 0 ? 'S' : 'N'); nt_r(xg, y, t); fmt_dmn(t, lo1, 3, lo1 < 0 ? 'W' : 'E'); nt_r(xr, y, t);
+  y = 48;  nt(4, y, "TO");
+  fmt_dmn(t, la2, 2, la2 < 0 ? 'S' : 'N'); nt_r(xg, y, t); fmt_dmn(t, lo2, 3, lo2 < 0 ? 'W' : 'E'); nt_r(xr, y, t);
+  y = 72;  nt_r(xg, y, "GEODESIC"); nt_r(xr, y, "RHUMB");
+  y = 88;  nt(4, y, "DIST NM");
+  sprintf(t, "%.1f", sg / NM); nt_r(xg, y, t); sprintf(t, "%.1f", sr / NM); nt_r(xr, y, t);
+  y = 104; nt(4, y, "INITIAL CRS");
+  sprintf(t, "%05.1f" NT_DEG, fmod(a1 + 360.0, 360.0)); nt_r(xg, y, t);
+  sprintf(t, "%05.1f" NT_DEG, fmod(ar + 360.0, 360.0)); nt_r(xr, y, t);
+  y = 120; nt(4, y, "FINAL CRS");
+  sprintf(t, "%05.1f" NT_DEG, fmod(a2 + 360.0, 360.0)); nt_r(xg, y, t);
+  sprintf(t, "%05.1f" NT_DEG, fmod(ar + 360.0, 360.0)); nt_r(xr, y, t);
+  y = 136; nt(4, y, "GC SAVES");
+  sprintf(t, "%.1f NM  %.1f%%", (sr - sg) / NM, sr > 0 ? 100.0 * (sr - sg) / sr : 0.0); nt_r(xr, y, t);
+  y = 152; nt(4, y, in ? "VERTEX" : "VERTEX (off leg)");
+  fmt_dmn(t, latv, 2, latv < 0 ? 'S' : 'N'); nt_r(xg, y, t); fmt_dmn(t, lonv, 3, lonv < 0 ? 'W' : 'E'); nt_r(xr, y, t);
+  y = 168;
+  if (in && fabs(latv) > cs_lim) {
+    double cc, cn;
+    int rc = geo_leg_cs(la1, lo1, la2, lo2, cs_lim, &cc, &cn);
+    plan_dirty = 1;                                    /* geo_route was used as scratch */
+    sprintf(s, "CS %.0f" NT_DEG, cs_lim); nt(4, y, s);
+    if (rc == ROUTE_OK) { sprintf(t, "%.1f NM  %05.1f" NT_DEG, cn, cc); nt_r(xr, y, t); }
+    else nt_r(xr, y, "not possible (end beyond)");
+  } else {
+    sprintf(s, "CS %.0f" NT_DEG, cs_lim); nt(4, y, s); nt_r(xr, y, "limit not reached");
+  }
+  sprintf(s, "7 9 %s  8 2 leg", ellipsoids[geo_ell_index].name);
+  nt(2, 192, s);
+  nt_r(LCD_X - 2, 192, "EXIT back");
+}
+
+static void cmp_key(int key) {
+  if (key == KEY_7 || key == KEY_9) {                  /* ellipsoid: presets only, not CUSTOM */
+    int n = ELL_CUSTOM, e = (geo_ell_index + (key == KEY_9 ? 1 : n - 1)) % n;
+    geo_set_ellipsoid(e);
+    route_save();                                      /* saves ELL, marks legs and plan to redo */
+  }
+  else if ((key == KEY_8 || key == KEY_UP) && cmp_leg() > 1) wp_cur = cmp_leg() - 1;
+  else if ((key == KEY_2 || key == KEY_DOWN) && cmp_leg() < N->nwp - 1) wp_cur = cmp_leg() + 1;
+  else if (key == KEY_EXIT) { go(PG_ROUTE); menu_page = 3; }
+}
+
 static const char *MENUS[4][6] = {
   { "ALMAN", "SPLIT", "SKY", "ALLSK", "MOON", ">>" },
   { "ANIM", "T&F", "TIDE", "ROUTE", "ZONES", ">>" },
@@ -1170,6 +1232,7 @@ static void redraw(void) {
     case PG_STATION: draw_station(); break;
     case PG_ROUTE: draw_route(); break;
     case PG_PLAN: draw_plan(); break;
+    case PG_CMP: draw_cmp(); break;
     case PG_ZONES: draw_zones(); break;
     case PG_SET: draw_set(); break;
     case PG_FILES: draw_files(); break;
@@ -1320,11 +1383,15 @@ static void handle_key(int key) {
     else if ((key == KEY_2 || key == KEY_DOWN) && wp_cur < N->nwp - 1) wp_cur++;
     else if (key == KEY_ENTER) wp_start_edit();
     else if (key == KEY_RUN && N->nwp > 1) { plan_cur = 0; go(PG_PLAN); }
+    else if (key == KEY_5 && N->nwp > 1) go(PG_CMP);
     else if (key == KEY_4 && N->cfg.gc == 2 && cs_lim > 10) { cs_lim -= 1; route_save(); }
     else if (key == KEY_6 && N->cfg.gc == 2 && cs_lim < 85) { cs_lim += 1; route_save(); }
     break;
   case PG_PLAN:
     plan_key(key);
+    return;
+  case PG_CMP:
+    cmp_key(key);
     return;
   case PG_SET:
     if (key == KEY_8 || key == KEY_UP) { do sel_field = (sel_field + F_COUNT - 1) % F_COUNT; while (N->cfg.live && (sel_field == F_DATE || sel_field == F_TIME)); }

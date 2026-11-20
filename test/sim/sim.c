@@ -3,7 +3,7 @@
  * 400x240 LCD as PBM snapshots (test/sim/render.py turns them into PNG).
  *
  *   build/sim KEY KEY ... SNAP:name ...
- *   keys: F1..F6 0..9 ENTER EXIT BSP UP DOWN SHIFT CHS DOT, WAIT:ms; HOSTL: the PC sends L on the serial console
+ *   keys: F1..F6 0..9 ENTER EXIT BSP UP DOWN SHIFT CHS DOT ADD RUN, WAIT:ms; HOSTL: the PC sends L on the serial console
  *         (DMCP marks every row unsent and gives the program key 77)
  *   env:  NAV47_CLOCK="2026-11-02 12:00"  (the calculator clock), NAV47_FILE=path (the file chosen in FILES)
  *   files: ./simdisk/ is the calculator disk
@@ -162,7 +162,7 @@ static int parse_key(const char *s) {
     {"F1",KEY_F1},{"F2",KEY_F2},{"F3",KEY_F3},{"F4",KEY_F4},{"F5",KEY_F5},{"F6",KEY_F6},
     {"0",KEY_0},{"1",KEY_1},{"2",KEY_2},{"3",KEY_3},{"4",KEY_4},{"5",KEY_5},{"6",KEY_6},{"7",KEY_7},{"8",KEY_8},{"9",KEY_9},
     {"ENTER",KEY_ENTER},{"EXIT",KEY_EXIT},{"BSP",KEY_BSP},{"UP",KEY_UP},{"DOWN",KEY_DOWN},{"SHIFT",KEY_SHIFT},
-    {"CHS",KEY_CHS},{"DOT",KEY_DOT},{"ADD",KEY_ADD},
+    {"CHS",KEY_CHS},{"DOT",KEY_DOT},{"ADD",KEY_ADD},{"RUN",KEY_RUN},
   };
   for (unsigned i = 0; i < sizeof map / sizeof *map; i++) if (!strcmp(map[i].n, s)) return map[i].k;
   fprintf(stderr, "unknown key %s\n", s);

@@ -126,14 +126,15 @@ SIM_USB = $(if $(filter sercon,$(USB)),src/sercon.c test/sim/sercon_sim.c,\
 SIM_DEFS = $(if $(filter sercon,$(USB)),,-DSERCON_TINYUSB)
 SIM_SRC = test/sim/sim.c src/main.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
           src/c47scr.c src/views.c src/fonts21.c src/ntext.c src/moon47.c src/route.c $(SIM_USB) \
-          src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c
+          src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c \
+          $(GEO47_SRC) src/geo_nav.c
 $(BUILD_DIR)/gen/simfont.h: test/sim/gen_simfont.py
 	@mkdir -p $(BUILD_DIR)/gen
 	$(PYTHON) test/sim/gen_simfont.py $@
 
 sim: $(SIM_SRC) $(BUILD_DIR)/gen/simfont.h | $(BUILD_DIR)
 	gcc -std=gnu11 -O2 -w -ffp-contract=off '-D__packed=__attribute__((__packed__))' '-D__weak=__attribute__((weak))' \
-	    -DNAV47_SIM $(SIM_DEFS) -Itest/sim -Isrc -Isrc/usb -I$(BUILD_DIR)/gen -o $(BUILD_DIR)/sim $(SIM_SRC) -lm
+	    -DNAV47_SIM $(SIM_DEFS) -Itest/sim -Isrc -I$(GEO47_DIR) -Isrc/usb -I$(BUILD_DIR)/gen -o $(BUILD_DIR)/sim $(SIM_SRC) -lm
 
 # both .pg5 at once: build/<NAME>.pg5 (DMCP5 3.58's console) and build/tinyusb/<NAME>.pg5 (any DMCP5)
 both:
