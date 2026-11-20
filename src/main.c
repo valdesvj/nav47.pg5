@@ -26,6 +26,7 @@
 #include "usbser.h"
 #include "moon47.h"
 #include "geo_nav.h"
+#include "map47.h"
 
 #define DIR       "/NAV47"
 #define TIDEDIR   "/NAV47/TIDES"
@@ -38,7 +39,7 @@
 /*  State (heap: a DMCP5 program has 8 KB of static RAM)              */
 /* ------------------------------------------------------------------ */
 enum { PG_VALM, PG_VSPLIT, PG_VSKY, PG_VALLSKY, PG_VMOON, PG_VANIM,
-       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP };
+       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP, PG_CHART };
 #define IS_VIEW(p) ((p) <= PG_VANIM)
 
 typedef struct {
@@ -1267,6 +1268,94 @@ static void cmp_key(int key) {
   else if (key == KEY_EXIT) { go(PG_ROUTE); menu_page = 3; }
 }
 
+/* ------------------------------------------------------------------ */
+/*  CHART: the plan on Mercator over the coastline (map47)            */
+/* ------------------------------------------------------------------ */
+#define CHART_Y0 16
+#define CHART_H  175
+static map_t chart_m;
+static int chart_back = PG_PLAN, chart_refit = 1;
+static char chart_detail;                                /* 'C' or 'L': the coastline last drawn, 0 none */
+
+static void chart_open(int back) { chart_back = back; chart_refit = 1; go(PG_CHART); }
+
+/* the plan, the user legs' geodesics (their vertices) and a margin */
+static void chart_fit(void) {
+  route_t *R = &geo_route;
+  double s = 90, n = -90, w = 1e9, e = -1e9, lon = R->w[0].lon;
+  for (int i = 0; i < R->n; i++) {
+    double la = R->w[i].lat;
+    if (i) { double d = R->w[i].lon - R->w[i - 1].lon; lon += d > 180 ? d - 360 : d < -180 ? d + 360 : d; }
+    if (la < s) s = la;
+    if (la > n) n = la;
+    if (lon < w) w = lon;
+    if (lon > e) e = lon;
+  }
+  for (int i = 1; i < N->nwp; i++) {
+    double vl, vo, sv;
+    if (geod_vertex(&geo_ell, N->wlat[i - 1], N->wlon[i - 1], N->wlat[i], N->wlon[i], &vl, &vo, &sv)) {
+      if (vl < s) s = vl;
+      if (vl > n) n = vl;
+    }
+  }
+  double ml = (n - s) * 0.08 + 0.3, mo = (e - w) * 0.08 + 0.3;
+  map_init(&chart_m, 0, CHART_Y0, LCD_X, CHART_H, &geo_ell);
+  map_fit(&chart_m, s - ml, n + ml, w - mo, e + mo);
+}
+
+static void draw_chart(void) {
+  char s[64];
+  sprintf(s, N->cfg.gc == 2 ? "CHART CS %.0f" : N->cfg.gc ? "CHART GC" : "CHART RL", cs_lim);
+  header(s);
+  if (!geo_route_alloc()) { nt(4, 48, "Not enough memory for CHART."); return; }
+  if (plan_dirty || legs_dirty) plan_build();
+  route_t *R = &geo_route;
+  if (R->n < 2) { nt(4, 48, "Needs 2 waypoints on ROUTE."); return; }
+  if (chart_refit) { chart_fit(); chart_refit = 0; }
+  chart_m.e = (float)sqrt(geo_ell.f * (2 - geo_ell.f));   /* the ellipsoid may have changed */
+  int step = map_grid(&chart_m);
+  chart_detail = 0;
+  if (sys_disk_ok()) {
+    if (map_span_lon(&chart_m) < 40 && map_coast(&chart_m, "/NAV47/COAST_L.BIN") >= 0) chart_detail = 'L';
+    else if (map_coast(&chart_m, "/NAV47/COAST_C.BIN") >= 0) chart_detail = 'C';
+  }
+  int gc = N->cfg.gc % 3;
+  if (gc == 2) {                                         /* the limit parallel, on the route's side */
+    double m = 0;
+    for (int i = 0; i < N->nwp; i++) m += N->wlat[i];
+    float x, y;
+    map_xy(&chart_m, m < 0 ? -cs_lim : cs_lim, chart_m.lon0, &x, &y);
+    if (y >= CHART_Y0 && y < CHART_Y0 + CHART_H) gfx_hline_dotted(0, LCD_X - 1, (int)lroundf(y), 8);
+  }
+  for (int i = 1; i < N->nwp; i++) {                     /* the other sailings, for comparison */
+    if (gc != 0) map_seg(&chart_m, N->wlat[i - 1], N->wlon[i - 1], N->wlat[i], N->wlon[i], MAP_DASH);
+    if (gc != 1) map_geod(&chart_m, &geo_ell, N->wlat[i - 1], N->wlon[i - 1], N->wlat[i], N->wlon[i], MAP_DOT);
+  }
+  for (int i = 1; i < R->n; i++) {                       /* the plan: thick */
+    const wpt_t *a = &R->w[i - 1], *b = &R->w[i];
+    if (b->kind == SEG_GEOD) map_geod(&chart_m, &geo_ell, a->lat, a->lon, b->lat, b->lon, MAP_THICK);
+    else map_seg(&chart_m, a->lat, a->lon, b->lat, b->lon, MAP_THICK);
+  }
+  for (int i = 0; i < R->n; i++) map_mark(&chart_m, R->w[i].lat, R->w[i].lon, (R->w[i].flags & WPT_USER) ? 1 : 0);
+  if (plan_cur < R->n) map_mark(&chart_m, R->w[plan_cur].lat, R->w[plan_cur].lon, 2);
+  gfx_rect(0, CHART_Y0 + CHART_H, LCD_X, 1, 1);
+  nt(2, 192, "8246 pan 7 9 zoom 5 fit");
+  if (chart_detail) sprintf(s, "%c grid %d" NT_DEG, chart_detail, step);
+  else strcpy(s, "no /NAV47/COAST_C.BIN");
+  nt_r(LCD_X - 2, 192, s);
+}
+
+static void chart_key(int key) {
+  if (key == KEY_4) map_pan(&chart_m, -0.25f, 0);
+  else if (key == KEY_6) map_pan(&chart_m, 0.25f, 0);
+  else if (key == KEY_8 || key == KEY_UP) map_pan(&chart_m, 0, 0.25f);
+  else if (key == KEY_2 || key == KEY_DOWN) map_pan(&chart_m, 0, -0.25f);
+  else if (key == KEY_9) map_zoom(&chart_m, 1.5f);
+  else if (key == KEY_7) map_zoom(&chart_m, 1 / 1.5f);
+  else if (key == KEY_5) chart_refit = 1;
+  else if (key == KEY_EXIT) { go(chart_back); if (chart_back == PG_ROUTE) menu_page = 3; }
+}
+
 static const char *MENUS[4][6] = {
   { "ALMAN", "SPLIT", "SKY", "ALLSK", "MOON", ">>" },
   { "ANIM", "T&F", "TIDE", "ROUTE", "ZONES", ">>" },
@@ -1275,6 +1364,9 @@ static const char *MENUS[4][6] = {
 };
 static const char *FILE_MENU[6] = { "TID", "FLW", "CLEAR", "", "", "BACK" };
 static const char *EDIT_MENU[6] = { "", "", "", "", "", "CANCEL" };
+static const char *PLAN_MENU[6] = { "CSV", "NMEA", "SPLIT", "CMP", "CHART", "BACK" };
+static const char *CMP_MENU[6] = { "ELL-", "ELL+", "EDIT", "PLAN", "CHART", "BACK" };
+static const char *CHART_MENU[6] = { "ZOOM+", "ZOOM-", "FIT", "PLAN", "CMP", "BACK" };
 
 #define ANIM_FRAMES 24
 #define ANIM_STEP   0.5
@@ -1309,6 +1401,7 @@ static void redraw(void) {
     case PG_ROUTE: draw_route(); break;
     case PG_PLAN: draw_plan(); break;
     case PG_CMP: draw_cmp(); break;
+    case PG_CHART: draw_chart(); break;
     case PG_ZONES: draw_zones(); break;
     case PG_SET: draw_set(); break;
     case PG_FILES: draw_files(); break;
@@ -1317,7 +1410,8 @@ static void redraw(void) {
     }
   if (page != PG_ROUTE && menu_page == 3) menu_page = 0;
   MENUS[2][4] = usbview_is_on() ? "USB*" : "USB";
-  lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0) ? EDIT_MENU : MENUS[menu_page]);
+  lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0) ? EDIT_MENU :
+                     page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : MENUS[menu_page]);
   lcd_refresh();
   lcd_refresh_wait();        /* the LCD goes out by DMA: done before the next frame clears the buffer (no flicker) */
   usbview_send();
@@ -1355,6 +1449,29 @@ static void softkey(int fn) {
       strcpy(N->msg, "files cleared (memory is freed at the next start)");
       cfg_save();
     } else if (fn == 5) go(PG_SET);
+    return;
+  }
+  if (page == PG_PLAN) {
+    static const int k[6] = { KEY_ENTER, 0, KEY_5, 0, 0, KEY_EXIT };
+    if (fn == 1) { plan_msg[0] = 0; plan_nmea(); }
+    else if (fn == 3) go(PG_CMP);
+    else if (fn == 4) chart_open(PG_PLAN);
+    else plan_key(k[fn]);
+    return;
+  }
+  if (page == PG_CMP) {
+    static const int k[6] = { KEY_7, KEY_9, KEY_ENTER, 0, 0, KEY_EXIT };
+    if (fn == 2 && geo_ell_index != ELL_CUSTOM) strcpy(cmp_msg, "EDIT: CUSTOM only (ELL+)");
+    else if (fn == 3) { plan_cur = 0; go(PG_PLAN); }
+    else if (fn == 4) chart_open(PG_CMP);
+    else cmp_key(k[fn]);
+    return;
+  }
+  if (page == PG_CHART) {
+    static const int k[6] = { KEY_9, KEY_7, KEY_5, 0, 0, KEY_EXIT };
+    if (fn == 3) { plan_cur = 0; go(PG_PLAN); }
+    else if (fn == 4) go(PG_CMP);
+    else chart_key(k[fn]);
     return;
   }
   if (fn == 5) {                                       /* >> */
@@ -1471,6 +1588,9 @@ static void handle_key(int key) {
   case PG_CMP:
     cmp_key(key);
     return;
+  case PG_CHART:
+    chart_key(key);
+    return;
   case PG_SET:
     if (key == KEY_8 || key == KEY_UP) { do sel_field = (sel_field + F_COUNT - 1) % F_COUNT; while (N->cfg.live && (sel_field == F_DATE || sel_field == F_TIME)); }
     else if (key == KEY_2 || key == KEY_DOWN) { do sel_field = (sel_field + 1) % F_COUNT; while (N->cfg.live && (sel_field == F_DATE || sel_field == F_TIME)); }
@@ -1552,7 +1672,7 @@ void program_main(void) {
         redraw();
       } else if (N->cfg.live && ((page == PG_ZONES && t - last >= 1000) || t - last >= 30000)) {
         last = t;
-        if (page != PG_VANIM) redraw();
+        if (page != PG_VANIM && page != PG_CHART) redraw();
       }
     }
     if (!key_empty()) reset_auto_off();

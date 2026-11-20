@@ -135,6 +135,7 @@ FRESULT f_open(FIL *fp, const TCHAR *p, BYTE mode) {
   return f ? FR_OK : FR_NO_FILE;
 }
 FRESULT f_close(FIL *fp) { fclose((FILE *)fp->obj.fs); return FR_OK; }
+FRESULT f_lseek(FIL *fp, FSIZE_t ofs) { return fseek((FILE *)fp->obj.fs, (long)ofs, SEEK_SET) ? FR_INT_ERR : FR_OK; }
 FRESULT f_read(FIL *fp, void *b, UINT n, UINT *br) { *br = (UINT)fread(b, 1, n, (FILE *)fp->obj.fs); return FR_OK; }
 FRESULT f_write(FIL *fp, const void *b, UINT n, UINT *bw) { *bw = (UINT)fwrite(b, 1, n, (FILE *)fp->obj.fs); return FR_OK; }
 int file_selection_screen(const char *title, const char *base_dir, const char *ext, file_sel_fn_t sel_fn,
