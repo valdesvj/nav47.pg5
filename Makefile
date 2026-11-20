@@ -147,3 +147,4 @@ clean:
 -include $(shell mkdir .dep 2>/dev/null) $(wildcard .dep/*)
 
 .PHONY: both clean all test test-usb data sim FORCE
+include web.mk
