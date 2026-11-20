@@ -5,234 +5,145 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>NAV47</title>
 <style>
-  :root { --paper: #f4f3ee; --card: #ffffff; --ink: #1b2129; --soft: #697381; --line: #e2e0d8; --accent: #1f5f99;
-          --body: #2b2d31; --key: #3a3c40; --keyink: #e8ebe2; --gold: #e8b23a; --lcd: rgb(223,230,214); }
+  :root {
+    --paper: #f4f3ee; --card: #ffffff; --ink: #1b2129; --soft: #697381; --line: #e2e0d8; --grid: #ebe8e0;
+    --accent: #1f5f99; --sun: #c9840a; --now: #c0392b; --chip: #edf2f7; --ok: #1e7b4a;
+    --sea: #dfeaf2; --land: #d8d2bf; --coast: #8f8770; --zone: rgba(192, 57, 43, .13); --zonel: #c0392b;
+    --track: #1f5f99; --sky-day: #dbeaf7; --sky-twi: #8aa3c4; --sky-night: #18233a;
+    --body: #2b2d31; --key: #3a3c40; --keyink: #e8ebe2; --gold: #e8b23a; --lcd: rgb(223,230,214);
+  }
   @media (prefers-color-scheme: dark) {
-    :root { --paper: #11151a; --card: #192028; --ink: #e7ebf0; --soft: #98a2af; --line: #29323c; --accent: #6db0ec; }
+    :root { --paper: #11151a; --card: #192028; --ink: #e7ebf0; --soft: #98a2af; --line: #29323c; --grid: #222a33;
+            --accent: #6db0ec; --sun: #f0b43c; --now: #ff7b6b; --chip: #212d39; --ok: #5fd39a;
+            --sea: #142130; --land: #3b4250; --coast: #7d8698; --zone: rgba(255, 123, 107, .16); --zonel: #ff7b6b;
+            --track: #6db0ec; --sky-day: #2c4a66; --sky-twi: #1d3150; --sky-night: #0b1220; }
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-  header { padding: 14px 16px 6px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; }
-  h1 { font-size: 20px; margin: 0; } h1 span { color: var(--soft); font-weight: 400; font-size: 14px; }
-  main { display: flex; flex-wrap: wrap; gap: 20px; padding: 6px 16px 24px; align-items: flex-start; }
+  header { padding: 12px 16px 4px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  h1 { font-size: 20px; margin: 0 6px 0 0; } h1 span { color: var(--soft); font-weight: 400; font-size: 13px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+  select, input, button { font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; }
+  button { cursor: pointer; } button:hover { border-color: var(--accent); }
+  button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.small { padding: 2px 7px; font-size: 13px; }
+  label { color: var(--soft); font-size: 13px; }
+  input.pos { width: 13em; } input.num { width: 5.5em; } input.name { width: 9em; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 16px 0; }
+  .tab { border-radius: 999px; padding: 4px 14px; }
+  main { padding: 0 16px 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-top: 10px; }
+  .card h2 { margin: 0 0 6px; font-size: 17px; }
+  .card h3 { margin: 10px 0 4px; font-size: 14px; color: var(--soft); font-weight: 600; }
+  .meta { color: var(--soft); font-size: 13px; margin-top: 4px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: 13px; }
+  .chip.warn { color: var(--now); font-weight: 600; } .chip.ok { color: var(--ok); font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; font-size: 13.5px; }
+  th { color: var(--soft); font-weight: 500; font-size: 12.5px; }
+  td.num, th.num { text-align: right; } .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  tr.dim td { color: var(--soft); } tr.sel td { background: var(--chip); } tr.click { cursor: pointer; }
+  .scroll { overflow: auto; }
+  .split { display: grid; grid-template-columns: minmax(0, 1fr) 430px; gap: 14px; align-items: start; }
+  @media (max-width: 1100px) { .split { grid-template-columns: 1fr; } }
+  .chartwrap { position: relative; }
+  canvas#chart { display: block; width: 100%; height: 620px; border-radius: 10px; border: 1px solid var(--line); touch-action: none; background: var(--sea); }
+  .tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+  .hud { position: absolute; left: 10px; bottom: 10px; background: color-mix(in srgb, var(--card) 88%, transparent); border: 1px solid var(--line);
+         border-radius: 10px; padding: 8px 12px; font-size: 13px; min-width: 230px; pointer-events: none; }
+  .hud .big { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .hud table td { border: 0; padding: 1px 4px; }
+  .tip { position: absolute; pointer-events: none; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px;
+         font-size: 12.5px; white-space: nowrap; display: none; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--soft); margin-top: 6px; }
+  .legend svg { display: inline-block; width: auto; vertical-align: middle; }
+  .split .card input.pos { width: 11.6em; font-size: 13px; } .split .card input.name { width: 6.5em; font-size: 13px; }
+  .split .card td select { max-width: 7.5em; font-size: 13px; padding: 3px 4px; } .split .card td input { padding: 3px 5px; }
+  .split .card td { padding: 3px 3px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+  @media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+  svg { display: block; width: 100%; height: auto; }
+  footer { color: var(--soft); font-size: 12px; padding: 4px 16px 24px; }
+  [hidden] { display: none !important; }
+  /* the calculator */
+  .calcwrap { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; margin-top: 10px; }
   .calc { background: var(--body); border-radius: 18px; padding: 18px 18px 22px; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
-  canvas { display: block; background: var(--lcd); image-rendering: pixelated; width: 800px; max-width: calc(100vw - 72px);
-           height: auto; border-radius: 4px; border: 6px solid #1a1b1e; }
+  canvas#lcd { display: block; background: var(--lcd); image-rendering: pixelated; width: 800px; max-width: calc(100vw - 72px);
+               height: auto; border-radius: 4px; border: 6px solid #1a1b1e; }
   .keys { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 14px; }
   .keys.main { grid-template-columns: repeat(5, 1fr); }
   button.k { font: 600 15px system-ui, sans-serif; color: var(--keyink); background: var(--key); border: 1px solid #55585e;
-             border-radius: 7px; padding: 9px 0; cursor: pointer; user-select: none; }
-  button.k:active, button.k.down { background: #55585e; }
-  button.k.f { background: #4a4d52; } button.k.shift { background: var(--gold); color: #1c1f1c; border-color: var(--gold); }
-  button.k.shift.on { outline: 3px solid #fff3; }
+             border-radius: 7px; padding: 9px 0; user-select: none; }
+  button.k:active { background: #55585e; } button.k.f { background: #4a4d52; }
+  button.k.shift { background: var(--gold); color: #1c1f1c; border-color: var(--gold); } button.k.shift.on { outline: 3px solid #fff3; }
   button.k.wide { grid-column: span 2; }
-  .panel { flex: 1 1 320px; max-width: 520px; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; margin-bottom: 12px; }
-  .card h2 { font-size: 16px; margin: 0 0 6px; }
-  .card button, .card input { font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 8px;
-                padding: 5px 10px; cursor: pointer; margin: 2px 4px 2px 0; }
-  .card button:hover { border-color: var(--accent); }
-  table { border-collapse: collapse; width: 100%; } td { padding: 3px 6px; border-bottom: 1px solid var(--line); font-size: 14px; }
-  td.r { text-align: right; } a { color: var(--accent); }
-  .soft { color: var(--soft); font-size: 13px; }
+  .calcpanel { flex: 1 1 320px; max-width: 520px; }
   kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
-  #status { color: var(--soft); font-size: 13px; margin-top: 8px; }
+  #calcstatus { color: #aab; font-size: 13px; margin-top: 8px; }
 </style>
 </head>
 <body>
 <header>
-  <h1>NAV47 <span>the DM42n program in the browser: Almanac 47, Tide 47, Zones 47, ROUTE, PLAN, CHART, GLOBE</span></h1>
+  <h1>NAV47 <span>Almanac 47 · Tide 47 · Zones 47 · passage planning</span></h1>
+  <div class="controls">
+    <button id="now" class="on" title="follow the clock">Now</button>
+    <label>UT <input type="datetime-local" id="ut" step="60"></label>
+    <label>DR <input class="pos" id="dr" placeholder="27 12.0N 049 42.0E"></label>
+    <label>Times <select id="times"><option value="ut">UT</option><option value="lt">LT</option></select></label>
+  </div>
 </header>
+<nav class="tabs" id="tabs"></nav>
 <main>
-  <div class="calc">
-    <canvas id="lcd" width="400" height="240"></canvas>
-    <div class="keys" id="fkeys"></div>
-    <div class="keys main" id="keys"></div>
-    <div id="status">loading…</div>
-  </div>
-  <div class="panel">
-    <div class="card">
-      <h2>Keys</h2>
-      <div class="soft">Click the keys, or use the keyboard: <kbd>F1</kbd>–<kbd>F6</kbd> the menu, <kbd>0</kbd>–<kbd>9</kbd>,
-        <kbd>Enter</kbd>, <kbd>Esc</kbd> EXIT, <kbd>Backspace</kbd>, <kbd>↑</kbd> <kbd>↓</kbd>, <kbd>←</kbd> <kbd>→</kbd> as 4 and 6,
-        <kbd>.</kbd>, <kbd>-</kbd> +/−, <kbd>Shift</kbd> (or <kbd>s</kbd>) the shift key, <kbd>r</kbd> or <kbd>Space</kbd> R/S.
-        CHART and GLOBE: 4 6 turn, 8 2 tilt, 7 9 zoom, 5 fit; GLOBE / MERC on F4.</div>
-    </div>
-    <div class="card">
-      <h2>Routes</h2>
-      <div>
-        <button data-route="jfk">New York – London (GC)</button>
-        <button data-route="cape">Cape Town – Melbourne (CS 45°S)</button>
-        <button data-route="pac">Tokyo – San Francisco (GC)</button>
-        <button data-route="none">No route (you)</button>
+  <section id="t-route"></section>
+  <section id="t-almanac" hidden></section>
+  <section id="t-sky" hidden></section>
+  <section id="t-tide" hidden></section>
+  <section id="t-zones" hidden></section>
+  <section id="t-calc" hidden>
+    <div class="calcwrap">
+      <div class="calc">
+        <canvas id="lcd" width="400" height="240"></canvas>
+        <div class="keys" id="fkeys"></div>
+        <div class="keys main" id="keys"></div>
+        <div id="calcstatus">loading…</div>
       </div>
-      <div style="margin-top:6px">
-        <label class="soft">Load a ROUTE.TXT <input type="file" id="loadroute" accept=".txt,.TXT"></label>
+      <div class="calcpanel">
+        <div class="card">
+          <h2>The DM42n program</h2>
+          <div class="meta">The calculator's own C, every page as on the DM42n. Click the keys or use the keyboard:
+            <kbd>F1</kbd>–<kbd>F6</kbd>, <kbd>0</kbd>–<kbd>9</kbd>, <kbd>Enter</kbd>, <kbd>Esc</kbd> EXIT, <kbd>Backspace</kbd>,
+            <kbd>↑</kbd> <kbd>↓</kbd>, <kbd>←</kbd> <kbd>→</kbd> as 4 and 6, <kbd>.</kbd>, <kbd>-</kbd> +/−, <kbd>+</kbd>,
+            <kbd>Shift</kbd> or <kbd>s</kbd>, <kbd>r</kbd> or <kbd>Space</kbd> R/S.</div>
+        </div>
+        <div class="card">
+          <h2>Routes</h2>
+          <button data-route="jfk">New York – London</button> <button data-route="cape">Cape Town – Melbourne (CS)</button>
+          <button data-route="pac">Tokyo – San Francisco</button> <button data-route="none">No route</button>
+          <div style="margin-top:6px"><label>Load a ROUTE.TXT <input type="file" id="loadroute" accept=".txt,.TXT"></label></div>
+          <div class="meta">The Route tab's <b>To the calculator</b> sends its plan here. NAV47 reads ROUTE.TXT when it starts: the page restarts it.</div>
+        </div>
+        <div class="card">
+          <h2>The calculator's disk</h2>
+          <table id="files"></table>
+          <div style="margin-top:6px"><button id="png">Save the screen (PNG)</button> <button id="reset">Forget the calculator's files</button></div>
+          <div class="meta">Kept in this browser, never sent anywhere.</div>
+        </div>
       </div>
-      <div class="soft">NAV47 reads ROUTE.TXT when it starts: the page restarts it.</div>
     </div>
-    <div class="card">
-      <h2>Your position</h2>
-      <button id="geo">Use this device's position</button> <button id="reset">Forget everything</button>
-      <div class="soft">The position and the clock zone go into NAV47.CFG, as SET on the calculator. The clock is this
-        computer's; on the first start CLOCK TZ is set from it.</div>
-    </div>
-    <div class="card">
-      <h2>The calculator's disk</h2>
-      <table id="files"></table>
-      <div style="margin-top:6px"><button id="png">Save the screen (PNG)</button></div>
-      <div class="soft">Kept in this browser (localStorage), never sent anywhere. PLAN: ENTER writes PLAN.CSV, shift ENTER PLAN.NMEA.</div>
-    </div>
-    <div class="soft">Not for navigation. By Victor Valdes, Master Mariner. Coastlines: Natural Earth (public domain).
-      Geodesics: GeographicLib (C. F. F. Karney, MIT).</div>
-  </div>
+  </section>
 </main>
+<footer>Not for navigation: check against official charts, the Nautical Almanac and tide tables. By Victor Valdes, Master Mariner.
+  Coastlines: Natural Earth (public domain). Geodesics: GeographicLib (C. F. F. Karney, MIT). Your objects and routes stay in this browser.</footer>
+<script src="calc.js"></script>
+<script src="app.js"></script>
+<script src="tabs.js"></script>
 <script>
-"use strict";
-const K = { ENTER: 13, SWAP: 14, CHS: 15, E: 16, BSP: 17, UP: 18, N7: 19, N8: 20, N9: 21, DIV: 22, DOWN: 23, N4: 24, N5: 25,
-            N6: 26, MUL: 27, SHIFT: 28, N1: 29, N2: 30, N3: 31, SUB: 32, EXIT: 33, N0: 34, DOT: 35, RUN: 36, ADD: 37,
-            F1: 38, F2: 39, F3: 40, F4: 41, F5: 42, F6: 43, STO: 7, RCL: 8, RDN: 9 };
-const PREFIX = "nav47fs:";
-const ROUTES = {
-  jfk:  "NAV47 ROUTE 1\nGC\nLIM 60.0\nSPLIT 0 0.000\nELL 0\n40.6400000 -73.7800000\n51.4700000 -0.4600000\n",
-  cape: "NAV47 ROUTE 1\nCS\nLIM 45.0\nSPLIT 3 10.000\nELL 0\n-33.9200000 18.4200000\n-37.8200000 144.9600000\n",
-  pac:  "NAV47 ROUTE 1\nGC\nLIM 60.0\nSPLIT 1 500.000\nELL 0\n35.6000000 139.8000000\n37.8000000 -122.4000000\n",
-  none: "NAV47 ROUTE 1\nGC\nLIM 60.0\nSPLIT 0 0.000\nELL 0\n",
-};
-
-/* ---- the keyboard ---- */
-const fk = document.getElementById("fkeys"), mk = document.getElementById("keys");
-function key(label, code, cls, parent) {
-  const b = document.createElement("button");
-  b.className = "k " + (cls || ""); b.textContent = label; b.title = label;
-  b.addEventListener("pointerdown", e => { e.preventDefault(); press(code); });
-  parent.appendChild(b); return b;
-}
-["F1", "F2", "F3", "F4", "F5", "F6"].forEach(f => key("", K[f], "f", fk));
-const layout = [
-  ["ENTER", K.ENTER, "wide"], ["x≷y", K.SWAP], ["+/−", K.CHS], ["←", K.BSP],
-  ["▲", K.UP], ["7", K.N7], ["8", K.N8], ["9", K.N9], ["÷", K.DIV],
-  ["▼", K.DOWN], ["4", K.N4], ["5", K.N5], ["6", K.N6], ["×", K.MUL],
-  ["shift", K.SHIFT, "shift"], ["1", K.N1], ["2", K.N2], ["3", K.N3], ["−", K.SUB],
-  ["EXIT", K.EXIT], ["0", K.N0], ["·", K.DOT], ["R/S", K.RUN], ["+", K.ADD],
-];
-let shiftBtn;
-layout.forEach(([l, c, cls]) => { const b = key(l, c, cls, mk); if (c === K.SHIFT) shiftBtn = b; });
-let shiftOn = false;
-function press(code) {
-  if (!window.Module || !Module.ready) return;
-  Module._nav47_key(code);
-  shiftOn = code === K.SHIFT ? !shiftOn : false;
-  shiftBtn.classList.toggle("on", shiftOn);
-}
-const PC = { Enter: K.ENTER, Escape: K.EXIT, Backspace: K.BSP, ArrowUp: K.UP, ArrowDown: K.DOWN, ArrowLeft: K.N4,
-             ArrowRight: K.N6, ".": K.DOT, ",": K.DOT, "-": K.CHS, "+": K.ADD, "*": K.MUL, "/": K.DIV, " ": K.RUN,
-             r: K.RUN, R: K.RUN, s: K.SHIFT, S: K.SHIFT, Shift: K.SHIFT,
-             F1: K.F1, F2: K.F2, F3: K.F3, F4: K.F4, F5: K.F5, F6: K.F6 };
-for (let d = 0; d <= 9; d++) PC[String(d)] = K["N" + d];
-window.addEventListener("keydown", e => {
-  if (e.target.tagName === "INPUT" || e.ctrlKey || e.metaKey || e.altKey || e.repeat && e.key === "Shift") return;
-  const c = PC[e.key];
-  if (c !== undefined) { e.preventDefault(); press(c); }
-});
-
-/* ---- the LCD ---- */
-const cv = document.getElementById("lcd"), cx = cv.getContext("2d"), img = cx.createImageData(400, 240);
-const BG = [223, 230, 214], INK = [30, 34, 32];
-function lcd(fb) {
-  const d = img.data;
-  for (let i = 0; i < 96000; i++) {
-    const c = fb[i] ? INK : BG, o = i * 4;
-    d[o] = c[0]; d[o + 1] = c[1]; d[o + 2] = c[2]; d[o + 3] = 255;
-  }
-  cx.putImageData(img, 0, 0);
-}
-document.getElementById("png").onclick = () => {
-  const big = document.createElement("canvas"); big.width = 800; big.height = 480;
-  const g = big.getContext("2d"); g.imageSmoothingEnabled = false; g.drawImage(cv, 0, 0, 800, 480);
-  const a = document.createElement("a"); a.href = big.toDataURL("image/png"); a.download = "NAV47.png"; a.click();
-};
-
-/* ---- the disk: /simdisk in memory, kept in localStorage ---- */
-function walk(FS, dir, out) {
-  for (const n of FS.readdir(dir)) {
-    if (n === "." || n === "..") continue;
-    const p = dir + "/" + n, st = FS.stat(p);
-    if (FS.isDir(st.mode)) walk(FS, p, out); else out.push(p);
-  }
-  return out;
-}
-function saveAll() {
-  const FS = Module.FS;
-  for (const p of walk(FS, "/simdisk", [])) {
-    try { localStorage.setItem(PREFIX + p, FS.readFile(p, { encoding: "utf8" })); } catch (e) { /* full: keep going */ }
-  }
-  listFiles();
-}
-function restore() {
-  const FS = Module.FS;
-  FS.mkdirTree("/simdisk/NAV47/ROUTES");
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (!k.startsWith(PREFIX)) continue;
-    const p = k.slice(PREFIX.length);
-    FS.mkdirTree(p.slice(0, p.lastIndexOf("/")));
-    FS.writeFile(p, localStorage.getItem(k));
-  }
-  if (!localStorage.getItem(PREFIX + "/simdisk/NAV47/NAV47.CFG")) {   /* first start: the clock's zone */
-    const tz = -new Date().getTimezoneOffset() / 60;
-    FS.writeFile("/simdisk/NAV47/NAV47.CFG", "NAV47 CFG 1\nTZ " + tz.toFixed(4) + "\n");
-  }
-  if (!localStorage.getItem(PREFIX + "/simdisk/NAV47/ROUTE.TXT")) FS.writeFile("/simdisk/NAV47/ROUTE.TXT", ROUTES.jfk);
-}
-function listFiles() {
-  const t = document.getElementById("files"); t.innerHTML = "";
-  for (const p of walk(Module.FS, "/simdisk", []).sort()) {
-    const tr = t.insertRow(), data = Module.FS.readFile(p, { encoding: "utf8" });
-    tr.insertCell().textContent = p.replace("/simdisk", "");
-    const r = tr.insertCell(); r.className = "r"; r.textContent = data.length + " B ";
-    const a = document.createElement("a"); a.textContent = "download"; a.href = "#";
-    a.onclick = e => { e.preventDefault();
-      const u = URL.createObjectURL(new Blob([data], { type: "text/plain" }));
-      const x = document.createElement("a"); x.href = u; x.download = p.split("/").pop(); x.click(); URL.revokeObjectURL(u); };
-    r.appendChild(a);
-  }
-}
-function putAndRestart(path, text) { localStorage.setItem(PREFIX + "/simdisk/NAV47/" + path, text); location.reload(); }
-document.querySelectorAll("[data-route]").forEach(b => b.onclick = () => putAndRestart("ROUTE.TXT", ROUTES[b.dataset.route]));
-document.getElementById("loadroute").onchange = e => {
-  const f = e.target.files[0]; if (!f) return;
-  f.text().then(t => putAndRestart("ROUTE.TXT", t.replace(/\r/g, "")));
-};
-document.getElementById("geo").onclick = () => navigator.geolocation.getCurrentPosition(p => {
-  const k = PREFIX + "/simdisk/NAV47/NAV47.CFG";
-  let c = (localStorage.getItem(k) || "NAV47 CFG 1\n").split("\n").filter(l => l && !/^(LAT|LON) /.test(l));
-  c.push("LAT " + p.coords.latitude.toFixed(6), "LON " + p.coords.longitude.toFixed(6));
-  localStorage.setItem(k, c.join("\n") + "\n"); location.reload();
-}, e => alert("No position: " + e.message));
-document.getElementById("reset").onclick = () => {
-  if (!confirm("Forget the route, the settings and the files of NAV47 in this browser?")) return;
-  Object.keys(localStorage).filter(k => k.startsWith(PREFIX)).forEach(k => localStorage.removeItem(k)); location.reload();
-};
-
-/* ---- start ---- */
 window.Module = {
-  nav47_lcd: lcd,
-  nav47_saved: saveAll,
+  nav47_lcd: fb => CALC.lcd(fb),
+  nav47_saved: () => CALC.saveAll(),
   print: t => console.log(t), printErr: t => console.log(t),
-  onRuntimeInitialized() {
-    restore();
-    Module.ready = true;
-    document.getElementById("status").textContent = "NAV47 running · shift EXIT ends it (reload to start again)";
-    listFiles();
-    Module.callMain([]);
-    /* index.html#keys=F6,F4,RUN,F5 : keys pressed after the start (demos, tests); 7 8 9 ... and the names in K */
-    const m = location.hash.match(/keys=([^&]*)/);
-    if (m) {
-      const ks = decodeURIComponent(m[1]).split(",").filter(Boolean).map(s => K[s] !== undefined ? K[s] : K["N" + s]);
-      ks.forEach((c, i) => setTimeout(() => c !== undefined && press(c), 400 + 250 * i));
-    }
-  },
+  onRuntimeInitialized() { Module.ready = true; CALC.restore(); APP.start(); },
 };
 </script>
 <script src="nav47.js"></script>
