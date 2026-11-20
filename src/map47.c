@@ -262,6 +262,41 @@ void map_mark(const map_t *m, double lat, double lon, int kind) {
   else { gfx_circle(x, y, 7, 1); gfx_circle(x, y, 8, 1); }
 }
 
+/* 13 x 13, the top row first, bit 12 the left */
+static const uint16_t SHIP[13] = { 0x0000, 0x0040, 0x0040, 0x00E0, 0x01F0, 0x03F8, 0x0040, 0x0040, 0x1FFF, 0x0FFE,
+                                   0x07FC, 0x03F8, 0x0000 };
+static const uint16_t PLANE[13] = { 0x0040, 0x00E0, 0x00E0, 0x00E0, 0x01F0, 0x0FFE, 0x1FFF, 0x00E0, 0x00E0, 0x00E0,
+                                    0x01F0, 0x03F8, 0x0000 };
+
+void map_icon(const map_t *m, double lat, double lon, double crs, int plane) {
+  float fx, fy, ax, ay;
+  lon = near_lon(lon, m->lon0);
+  if (!proj(m, lat, lon, &fx, &fy) || outcode(m, fx, fy)) return;
+  double c = cos(lat * D2R);                                  /* the heading: a point a little ahead, on the LCD */
+  proj(m, lat + 0.05 * cos(crs * D2R), lon + 0.05 * sin(crs * D2R) / (c > 0.01 ? c : 0.01), &ax, &ay);
+  float dx = ax - fx, dy = ay - fy, l = hypotf(dx, dy);
+  int x = (int)lroundf(fx), y = (int)lroundf(fy);
+  if (l > 1e-4f) {
+    dx /= l; dy /= l;
+    for (int i = 8; i < 20; i++) {                            /* the heading line, white edged */
+      int px = x + (int)lroundf(dx * i), py = y + (int)lroundf(dy * i);
+      if (outcode(m, (float)px, (float)py)) break;
+      gfx_rect(px - 1, py - 1, 3, 3, 0);
+    }
+    for (int i = 8; i < 20; i++) {
+      int px = x + (int)lroundf(dx * i), py = y + (int)lroundf(dy * i);
+      if (outcode(m, (float)px, (float)py)) break;
+      gfx_pixel(px, py, 1);
+    }
+  }
+  const uint16_t *b = plane ? PLANE : SHIP;
+  gfx_rect(x - 7, y - 7, 15, 15, 0);
+  for (int r = 0; r < 13; r++)
+    for (int k = 0; k < 13; k++)
+      if (b[r] & (1u << (12 - k))) gfx_pixel(x - 6 + k, y - 6 + r, 1);
+  gfx_frame(x - 7, y - 7, 15, 15);
+}
+
 /* ---------------------------------------------------------------- graticule */
 
 static void lon_label(char *s, int lon) {

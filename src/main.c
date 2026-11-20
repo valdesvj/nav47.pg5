@@ -39,7 +39,7 @@
 /*  State (heap: a DMCP5 program has 8 KB of static RAM)              */
 /* ------------------------------------------------------------------ */
 enum { PG_VALM, PG_VSPLIT, PG_VSKY, PG_VALLSKY, PG_VMOON, PG_VANIM, PG_VSKY2,
-       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP, PG_CHART };
+       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP, PG_CHART, PG_VOY };
 #define IS_VIEW(p) ((p) <= PG_VSKY2)
 
 typedef struct {
@@ -85,6 +85,7 @@ static int split_first, st_day_off, pick_back;   /* SPLIT scroll; TIDE (station)
 static int cmp_edit = -1;                 /* COMPARE: editing CUSTOM 0 a, 1 1/f */
 static double cmp_a;
 static char cmp_msg[32];
+static double voy_kn = 12;                /* VOYAGE: the speed, knots (ROUTE.TXT SPEED) */
 static int wp_cur, wp_edit = -1;          /* ROUTE: the cursor; editing 0 lat, 1 lon */
 static double wp_lat;
 static char ebuf[16];
@@ -877,8 +878,8 @@ static void route_save(void) {
   char *b = (char *)malloc(128 + 48 * MAXWP);
   if (!b) return;
   char *o = b;
-  o += sprintf(o, "NAV47 ROUTE 1\n%s\nLIM %.1f\nSPLIT %d %.3f\nELLC %.4f %.9f\nELL %d\n", SAIL_NAME[N->cfg.gc % 3], cs_lim,
-               plan_split, plan_val, ellipsoids[ELL_CUSTOM].a, ellipsoids[ELL_CUSTOM].rf, geo_ell_index);
+  o += sprintf(o, "NAV47 ROUTE 1\n%s\nLIM %.1f\nSPLIT %d %.3f\nELLC %.4f %.9f\nELL %d\nSPEED %.1f\n", SAIL_NAME[N->cfg.gc % 3], cs_lim,
+               plan_split, plan_val, ellipsoids[ELL_CUSTOM].a, ellipsoids[ELL_CUSTOM].rf, geo_ell_index, voy_kn);
   for (int i = 0; i < N->nwp; i++) o += sprintf(o, "%.7f %.7f\n", N->wlat[i], N->wlon[i]);
   sys_disk_write_enable(1);
   check_create_dir(DIR);
@@ -907,6 +908,7 @@ static void route_load(void) {
       if (geo_ell_index == ELL_CUSTOM) geo_set_ellipsoid(ELL_CUSTOM);
     }
     else if (sscanf(l, "ELL %d", &m) == 1) geo_set_ellipsoid(m);
+    else if (sscanf(l, "SPEED %lf", &v) == 1) { if (v >= 1 && v <= 1000) voy_kn = v; }
     else if (sscanf(l, "%lf %lf", &a, &b) == 2 && N->nwp < MAXWP && fabs(a) <= 90 && fabs(b) <= 180) {
       N->wlat[N->nwp] = a; N->wlon[N->nwp] = b; N->nwp++;
     }
@@ -1042,6 +1044,7 @@ static void key_wp(int key) {
 /*  PLAN: the route split into waypoints (geo47)                      */
 /* ------------------------------------------------------------------ */
 static void go(int p);   /* defined further down */
+static void voy_open(int back);
 static const double STEP_DIST[] = { 10, 20, 30, 50, 60, 100, 120, 150, 200, 250, 300, 500 };
 static const double STEP_LEGS[] = { 2, 3, 4, 5, 6, 8, 10, 12, 15, 20 };
 static const double STEP_DLON[] = { 1, 2, 5, 10, 15, 20 };
@@ -1159,6 +1162,7 @@ static void plan_key(int key) {
   }
   else if (key == KEY_4 || key == KEY_6) { plan_step(key == KEY_6 ? 1 : -1); route_save(); }
   else if (key == KEY_ENTER) plan_export();
+  else if (key == KEY_RUN && N->nwp > 1) voy_open(PG_PLAN);
   else if (key == KEY_EXIT) { go(PG_ROUTE); menu_page = 3; }
 }
 
@@ -1423,6 +1427,146 @@ static void chart_key(int key) {
   else if (key == KEY_EXIT) { go(chart_back); if (chart_back == PG_ROUTE) menu_page = 3; }
 }
 
+/* ------------------------------------------------------------------ */
+/*  VOYAGE: the plan sailed (or flown) step by step on a globe that follows the vessel */
+/* ------------------------------------------------------------------ */
+#define VOY_STEPS 96
+#define VOY_W     220                                  /* the globe's box: x 0..219, rows 16..190 */
+static map_t voy_m;
+static int voy_step, voy_play, voy_back = PG_PLAN;
+static double voy_etd;                                 /* the departure, UT (JD) */
+static const double VOY_KN[] = { 4, 6, 8, 10, 12, 14, 16, 18, 20, 25, 30, 40, 250, 300, 400, 450, 480, 500, 550 };
+
+static void voy_open(int back) {
+  voy_back = back; voy_step = 0; voy_play = 0; voy_etd = ut_now();
+  map_init(&voy_m, 0, CHART_Y0, VOY_W, CHART_H, &geo_ell);
+  voy_m.globe = 1;
+  voy_m.k = (VOY_W / 2.0f) / sinf(25 * (float)M_PI / 180);   /* about 50 deg across */
+  go(PG_VOY);
+}
+
+/* the point s metres along the plan, and the course there */
+static void voy_pos(double s, double *lat, double *lon, double *crs) {
+  route_t *R = &geo_route;
+  int i = 1;
+  while (i < R->n - 1 && R->w[i].cum_m < s) i++;
+  const wpt_t *a = &R->w[i - 1], *b = &R->w[i];
+  double ds = s - a->cum_m;
+  if (ds < 0) ds = 0;
+  if (ds > b->cum_m - a->cum_m) ds = b->cum_m - a->cum_m;
+  if (b->kind == SEG_GEOD) {
+    struct geod_geodesicline l;
+    geod_inverseline(&l, &geo_ell, a->lat, a->lon, b->lat, b->lon, 0);
+    geod_position(&l, ds, lat, lon, crs);
+  } else {
+    *crs = a->rl_crs;
+    if (rhumb_direct(&geo_rh, a->lat, a->lon, a->rl_crs, ds, lat, lon) != 0) { *lat = b->lat; *lon = b->lon; }
+  }
+  *crs = fmod(*crs + 360.0, 360.0);
+}
+
+static void fmt_dt(char *s, double ut) {               /* dd-mm hh:mm in the times shown (UT or LT) */
+  int y, m, d;
+  double h;
+  jd_to_ymd(ut + show_tz() / 24.0 + 1.0 / 2880, &y, &m, &d, &h);
+  sprintf(s, "%02d-%02d %02d:%02d", d, m, (int)h, (int)((h - (int)h) * 60));
+}
+
+static void fmt_dur(char *s, double hours) {           /* 3d 04:30 */
+  long mi = (long)floor(hours * 60 + 0.5);
+  if (mi >= 1440) sprintf(s, "%ldd %02ld:%02ld", mi / 1440, (mi / 60) % 24, mi % 60);
+  else sprintf(s, "%02ld:%02ld", mi / 60, mi % 60);
+}
+
+static void draw_voy(void) {
+  char s[64], t[32];
+  int route = N->nwp >= 2;
+  if (!route || !geo_route_alloc()) { header("VOYAGE"); nt(4, 48, "Needs a route (ROUTE, 2 waypoints)."); return; }
+  if (plan_dirty || legs_dirty) plan_build();
+  route_t *R = &geo_route;
+  double tot = R->w[R->n - 1].cum_m, sd = tot * voy_step / VOY_STEPS;
+  double hours = tot / NM / voy_kn, el = hours * voy_step / VOY_STEPS;
+  double lat, lon, crs;
+  voy_pos(sd, &lat, &lon, &crs);
+  int plane = voy_kn >= 100;
+  bar_at(voy_etd + el / 24, plane ? "FLIGHT" : "VOYAGE");          /* the counter: the top bar's date and time */
+  map_center(&voy_m, lat, lon);                                     /* the globe follows */
+  voy_m.e = (float)sqrt(geo_ell.f * (2 - geo_ell.f));
+  map_grid(&voy_m);
+  if (sys_disk_ok()) {
+    if (!(map_span_lon(&voy_m) < 40 && map_coast(&voy_m, "/NAV47/COAST_L.BIN") >= 0)) map_coast(&voy_m, "/NAV47/COAST_C.BIN");
+  }
+  for (int i = 1; i < R->n; i++) {                      /* sailed: thick; to go: dashed */
+    const wpt_t *a = &R->w[i - 1], *b = &R->w[i];
+    int g = b->kind == SEG_GEOD;
+    if (b->cum_m <= sd) {
+      if (g) map_geod(&voy_m, &geo_ell, a->lat, a->lon, b->lat, b->lon, MAP_THICK);
+      else map_seg(&voy_m, a->lat, a->lon, b->lat, b->lon, MAP_THICK);
+    } else if (a->cum_m >= sd) {
+      if (g) map_geod(&voy_m, &geo_ell, a->lat, a->lon, b->lat, b->lon, MAP_DASH);
+      else map_seg(&voy_m, a->lat, a->lon, b->lat, b->lon, MAP_DASH);
+    } else {
+      if (g) { map_geod(&voy_m, &geo_ell, a->lat, a->lon, lat, lon, MAP_THICK); map_geod(&voy_m, &geo_ell, lat, lon, b->lat, b->lon, MAP_DASH); }
+      else { map_seg(&voy_m, a->lat, a->lon, lat, lon, MAP_THICK); map_seg(&voy_m, lat, lon, b->lat, b->lon, MAP_DASH); }
+    }
+  }
+  for (int i = 0; i < R->n; i++) if (R->w[i].flags & WPT_USER) map_mark(&voy_m, R->w[i].lat, R->w[i].lon, 1);
+  map_icon(&voy_m, lat, lon, crs, plane);
+  map_space(&voy_m);
+  gfx_rect(0, CHART_Y0 + CHART_H, LCD_X, 1, 1);
+  gfx_rect(VOY_W, CHART_Y0, 1, CHART_H, 1);
+  /* the panel */
+  const int X = VOY_W + 6, XR = LCD_X - 2;
+  int y = 18;
+  fmt_dt(t, voy_etd); nt(X, y, "DEP"); nt_r(XR, y, t); y += 16;
+  fmt_dt(t, voy_etd + hours / 24); nt(X, y, "ARR"); nt_r(XR, y, t); y += 16;
+  fmt_dur(t, el); nt(X, y, "GONE"); nt_r(XR, y, t); y += 16;
+  fmt_dur(t, hours - el); nt(X, y, "TO GO"); nt_r(XR, y, t); y += 16;
+  sprintf(t, "%.1f", sd / NM); nt(X, y, "RUN NM"); nt_r(XR, y, t); y += 16;
+  sprintf(t, "%.1f", (tot - sd) / NM); nt(X, y, "DTG NM"); nt_r(XR, y, t); y += 16;
+  sprintf(t, "%03.0f" NT_DEG "  %g kn", crs, voy_kn); nt(X, y, "CRS"); nt_r(XR, y, t); y += 16;
+  fmt_dmn(t, lat, 2, lat < 0 ? 'S' : 'N'); nt_r(XR, y, t); y += 16;
+  double lo = fmod(lon + 540.0, 360.0) - 180;
+  fmt_dmn(t, lo, 3, lo < 0 ? 'W' : 'E'); nt_r(XR, y, t); y += 16;
+  int pw = XR - X, px = (int)((double)pw * voy_step / VOY_STEPS);            /* the progress */
+  gfx_frame(X, y + 2, pw, 8); gfx_rect(X, y + 2, px, 8, 1);
+  if (voy_step >= VOY_STEPS) strcpy(s, plane ? "LANDED  R/S again" : "ARRIVED  R/S again");
+  else sprintf(s, "%s  4 6 step  +- kn  1 3 ETD", voy_play ? "R/S pause" : "R/S play");
+  nt(2, 192, s);
+}
+
+static void voy_speed(int dir) {
+  int n = (int)(sizeof VOY_KN / sizeof *VOY_KN), k = 0;
+  while (k < n - 1 && VOY_KN[k] < voy_kn - 1e-9) k++;
+  if (dir > 0 && VOY_KN[k] <= voy_kn + 1e-9 && k < n - 1) k++;
+  else if (dir < 0 && k > 0) k--;
+  voy_kn = VOY_KN[k];
+  route_save();
+}
+
+static void voy_key(int key) {
+  if (key == KEY_RUN) {
+    if (voy_step >= VOY_STEPS) voy_step = 0;
+    voy_play = !voy_play;
+  }
+  else if (key == KEY_6 && voy_step < VOY_STEPS) { voy_step++; voy_play = 0; }
+  else if (key == KEY_4 && voy_step > 0) { voy_step--; voy_play = 0; }
+  else if (key == KEY_9) map_zoom(&voy_m, 1.5f);
+  else if (key == KEY_7) map_zoom(&voy_m, 1 / 1.5f);
+  else if (key == KEY_ADD) voy_speed(1);
+  else if (key == KEY_SUB) voy_speed(-1);
+  else if (key == KEY_1) voy_etd -= 1.0 / 24;
+  else if (key == KEY_3) voy_etd += 1.0 / 24;
+  else if (key == KEY_5) { voy_step = 0; voy_play = 0; }
+  else if (key == KEY_EXIT) { voy_play = 0; go(voy_back); if (voy_back == PG_ROUTE) menu_page = 3; }
+}
+
+/* the animation: a step every 250 ms while playing */
+static void voy_tick(void) {
+  if (voy_step < VOY_STEPS) voy_step++;
+  if (voy_step >= VOY_STEPS) voy_play = 0;
+}
+
 static const char *MENUS[4][6] = {
   { "ALMAN", "SPLIT", "SKY", "ALLSK", "MOON", ">>" },
   { "ANIM", "T&F", "TIDE", "ROUTE", "ZONES", ">>" },
@@ -1434,6 +1578,7 @@ static const char *EDIT_MENU[6] = { "", "", "", "", "", "CANCEL" };
 static const char *PLAN_MENU[6] = { "CSV", "NMEA", "SPLIT", "CMP", "CHART", "BACK" };
 static const char *CMP_MENU[6] = { "ELL-", "ELL+", "EDIT", "PLAN", "CHART", "BACK" };
 static const char *CHART_MENU[6] = { "ZOOM+", "ZOOM-", "FIT", "GLOBE", "PLAN", "BACK" };
+static const char *VOY_MENU[6] = { "PLAY", "SLOWER", "FASTER", "START", "CHART", "BACK" };
 
 #define ANIM_FRAMES 24
 #define ANIM_STEP   0.5
@@ -1470,6 +1615,7 @@ static void redraw(void) {
     case PG_PLAN: draw_plan(); break;
     case PG_CMP: draw_cmp(); break;
     case PG_CHART: draw_chart(); break;
+    case PG_VOY: draw_voy(); break;
     case PG_ZONES: draw_zones(); break;
     case PG_SET: draw_set(); break;
     case PG_FILES: draw_files(); break;
@@ -1480,8 +1626,9 @@ static void redraw(void) {
   MENUS[2][4] = usbview_is_on() ? "USB*" : "USB";
   MENUS[0][2] = page == PG_VSKY ? "SKY2" : "SKY";
   CHART_MENU[3] = chart_globe ? "MERC" : "GLOBE";
+  VOY_MENU[0] = voy_play ? "PAUSE" : "PLAY";
   lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0) ? EDIT_MENU :
-                     page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : MENUS[menu_page]);
+                     page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : page == PG_VOY ? VOY_MENU : MENUS[menu_page]);
   lcd_refresh();
   lcd_refresh_wait();        /* the LCD goes out by DMA: done before the next frame clears the buffer (no flicker) */
   usbview_send();
@@ -1535,6 +1682,12 @@ static void softkey(int fn) {
     else if (fn == 3) { plan_cur = 0; go(PG_PLAN); }
     else if (fn == 4) chart_open(PG_CMP);
     else cmp_key(k[fn]);
+    return;
+  }
+  if (page == PG_VOY) {
+    static const int k[6] = { KEY_RUN, KEY_SUB, KEY_ADD, KEY_5, 0, KEY_EXIT };
+    if (fn == 4) { voy_play = 0; chart_open(PG_PLAN); }
+    else voy_key(k[fn]);
     return;
   }
   if (page == PG_CHART) {
@@ -1661,7 +1814,11 @@ static void handle_key(int key) {
     cmp_key(key);
     return;
   case PG_CHART:
+    if (key == KEY_RUN && N->nwp > 1) { voy_open(PG_CHART); return; }
     chart_key(key);
+    return;
+  case PG_VOY:
+    voy_key(key);
     return;
   case PG_SET:
     if (key == KEY_8 || key == KEY_UP) { do sel_field = (sel_field + F_COUNT - 1) % F_COUNT; while (N->cfg.live && (sel_field == F_DATE || sel_field == F_TIME)); }
@@ -1706,9 +1863,9 @@ void program_main(void) {
   uint32_t last = sys_current_ms();
   for (;;) {
     if (usbview_is_on() && !ST(STAT_PGM_END) && key_empty())
-      usbser_idle(page == PG_VANIM ? 250 : 1000);       /* the USB runs: no sleep (it would stop the USB) */
+      usbser_idle(page == PG_VANIM || (page == PG_VOY && voy_play) ? 250 : 1000);       /* the USB runs: no sleep (it would stop the USB) */
     else if ((ST(STAT_PGM_END) && ST(STAT_SUSPENDED)) || (!ST(STAT_PGM_END) && key_empty())) {
-      sys_timer_start(0, page == PG_VANIM ? 250 : 1000);
+      sys_timer_start(0, page == PG_VANIM || (page == PG_VOY && voy_play) ? 250 : 1000);
       CLR_ST(STAT_RUNNING);
       sys_sleep();
     }
@@ -1738,13 +1895,14 @@ void program_main(void) {
     uint32_t t = sys_current_ms();
     if (key_empty()) {
       if (page == PG_VSKY && t - last >= 1000) { last = t; vframe++; redraw(); }
+      else if (page == PG_VOY && voy_play && t - last >= 250) { last = t; voy_tick(); redraw(); }
       else if (page == PG_VANIM && t - last >= (vframe >= ANIM_FRAMES - 1 ? 3000u : 500u)) {
         last = t;
         vframe = vframe >= ANIM_FRAMES - 1 ? 0 : vframe + 1;
         redraw();
       } else if (N->cfg.live && ((page == PG_ZONES && t - last >= 1000) || t - last >= 30000)) {
         last = t;
-        if (page != PG_VANIM && page != PG_CHART) redraw();
+        if (page != PG_VANIM && page != PG_CHART && page != PG_VOY) redraw();
       }
     }
     if (!key_empty()) reset_auto_off();

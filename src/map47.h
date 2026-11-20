@@ -37,6 +37,7 @@ void  map_seg(const map_t *m, double la1, double lo1, double la2, double lo2, in
 /* a geodesic, drawn as short straight pieces */
 void  map_geod(const map_t *m, const struct geod_geodesic *g, double la1, double lo1, double la2, double lo2, int style);
 void  map_mark(const map_t *m, double lat, double lon, int kind);   /* 0 a dot, 1 a box, 2 a ring, 3 a cross */
+void  map_icon(const map_t *m, double lat, double lon, double crs, int plane);   /* a ship or a plane, and its heading */
 int   map_grid(const map_t *m);                             /* graticule (labels on Mercator); returns the step */
 void  map_space(const map_t *m);                            /* globe: black space and stars around the disc */
 /* the coastline file: -1 no file (or no memory), else the polygons drawn */
