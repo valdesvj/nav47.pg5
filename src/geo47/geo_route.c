@@ -2,7 +2,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
-#include "route.h"
+#include "geo_route.h"
 
 #define DEG (3.14159265358979323846 / 180.0)
 #define CAPS (GEOD_LATITUDE | GEOD_LONGITUDE | GEOD_AZIMUTH | \
@@ -303,7 +303,7 @@ static char dm_split(double v, int is_lat, int dec, long *deg, double *min)
   return h;
 }
 
-void fmt_dm(char *buf, double v, int is_lat, char degch)
+void geo_fmt_dm(char *buf, double v, int is_lat, char degch)
 {
   long d; double m;
   char h = dm_split(v, is_lat, 1, &d, &m);
@@ -370,8 +370,8 @@ void route_csv(const route_t *r, route_put_fn put, void *ctx)
     p = s + sprintf(s, "WP%03d,", i + 1);
     p = fx(p, w->lat, 1, 6); *p++ = ',';
     p = fx(p, w->lon, 1, 6); *p++ = ',';
-    fmt_dm(p, w->lat, 1, ' '); p += strlen(p); *p++ = ',';
-    fmt_dm(p, w->lon, 0, ' '); p += strlen(p); *p++ = ',';
+    geo_fmt_dm(p, w->lat, 1, ' '); p += strlen(p); *p++ = ',';
+    geo_fmt_dm(p, w->lon, 0, ' '); p += strlen(p); *p++ = ',';
     p = fx(p, w->leg_m / NM, 1, 1); *p++ = ',';
     p = fx(p, w->cum_m / NM, 1, 1); *p++ = ',';
     p = fx(p, w->crs_in, 3, 1); *p++ = ',';

@@ -3,9 +3,9 @@
 #include <string.h>
 #include <math.h>
 #include "geodesic.h"
-#include "ellipsoids.h"
-#include "rhumb.h"
-#include "route.h"
+#include "geo_ellipsoids.h"
+#include "geo_rhumb.h"
+#include "geo_route.h"
 
 static void put(const char *line, void *ctx) { printf("%s%s\n", (const char *)ctx, line); }
 

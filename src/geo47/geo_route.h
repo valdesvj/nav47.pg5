@@ -3,12 +3,12 @@
  * holds the whole generated plan (~9 KB with ROUTE_MAX_WPT = 128).
  * Angles in degrees, distances in metres (NM = 1852 m).
  */
-#ifndef ROUTE_H
-#define ROUTE_H
+#ifndef GEO_ROUTE_H
+#define GEO_ROUTE_H
 
 #include <stdint.h>
 #include "geodesic.h"
-#include "rhumb.h"
+#include "geo_rhumb.h"
 
 #ifndef ROUTE_MAX_WPT
 #define ROUTE_MAX_WPT 128
@@ -85,6 +85,6 @@ void route_nmea(const route_t *r, const char *route_id,
                 route_put_fn put, void *ctx);
 
 /* "47 30.52N" / "009 07.10W" style (deg char selectable, 0 = space) */
-void fmt_dm(char *buf, double v, int is_lat, char degch);
+void geo_fmt_dm(char *buf, double v, int is_lat, char degch);
 
 #endif

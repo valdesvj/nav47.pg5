@@ -12,7 +12,7 @@
  * so the parallel-sailing case needs no special branch.
  */
 #include <math.h>
-#include "rhumb.h"
+#include "geo_rhumb.h"
 
 #define DEG (3.14159265358979323846 / 180.0)
 #define PSI_TINY 1e-5          /* below this use the parallel radius */

@@ -25,6 +25,7 @@
 #include "usbview.h"
 #include "usbser.h"
 #include "moon47.h"
+#include "geo_nav.h"
 
 #define DIR       "/NAV47"
 #define TIDEDIR   "/NAV47/TIDES"
@@ -1206,6 +1207,7 @@ static void *nav_alloc(size_t n) { return calloc(1, n); }
 void _exit(int code) { (void)code; sys_reset(); for (;;) {} }
 
 void program_main(void) {
+  geo_set_ellipsoid(ELL_WGS84);   /* geo47 */
   run_menu_item_app = NULL;
   menu_line_str_app = NULL;
   switch_usb_powered_freq();

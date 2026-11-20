@@ -1,4 +1,4 @@
-#include "ellipsoids.h"
+#include "geo_ellipsoids.h"
 
 ellipsoid_t ellipsoids[ELL_COUNT] = {
   { "WGS84",  6378137.0,   298.257223563 },

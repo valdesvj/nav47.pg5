@@ -6,8 +6,8 @@
  * Oblate or spherical ellipsoids only (0 <= f < 0.01).
  * Angles in degrees, distances in metres.
  */
-#ifndef RHUMB_H
-#define RHUMB_H
+#ifndef GEO_RHUMB_H
+#define GEO_RHUMB_H
 
 #include "geodesic.h"
 

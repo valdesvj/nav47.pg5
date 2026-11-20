@@ -1,8 +1,8 @@
 /* ellipsoids.h - reference ellipsoid presets for NAV47 (geo47 module)
  * Values: a in metres, inverse flattening rf (rf = 0 means sphere).
  */
-#ifndef ELLIPSOIDS_H
-#define ELLIPSOIDS_H
+#ifndef GEO_ELLIPSOIDS_H
+#define GEO_ELLIPSOIDS_H
 
 typedef struct {
   const char *name;   /* short label for the soft-key / menu (<= 8 chars) */
