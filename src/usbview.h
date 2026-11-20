@@ -10,6 +10,9 @@ int  usbview_is_on(void);
 void usbview_send(void);     /* after each redraw (the TinyUSB build sends the changed rows then) */
 void usbview_redraw_request(void);   /* DMCP's key 77 (serial console: the PC asked for the whole screen) */
 #define USBVIEW_KEY_REDRAW 77
-void usbview_state(char *a, char *b, int n);   /* two lines for INFO: the USB state, for checking on the calculator */
+void usbview_state(char *a, char *b, int n);
+/* a text line to the PC on console channel ch (2, 3: the program's own), "\r\n" added; 0 = sent, -1 = USB off */
+int  usbview_line(int ch, const char *s);
+#define USBVIEW_CH_NMEA 2   /* two lines for INFO: the USB state, for checking on the calculator */
 
 #endif

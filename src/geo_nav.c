@@ -32,28 +32,29 @@ static void put_file(const char *s, void *ctx)
   f_write((FIL *)ctx, "\r\n", 2, &bw);
 }
 
-int geo_save_csv(const char *path)
+/* the plan to a file, CRLF lines; falls back to the disk root when the folder is missing */
+static int geo_save(const char *path, int nmea)
 {
   FIL f;
-  int rc = -1;
   if (!geo_routep) return -1;
   sys_disk_write_enable(1);
   if (f_open(&f, path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) {
-    const char *b = strrchr(path, '/');      /* folder missing: */
-    path = b ? b : path;                      /* fall back to the disk root */
+    const char *b = strrchr(path, '/');
+    path = b ? b : path;
     if (f_open(&f, path, FA_WRITE | FA_CREATE_ALWAYS) != FR_OK) {
       sys_disk_write_enable(0);
       return -1;
     }
   }
-  {
-    route_csv(&geo_route, put_file, &f);
-    f_close(&f);
-    rc = 0;
-  }
+  if (nmea) route_nmea(&geo_route, GEO_NMEA_ID, put_file, &f);
+  else route_csv(&geo_route, put_file, &f);
+  f_close(&f);
   sys_disk_write_enable(0);
-  return rc;
+  return 0;
 }
+
+int geo_save_csv(const char *path)  { return geo_save(path, 0); }
+int geo_save_nmea(const char *path) { return geo_save(path, 1); }
 
 /* geo47 PATCH: one composite leg (geodesic - parallel - geodesic) for the ROUTE page.
  * Uses geo_route as scratch.  Falls back to the geodesic when CS is not possible. */

@@ -1050,6 +1050,7 @@ static void plan_build(void) {
   plan_dirty = 0;
 }
 
+#define PLAN_HINT "5 split 4 6 step ENT csv sh nmea"
 static void draw_plan(void) {
   static const char *SPL[4] = { "", "NM", "LEGS", "DLON" };
   char s[64], r[32];
@@ -1089,9 +1090,9 @@ static void draw_plan(void) {
   if (!plan_msg[0] && R->full) strcpy(plan_msg, "plan full: larger split");
   if (!plan_msg[0] && plan_rc) strcpy(plan_msg, "some legs sailed GC, not CS");
   if (plan_msg[0]) nt_inv(2, 192, plan_msg);
-  else nt(2, 192, "5 split 4 6 step ENTER save");
+  else nt(2, 192, PLAN_HINT);
   sprintf(r, "%d WP %.1f NM", R->n, R->w[R->n - 1].cum_m / NM);
-  if (nt_w(r) + nt_w(plan_msg[0] ? plan_msg : "5 split 4 6 step ENTER save") < 388) nt_r(LCD_X - 2, 192, r);
+  if (nt_w(r) + nt_w(plan_msg[0] ? plan_msg : PLAN_HINT) < 388) nt_r(LCD_X - 2, 192, r);
 }
 
 static void plan_step(int dir) {
@@ -1107,13 +1108,31 @@ static void plan_step(int dir) {
   plan_val = t[k];
 }
 
-static void plan_export(void) {
-  if (!sys_disk_ok()) { strcpy(plan_msg, "disk busy (USB?)"); return; }
+static int plan_dirs(void) {
+  if (!sys_disk_ok()) { strcpy(plan_msg, "disk busy (USB?)"); return 0; }
   sys_disk_write_enable(1);
   check_create_dir("/NAV47");
   check_create_dir("/NAV47/ROUTES");
   sys_disk_write_enable(0);
+  return 1;
+}
+
+static void plan_export(void) {
+  if (!plan_dirs()) return;
   strcpy(plan_msg, geo_save_csv("/NAV47/ROUTES/PLAN.CSV") == 0 ? "saved /NAV47/ROUTES/PLAN.CSV" : "save failed");
+}
+
+/* shift ENTER: $GPWPL + $GPRTE to /NAV47/ROUTES/PLAN.NMEA, and to the PC on console channel 2 when the USB is on */
+static void nmea_usb(const char *line, void *ctx) { (void)ctx; usbview_line(USBVIEW_CH_NMEA, line); }
+
+static void plan_nmea(void) {
+  if (!geo_routep || geo_route.n < 2) return;
+  int f = plan_dirs() && geo_save_nmea("/NAV47/ROUTES/PLAN.NMEA") == 0;
+  int u = usbview_is_on();
+  if (u) route_nmea(&geo_route, GEO_NMEA_ID, nmea_usb, NULL);
+  if (f) strcpy(plan_msg, u ? "NMEA: PLAN.NMEA + USB ch 2" : "saved /NAV47/ROUTES/PLAN.NMEA");
+  else if (u) strcpy(plan_msg, "NMEA: USB ch 2 (file failed)");
+  else if (!plan_msg[0]) strcpy(plan_msg, "NMEA save failed");
 }
 
 static void plan_key(int key) {
@@ -1316,6 +1335,7 @@ static void handle_key(int key) {
   if (shift) {
     shift = 0;
     if (key == KEY_EXIT) { cfg_save(); SET_ST(STAT_PGM_END); return; }
+    if (key == KEY_ENTER && page == PG_PLAN) { plan_msg[0] = 0; plan_nmea(); return; }
     if (key == KEY_0) {
       static const uint8_t mid[] = { MI_SET_TIME, MI_SET_DATE, MI_BEEP_MUTE, MI_SLOW_AUTOREP, MI_MSC, MI_SYSTEM_ENTER, 0 };
       static const smenu_t MID = { "NAV47 Setup", mid, NULL, NULL };

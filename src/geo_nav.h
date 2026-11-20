@@ -14,6 +14,8 @@ extern int geo_ell_index;
 
 void geo_set_ellipsoid(int e);         /* call once at start */
 int  geo_save_csv(const char *path);   /* 0 = ok */
+int  geo_save_nmea(const char *path);  /* $GPWPL + $GPRTE, 0 = ok */
+#define GEO_NMEA_ID "NAV47"            /* the $GPRTE route name */
 int  geo_leg_cs(double lat1, double lon1, double lat2, double lon2, double lim,
                  double *crs, double *nm);      /* composite leg, 0 = ok */
 #endif
