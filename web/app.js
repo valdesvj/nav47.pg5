@@ -191,7 +191,7 @@ function drawStreams() {
   if (!S.showStreams) return;
   const g = CH.g, J = nowJd(), span = spanDeg();
   g.save(); g.lineWidth = 2.2;
-  for (const st of STREAMS.all()) {
+  if (span <= 40) for (const st of STREAMS.all()) {           /* the stations: on a regional chart, not the world */
     const [x, y, v] = proj(st.lat, st.lon);
     if (!v || x < -20 || y < -20 || x > CH.W + 20 || y > CH.H + 20) continue;
     const q = STREAMS.now(st.i, J); if (!q) continue;

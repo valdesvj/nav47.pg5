@@ -4,9 +4,9 @@
   python3 tools/noaa_currents.py TIDE47_DIR OUTDIR [--max N]
 
 The harmonic current stations (type H) of NOAA's metadata API: for each, the harmonic constants of its default bin
-(harcon.json). A station whose constituents have no minor axis is rectilinear (kind RECT: the speed along the flood
-direction, NOAA's azimuth, knots); otherwise rotary (kind ROT: the east and the north components, from each
-constituent's ellipse). The phases: NOAA's Greenwich phases (majorPhaseGMT) moved to the station's standard zone
+(harcon.json). A station is rectilinear (kind RECT: the speed along the flood direction, NOAA's
+azimuth, knots, as NOAA's own predictions), unless its current truly turns (the M2 ellipse's minor axis 40 % of the
+major or more): rotary (kind ROT: the east and the north components, from each constituent's ellipse). The phases: NOAA's Greenwich phases (majorPhaseGMT) moved to the station's standard zone
 (g = gG + speed x tz, as NOAA's own local phases). The mean current (majorMeanSpeed) is the mean, Z0 (or U0, V0).
 
 The files go by area (US NORTHEAST, SOUTHEAST AND GULF, WEST, ALASKA, PACIFIC, CARIBBEAN), written by tools/gen_tides.py's
@@ -91,7 +91,10 @@ def main():
         if not cons:
             skipped += 1; continue
         tz, dst = zone(s)
-        rot = any((c.get('minorAmplitude') or 0) > 0 for c in cons)
+        # NOAA predicts its harmonic stations along the major axis (flood / ebb), as Tide 47: rotary only when the
+        # current truly turns (the M2 ellipse's minor axis 40 % of its major or more)
+        m2 = next((c for c in cons if c['constituentName'].upper() == 'M2'), cons[0])
+        rot = (m2.get('minorAmplitude') or 0) >= 0.4 * (m2.get('majorAmplitude') or 1)
         azi = float(cons[0].get('azi') or 0)
         mj, mn = float(cons[0].get('majorMeanSpeed') or 0), float(cons[0].get('minorMeanSpeed') or 0)
         H, V = {}, {}

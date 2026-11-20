@@ -42,7 +42,9 @@ make tidefiles TIDE47=~/opt/tide47      # build/tidefiles/*.TID and FLOW.FLW (gi
 
 Load them on the Tide or Flow tab (*Your tide files*). They stay in this browser, never sent anywhere and never in the
 repository; the calculator's own parsers read them, and the Calculator tab gets them too (its FILES, TIDE and T&F pages;
-4 files at most). 〰 *Streams* on the Route chart draws the streams at the time shown: the stations, and the atlas's cells.
+4 files at most). 〰 *Streams* on the Route chart draws the streams at the time shown: the stations (on a chart under 40° wide),
+and the atlas's cells. NOAA's 874 harmonic current stations: rectilinear (flood / ebb along the major axis, as NOAA's own
+predictions) except the 16 whose current truly turns (rotary).
 
 ## Weather (online, off until you switch it on)
 
