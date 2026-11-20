@@ -289,6 +289,19 @@ void map_icon(const map_t *m, double lat, double lon, double crs, int plane) {
       gfx_pixel(px, py, 1);
     }
   }
+  if (plane && l > 1e-4f) {                                   /* the plane: along its course on the LCD */
+    gfx_disc(x, y, 9, 0);
+    for (int v = -9; v <= 9; v++)
+      for (int u = -9; u <= 9; u++) {
+        /* the pixel in the plane's frame: f forward (dx, dy), r to the right (-dy, dx) */
+        float f = u * dx + v * dy, r = fabsf(-u * dy + v * dx);
+        int in = (r <= 1.1f && f >= -6.5f && f <= 7.5f - r)                      /* the fuselage, a pointed nose */
+              || (r <= 7.5f && f <= 1.8f - 0.5f * r && f >= -0.8f - 0.5f * r)     /* the wings, swept */
+              || (r <= 3.6f && f <= -4.2f - 0.3f * r && f >= -6.5f);              /* the tailplane */
+        if (in) gfx_pixel(x + u, y + v, 1);
+      }
+    return;
+  }
   const uint16_t *b = plane ? PLANE : SHIP;
   gfx_rect(x - 7, y - 7, 15, 15, 0);
   for (int r = 0; r < 13; r++)
