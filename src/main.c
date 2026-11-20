@@ -972,6 +972,7 @@ static void draw_route(void) {
     nt(4, 136, "  (+/- for S and W)");
     nt(4, 160, "RL rhumb, GC great circle,");
     nt(4, 176, "CS composite (4 6 limit)");
+    nt(4, 192, "0: CHART and GLOBE (you, the coast)");
     return;
   }
   int vis = 10;
