@@ -1274,13 +1274,68 @@ static void cmp_key(int key) {
 #define CHART_Y0 16
 #define CHART_H  175
 static map_t chart_m;
-static int chart_back = PG_PLAN, chart_refit = 1;
+static int chart_back = PG_PLAN, chart_refit = 1, chart_globe;
 static char chart_detail;                                /* 'C' or 'L': the coastline last drawn, 0 none */
 
 static void chart_open(int back) { chart_back = back; chart_refit = 1; go(PG_CHART); }
 
+/* no route: you, and the nearest coast in view */
+static void chart_fit_here(void) {
+  double d = 20, lat = N->cfg.lat, lon = N->cfg.lon;
+  if (sys_disk_ok() && map_coast_nearest("/NAV47/COAST_C.BIN", lat, lon, &d) == 0 && d < 3) {
+    double dl;
+    if (map_coast_nearest("/NAV47/COAST_L.BIN", lat, lon, &dl) == 0) d = dl;   /* close: the finer coast */
+  }
+  d = d * 1.3 + 0.3;                                     /* the coast inside, with a margin */
+  if (chart_globe) {
+    map_center(&chart_m, lat, lon);
+    float r = (float)sin((d > 80 ? 80 : d) * M_PI / 180);
+    chart_m.k = (chart_m.h * 0.5f - 8) / r;
+    map_zoom(&chart_m, 1);
+    if (d > 80) chart_m.k = map_kmin(&chart_m);
+  } else {
+    double c = cos(lat * M_PI / 180);
+    if (c < 0.1) c = 0.1;
+    map_fit(&chart_m, lat - d, lat + d, lon - d / c, lon + d / c);
+  }
+}
+
+/* points to see on the globe: the plan, and its geodesics sampled (they bulge) */
+static int chart_pt(int i, double *la, double *lo) {
+  route_t *R = &geo_route;
+  if (i < R->n) { *la = R->w[i].lat; *lo = R->w[i].lon; return 1; }
+  i -= R->n;
+  int leg = i / 7 + 1;
+  if (leg >= N->nwp) return 0;
+  struct geod_geodesicline l;
+  geod_inverseline(&l, &geo_ell, N->wlat[leg - 1], N->wlon[leg - 1], N->wlat[leg], N->wlon[leg], 0);
+  geod_position(&l, l.s13 * (i % 7 + 1) / 8, la, lo, NULL);
+  return 1;
+}
+
+static void chart_fit_globe(void) {
+  double x = 0, y = 0, z = 0, la, lo;
+  for (int i = 0; chart_pt(i, &la, &lo); i++) {          /* the centre: the points' mean direction */
+    double p = la * M_PI / 180, q = lo * M_PI / 180;
+    x += cos(p) * cos(q); y += cos(p) * sin(q); z += sin(p);
+  }
+  map_center(&chart_m, atan2(z, hypot(x, y)) * 180 / M_PI, atan2(y, x) * 180 / M_PI);
+  float k = map_kmax(&chart_m);
+  for (int i = 0; chart_pt(i, &la, &lo); i++) {
+    float r = map_globe_fitpt(&chart_m, la, lo);
+    if (r == 0) { k = 0; break; }                        /* too far round: the whole Earth */
+    if (r < k) k = r;
+  }
+  chart_m.k = k;
+  map_zoom(&chart_m, 1);                                 /* clamps: at least the whole disc */
+}
+
 /* the plan, the user legs' geodesics (their vertices) and a margin */
 static void chart_fit(void) {
+  map_init(&chart_m, 0, CHART_Y0, LCD_X, CHART_H, &geo_ell);
+  chart_m.globe = chart_globe;
+  if (N->nwp < 2 || !geo_routep) { chart_fit_here(); return; }
+  if (chart_globe) { chart_fit_globe(); return; }
   route_t *R = &geo_route;
   double s = 90, n = -90, w = 1e9, e = -1e9, lon = R->w[0].lon;
   for (int i = 0; i < R->n; i++) {
@@ -1299,18 +1354,20 @@ static void chart_fit(void) {
     }
   }
   double ml = (n - s) * 0.08 + 0.3, mo = (e - w) * 0.08 + 0.3;
-  map_init(&chart_m, 0, CHART_Y0, LCD_X, CHART_H, &geo_ell);
   map_fit(&chart_m, s - ml, n + ml, w - mo, e + mo);
 }
 
 static void draw_chart(void) {
   char s[64];
-  sprintf(s, N->cfg.gc == 2 ? "CHART CS %.0f" : N->cfg.gc ? "CHART GC" : "CHART RL", cs_lim);
+  int route = N->nwp >= 2;
+  if (!route) sprintf(s, chart_globe ? "GLOBE" : "CHART");
+  else sprintf(s, N->cfg.gc == 2 ? "%s CS %.0f" : N->cfg.gc ? "%s GC" : "%s RL", chart_globe ? "GLOBE" : "CHART", cs_lim);
   header(s);
-  if (!geo_route_alloc()) { nt(4, 48, "Not enough memory for CHART."); return; }
-  if (plan_dirty || legs_dirty) plan_build();
-  route_t *R = &geo_route;
-  if (R->n < 2) { nt(4, 48, "Needs 2 waypoints on ROUTE."); return; }
+  if (route) {
+    if (!geo_route_alloc()) { nt(4, 48, "Not enough memory for CHART."); return; }
+    if (plan_dirty || legs_dirty) plan_build();
+  }
+  route_t *R = route ? &geo_route : NULL;
   if (chart_refit) { chart_fit(); chart_refit = 0; }
   chart_m.e = (float)sqrt(geo_ell.f * (2 - geo_ell.f));   /* the ellipsoid may have changed */
   int step = map_grid(&chart_m);
@@ -1320,28 +1377,36 @@ static void draw_chart(void) {
     else if (map_coast(&chart_m, "/NAV47/COAST_C.BIN") >= 0) chart_detail = 'C';
   }
   int gc = N->cfg.gc % 3;
-  if (gc == 2) {                                         /* the limit parallel, on the route's side */
+  if (route && gc == 2) {                                /* the limit parallel, on the route's side */
     double m = 0;
     for (int i = 0; i < N->nwp; i++) m += N->wlat[i];
-    float x, y;
-    map_xy(&chart_m, m < 0 ? -cs_lim : cs_lim, chart_m.lon0, &x, &y);
-    if (y >= CHART_Y0 && y < CHART_Y0 + CHART_H) gfx_hline_dotted(0, LCD_X - 1, (int)lroundf(y), 8);
+    double l = m < 0 ? -cs_lim : cs_lim;
+    if (chart_globe) for (int i = 0; i < 72; i++) map_seg(&chart_m, l, i * 5, l, i * 5 + 5, MAP_DOT);
+    else {
+      float x, y;
+      map_xy(&chart_m, l, chart_m.lon0, &x, &y);
+      if (y >= CHART_Y0 && y < CHART_Y0 + CHART_H) gfx_hline_dotted(0, LCD_X - 1, (int)lroundf(y), 8);
+    }
   }
-  for (int i = 1; i < N->nwp; i++) {                     /* the other sailings, for comparison */
-    if (gc != 0) map_seg(&chart_m, N->wlat[i - 1], N->wlon[i - 1], N->wlat[i], N->wlon[i], MAP_DASH);
-    if (gc != 1) map_geod(&chart_m, &geo_ell, N->wlat[i - 1], N->wlon[i - 1], N->wlat[i], N->wlon[i], MAP_DOT);
+  if (route) {
+    for (int i = 1; i < N->nwp; i++) {                   /* the other sailings, for comparison */
+      if (gc != 0) map_seg(&chart_m, N->wlat[i - 1], N->wlon[i - 1], N->wlat[i], N->wlon[i], MAP_DASH);
+      if (gc != 1) map_geod(&chart_m, &geo_ell, N->wlat[i - 1], N->wlon[i - 1], N->wlat[i], N->wlon[i], MAP_DOT);
+    }
+    for (int i = 1; i < R->n; i++) {                     /* the plan: thick */
+      const wpt_t *a = &R->w[i - 1], *b = &R->w[i];
+      if (b->kind == SEG_GEOD) map_geod(&chart_m, &geo_ell, a->lat, a->lon, b->lat, b->lon, MAP_THICK);
+      else map_seg(&chart_m, a->lat, a->lon, b->lat, b->lon, MAP_THICK);
+    }
+    for (int i = 0; i < R->n; i++) map_mark(&chart_m, R->w[i].lat, R->w[i].lon, (R->w[i].flags & WPT_USER) ? 1 : 0);
+    if (plan_cur < R->n) map_mark(&chart_m, R->w[plan_cur].lat, R->w[plan_cur].lon, 2);
   }
-  for (int i = 1; i < R->n; i++) {                       /* the plan: thick */
-    const wpt_t *a = &R->w[i - 1], *b = &R->w[i];
-    if (b->kind == SEG_GEOD) map_geod(&chart_m, &geo_ell, a->lat, a->lon, b->lat, b->lon, MAP_THICK);
-    else map_seg(&chart_m, a->lat, a->lon, b->lat, b->lon, MAP_THICK);
-  }
-  for (int i = 0; i < R->n; i++) map_mark(&chart_m, R->w[i].lat, R->w[i].lon, (R->w[i].flags & WPT_USER) ? 1 : 0);
-  if (plan_cur < R->n) map_mark(&chart_m, R->w[plan_cur].lat, R->w[plan_cur].lon, 2);
+  map_mark(&chart_m, N->cfg.lat, N->cfg.lon, 3);         /* you */
+  map_space(&chart_m);
   gfx_rect(0, CHART_Y0 + CHART_H, LCD_X, 1, 1);
-  nt(2, 192, "8246 pan 7 9 zoom 5 fit");
+  nt(2, 192, chart_globe ? "4 6 turn 8 2 tilt 7 9 zoom" : "8246 pan 7 9 zoom 5 fit");
   if (chart_detail) sprintf(s, "%c grid %d" NT_DEG, chart_detail, step);
-  else strcpy(s, "no /NAV47/COAST_C.BIN");
+  else strcpy(s, "no COAST_C.BIN");
   nt_r(LCD_X - 2, 192, s);
 }
 
@@ -1353,6 +1418,7 @@ static void chart_key(int key) {
   else if (key == KEY_9) map_zoom(&chart_m, 1.5f);
   else if (key == KEY_7) map_zoom(&chart_m, 1 / 1.5f);
   else if (key == KEY_5) chart_refit = 1;
+  else if (key == KEY_0) { chart_globe ^= 1; map_set_globe(&chart_m, chart_globe); }
   else if (key == KEY_EXIT) { go(chart_back); if (chart_back == PG_ROUTE) menu_page = 3; }
 }
 
@@ -1366,7 +1432,7 @@ static const char *FILE_MENU[6] = { "TID", "FLW", "CLEAR", "", "", "BACK" };
 static const char *EDIT_MENU[6] = { "", "", "", "", "", "CANCEL" };
 static const char *PLAN_MENU[6] = { "CSV", "NMEA", "SPLIT", "CMP", "CHART", "BACK" };
 static const char *CMP_MENU[6] = { "ELL-", "ELL+", "EDIT", "PLAN", "CHART", "BACK" };
-static const char *CHART_MENU[6] = { "ZOOM+", "ZOOM-", "FIT", "PLAN", "CMP", "BACK" };
+static const char *CHART_MENU[6] = { "ZOOM+", "ZOOM-", "FIT", "GLOBE", "PLAN", "BACK" };
 
 #define ANIM_FRAMES 24
 #define ANIM_STEP   0.5
@@ -1410,6 +1476,7 @@ static void redraw(void) {
     }
   if (page != PG_ROUTE && menu_page == 3) menu_page = 0;
   MENUS[2][4] = usbview_is_on() ? "USB*" : "USB";
+  CHART_MENU[3] = chart_globe ? "MERC" : "GLOBE";
   lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0) ? EDIT_MENU :
                      page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : MENUS[menu_page]);
   lcd_refresh();
@@ -1468,9 +1535,8 @@ static void softkey(int fn) {
     return;
   }
   if (page == PG_CHART) {
-    static const int k[6] = { KEY_9, KEY_7, KEY_5, 0, 0, KEY_EXIT };
-    if (fn == 3) { plan_cur = 0; go(PG_PLAN); }
-    else if (fn == 4) go(PG_CMP);
+    static const int k[6] = { KEY_9, KEY_7, KEY_5, KEY_0, 0, KEY_EXIT };
+    if (fn == 4) { plan_cur = 0; go(PG_PLAN); }
     else chart_key(k[fn]);
     return;
   }
@@ -1579,6 +1645,7 @@ static void handle_key(int key) {
     else if (key == KEY_ENTER) wp_start_edit();
     else if (key == KEY_RUN && N->nwp > 1) { plan_cur = 0; go(PG_PLAN); }
     else if (key == KEY_5 && N->nwp > 1) go(PG_CMP);
+    else if (key == KEY_0) chart_open(PG_ROUTE);
     else if (key == KEY_4 && N->cfg.gc == 2 && cs_lim > 10) { cs_lim -= 1; route_save(); }
     else if (key == KEY_6 && N->cfg.gc == 2 && cs_lim < 85) { cs_lim += 1; route_save(); }
     break;

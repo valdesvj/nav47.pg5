@@ -23,6 +23,7 @@ void map_init(map_t *m, int x0, int y0, int w, int h, const struct geod_geodesic
   m->x0 = x0; m->y0 = y0; m->w = w; m->h = h;
   m->e = (float)sqrt(g->f * (2 - g->f));
   m->lon0 = 0; m->psi0 = 0; m->k = (float)(w / (2 * M_PI));
+  m->globe = 0; m->lat0 = 0; m->sl0 = 0; m->cl0 = 1;
 }
 
 float map_psi(const map_t *m, double lat) {
@@ -44,19 +45,72 @@ static double near_lon(double lon, double ref) {              /* lon + n 360 nea
   return lon;
 }
 
-void map_xy(const map_t *m, double lat, double lon, float *x, float *y) {
-  *x = m->x0 + m->w * 0.5f + m->k * (float)((lon - m->lon0) * D2R);
-  *y = m->y0 + m->h * 0.5f - m->k * (map_psi(m, lat) - m->psi0);
+/* the point on the LCD; 0 when it is on the far side of the globe */
+static int proj(const map_t *m, double lat, double lon, float *x, float *y) {
+  float cx = m->x0 + m->w * 0.5f, cy = m->y0 + m->h * 0.5f;
+  if (!m->globe) {
+    *x = cx + m->k * (float)((lon - m->lon0) * D2R);
+    *y = cy - m->k * (map_psi(m, lat) - m->psi0);
+    return 1;
+  }
+  float p = (float)(lat * D2R), d = (float)((lon - m->lon0) * D2R);
+  float sp = sinf(p), cp = cosf(p), sd = sinf(d), cd = cosf(d);
+  *x = cx + m->k * cp * sd;
+  *y = cy - m->k * (m->cl0 * sp - m->sl0 * cp * cd);
+  return m->sl0 * sp + m->cl0 * cp * cd >= 0;
+}
+
+void map_xy(const map_t *m, double lat, double lon, float *x, float *y) { proj(m, lat, lon, x, y); }
+
+void map_center(map_t *m, double lat, double lon) {
+  if (lat > 90) lat = 90;
+  if (lat < -90) lat = -90;
+  m->lat0 = (float)lat; m->lon0 = (float)lon;
+  m->sl0 = sinf((float)(lat * D2R)); m->cl0 = cosf((float)(lat * D2R));
+  m->psi0 = map_psi(m, lat);
+}
+
+float map_kmin(const map_t *m) {
+  return m->globe ? (m->h < m->w ? m->h : m->w) * 0.5f - 4 : (float)(m->w / (2 * M_PI));
+}
+float map_kmax(const map_t *m) { return (float)(m->w / (0.2 * D2R)); }   /* 0.2 deg (12 NM) across */
+
+void map_set_globe(map_t *m, int on) {
+  if (on == m->globe) return;
+  if (on) {                                                   /* the same scale at the centre */
+    double lat = map_lat(m, m->psi0);
+    float c = cosf((float)(lat * D2R));
+    m->globe = 1;
+    map_center(m, lat, m->lon0);
+    m->k /= c > 0.05f ? c : 0.05f;
+  } else {
+    float lat = m->lat0 > 84 ? 84 : m->lat0 < -84 ? -84 : m->lat0;
+    m->globe = 0;
+    m->k *= cosf(lat * (float)D2R);
+    map_center(m, lat, m->lon0);
+  }
+  map_zoom(m, 1);
+}
+
+float map_globe_fitpt(const map_t *m, double lat, double lon) {
+  float p = (float)(lat * D2R), d = (float)((lon - m->lon0) * D2R);
+  float sp = sinf(p), cp = cosf(p), sd = sinf(d), cd = cosf(d);
+  if (m->sl0 * sp + m->cl0 * cp * cd < 0.17f) return 0;       /* behind or at the rim (over 80 deg away) */
+  float px = fabsf(cp * sd), py = fabsf(m->cl0 * sp - m->sl0 * cp * cd), k = 1e9f;
+  if (px > 1e-6f) k = (m->w * 0.5f - 8) / px;
+  if (py > 1e-6f && (m->h * 0.5f - 8) / py < k) k = (m->h * 0.5f - 8) / py;
+  return k;
 }
 
 static void clamp_view(map_t *m) {
-  float kmin = (float)(m->w / (2 * M_PI)), kmax = (float)(m->w / (0.2 * D2R));   /* 360 deg .. 0.2 deg wide */
+  float kmin = map_kmin(m), kmax = map_kmax(m);
   float pmax = map_psi(m, LAT_MAX);
   if (m->k < kmin) m->k = kmin;
   if (m->k > kmax) m->k = kmax;
   if (m->psi0 > pmax) m->psi0 = pmax;
   if (m->psi0 < -pmax) m->psi0 = -pmax;
   m->lon0 = (float)near_lon(m->lon0, 0);
+  if (m->globe) map_center(m, m->lat0, m->lon0);
 }
 
 void map_fit(map_t *m, double lat_s, double lat_n, double lon_w, double lon_e) {
@@ -74,12 +128,27 @@ void map_fit(map_t *m, double lat_s, double lat_n, double lon_w, double lon_e) {
 void map_zoom(map_t *m, float f) { m->k *= f; clamp_view(m); }
 
 void map_pan(map_t *m, float fx, float fy) {
+  if (m->globe) {                                             /* turn the globe, tilt it: as an airliner's map */
+    float a = map_span_lon(m);
+    if (a > 60) a = 60;                                       /* the whole Earth: 15 deg a key */
+    float lat = m->lat0 + fy * a;
+    if (lat > 90) lat = 90;
+    if (lat < -90) lat = -90;
+    float c = cosf(m->lat0 * (float)D2R);
+    map_center(m, lat, m->lon0 + fx * a / (c > 0.25f ? c : 0.25f));
+    clamp_view(m);
+    return;
+  }
   m->lon0 += (float)(fx * m->w / m->k * R2D);
   m->psi0 += fy * m->h / m->k;
   clamp_view(m);
 }
 
-float map_span_lon(const map_t *m) { return (float)(m->w / m->k * R2D); }
+float map_span_lon(const map_t *m) {
+  if (!m->globe) return (float)(m->w / m->k * R2D);
+  float r = m->w * 0.5f / m->k;
+  return r >= 1 ? 180.0f : 2 * asinf(r) * (float)R2D;
+}
 
 /* ---------------------------------------------------------------- lines, clipped to the box */
 
@@ -89,6 +158,7 @@ static void plot(const map_t *m, int x, int y, int style) {
   pat++;
   if (style == MAP_DASH && pat % 9 >= 5) return;
   if (style == MAP_DOT && pat % 3) return;
+  if (style == MAP_FAINT && pat % 6) return;
   gfx_pixel(x, y, 1);
   if (style == MAP_THICK) {
     if (y + 1 < m->y0 + m->h) gfx_pixel(x, y + 1, 1);
@@ -128,38 +198,65 @@ static void line_f(const map_t *m, float x1, float y1, float x2, float y2, int s
   }
 }
 
-void map_seg(const map_t *m, double la1, double lo1, double la2, double lo2, int style) {
+/* straight on the LCD between two points (both on the near side of the globe) */
+static void seg_ll(const map_t *m, double la1, double lo1, double la2, double lo2, int style) {
   float x1, y1, x2, y2;
   lo1 = near_lon(lo1, m->lon0);
   lo2 = near_lon(lo2, lo1);
-  map_xy(m, la1, lo1, &x1, &y1);
-  map_xy(m, la2, lo2, &x2, &y2);
-  line_f(m, x1, y1, x2, y2, style);
+  if (proj(m, la1, lo1, &x1, &y1) & proj(m, la2, lo2, &x2, &y2)) line_f(m, x1, y1, x2, y2, style);
+}
+
+void map_seg(const map_t *m, double la1, double lo1, double la2, double lo2, int style) {
+  if (!m->globe) { seg_ll(m, la1, lo1, la2, lo2, style); return; }
+  /* on the globe a rhumb line bends: pieces, linear in longitude and isometric latitude (Mercator's straight line) */
+  lo2 = near_lon(lo2, lo1);
+  float p1 = map_psi(m, la1), p2 = map_psi(m, la2);
+  double dl = fabs(lo2 - lo1), dp = fabs(la2 - la1);
+  int n = (int)((dl > dp ? dl : dp) / 2) + 1;
+  if (n > 64) n = 64;
+  double pla = la1, plo = lo1;
+  for (int i = 1; i <= n; i++) {
+    double t = (double)i / n, lo = lo1 + (lo2 - lo1) * t;
+    double la = i == n ? la2 : (la1 == la2 ? la1 : map_lat(m, p1 + (p2 - p1) * (float)t));
+    seg_ll(m, pla, plo, la, lo, style);
+    pla = la; plo = lo;
+  }
 }
 
 void map_geod(const map_t *m, const struct geod_geodesic *g, double la1, double lo1, double la2, double lo2, int style) {
   struct geod_geodesicline l;
   geod_inverseline(&l, g, la1, lo1, la2, lo2, 0);
   float x1, y1, x2, y2;
-  map_xy(m, la1, near_lon(lo1, m->lon0), &x1, &y1);
-  map_xy(m, la2, near_lon(lo2, m->lon0), &x2, &y2);
-  int n = (int)(hypotf(x2 - x1, y2 - y1) / 6) + 4;            /* a piece every ~6 px, more where it bends */
+  int n;
+  if (m->globe) n = (int)(l.a13 / 2) + 4;                     /* a piece every 2 deg of arc */
+  else {
+    map_xy(m, la1, near_lon(lo1, m->lon0), &x1, &y1);
+    map_xy(m, la2, near_lon(lo2, m->lon0), &x2, &y2);
+    n = (int)(hypotf(x2 - x1, y2 - y1) / 6) + 4;              /* a piece every ~6 px, more where it bends */
+  }
   if (n > 64) n = 64;
   double pla = la1, plo = lo1;
   for (int i = 1; i <= n; i++) {
     double la, lo;
     if (i == n) { la = la2; lo = lo2; }
     else geod_position(&l, l.s13 * i / n, &la, &lo, NULL);
-    map_seg(m, pla, plo, la, lo, style);
+    seg_ll(m, pla, plo, la, lo, style);
     pla = la; plo = lo;
   }
 }
 
 void map_mark(const map_t *m, double lat, double lon, int kind) {
   float fx, fy;
-  map_xy(m, lat, near_lon(lon, m->lon0), &fx, &fy);
+  if (!proj(m, lat, near_lon(lon, m->lon0), &fx, &fy)) return;
   int x = (int)lroundf(fx), y = (int)lroundf(fy);
   if (outcode(m, fx, fy)) return;
+  if (kind == 3) {                                            /* you: a cross with a gap, clear around */
+    gfx_rect(x - 6, y - 1, 13, 3, 0); gfx_rect(x - 1, y - 6, 3, 13, 0);
+    gfx_rect(x - 6, y, 5, 1, 1); gfx_rect(x + 2, y, 5, 1, 1);
+    gfx_rect(x, y - 6, 1, 5, 1); gfx_rect(x, y + 2, 1, 5, 1);
+    gfx_pixel(x, y, 1);
+    return;
+  }
   if (kind == 0) gfx_rect(x - 1, y - 1, 3, 3, 1);
   else if (kind == 1) { gfx_rect(x - 3, y - 3, 7, 7, 0); gfx_frame(x - 3, y - 3, 7, 7); gfx_pixel(x, y, 1); }
   else { gfx_circle(x, y, 7, 1); gfx_circle(x, y, 8, 1); }
@@ -173,11 +270,60 @@ static void lon_label(char *s, int lon) {
   else sprintf(s, "%d%c", abs(lon), lon < 0 ? 'W' : 'E');
 }
 
+static void grid_globe(const map_t *m, int step) {
+  float rho = map_span_lon(m) / 2 * (float)M_SQRT2;           /* the corners' distance from the centre, deg */
+  if (rho > 90) rho = 90;
+  float la_s = m->lat0 - rho - step, la_n = m->lat0 + rho + step;
+  if (la_s < -90) la_s = -90;
+  if (la_n > 90) la_n = 90;
+  float cmin = cosf((fabsf(m->lat0) + rho) * (float)D2R);
+  float wl = rho >= 89 || fabsf(m->lat0) + rho >= 85 ? 180 : rho / (cmin > 0.05f ? cmin : 0.05f) + step;
+  if (wl > 180) wl = 180;
+  float lo_w = m->lon0 - wl, lo_e = m->lon0 + wl;
+  for (int lon = (int)ceilf(lo_w / step) * step; lon <= lo_e && lon < lo_w + 360; lon += step)
+    for (int i = 0; i < 48; i++) {
+      double a = la_s + (la_n - la_s) * i / 48.0, b = la_s + (la_n - la_s) * (i + 1) / 48.0;
+      seg_ll(m, a, lon, b, lon, MAP_FAINT);
+    }
+  for (int lat = (int)ceilf(la_s / step) * step; lat <= la_n; lat += step) {
+    if (abs(lat) >= 90) continue;
+    for (int i = 0; i < 48; i++) {
+      double a = lo_w + (lo_e - lo_w) * i / 48.0, b = lo_w + (lo_e - lo_w) * (i + 1) / 48.0;
+      seg_ll(m, lat, a, lat, b, MAP_FAINT);
+    }
+  }
+}
+
+/* globe: the rim, black space outside it, a few stars */
+void map_space(const map_t *m) {
+  if (!m->globe) return;
+  float cx = m->x0 + m->w * 0.5f, cy = m->y0 + m->h * 0.5f, r = m->k;
+  if (r > 2 * (m->w + m->h)) return;                          /* the rim is far off the LCD */
+  for (int y = m->y0; y < m->y0 + m->h; y++) {
+    float dy = y + 0.5f - cy, q = r * r - dy * dy;
+    if (q <= 0) { gfx_rect(m->x0, y, m->w, 1, 1); continue; }
+    float hw = sqrtf(q);
+    int xa = (int)lroundf(cx - hw), xb = (int)lroundf(cx + hw);
+    if (xa > m->x0) gfx_rect(m->x0, y, xa - m->x0, 1, 1);
+    if (xb < m->x0 + m->w) gfx_rect(xb, y, m->x0 + m->w - xb, 1, 1);
+    if (xa >= m->x0) gfx_pixel(xa, y, 1);                     /* the rim, twice as thick */
+    if (xb - 1 < m->x0 + m->w) gfx_pixel(xb - 1, y, 1);
+  }
+  uint32_t z = 47;                                            /* the same stars every time */
+  for (int i = 0; i < 60; i++) {
+    z = z * 1103515245u + 12345u; int x = m->x0 + (int)((z >> 8) % (uint32_t)m->w);
+    z = z * 1103515245u + 12345u; int y = m->y0 + (int)((z >> 8) % (uint32_t)m->h);
+    float dx = x - cx, dy = y - cy;
+    if (dx * dx + dy * dy > (r + 3) * (r + 3)) gfx_pixel(x, y, 0);
+  }
+}
+
 int map_grid(const map_t *m) {
   static const int STEP[] = { 1, 2, 5, 10, 15, 30, 45 };
   float span = map_span_lon(m), lw = m->lon0 - span / 2, le = m->lon0 + span / 2;
   int step = 45;
   for (unsigned i = 0; i < sizeof STEP / sizeof *STEP; i++) if (span / STEP[i] <= 7) { step = STEP[i]; break; }
+  if (m->globe) { if (step > 30) step = 30; grid_globe(m, step); return step; }
   char s[8];
   for (int lon = (int)ceilf(lw / step) * step; lon <= le; lon += step) {
     float x, y;
@@ -228,7 +374,7 @@ static void coast_poly(const map_t *m, coast_io *c, uint32_t off, unsigned npts,
   int la = le16(p), lo = le16(p + 2);
   off += 4;
   float x1, y1;
-  map_xy(m, la / scale, lo / scale + dlon, &x1, &y1);
+  int v1 = proj(m, la / scale, lo / scale + dlon, &x1, &y1);
   int lx = (int)lroundf(x1), ly = (int)lroundf(y1);
   for (unsigned j = 1; j < npts; j++) {
     if (!delta) { if (!(p = rd(c, 1, off, 4))) return; la = le16(p); lo = le16(p + 2); off += 4; }
@@ -238,11 +384,11 @@ static void coast_poly(const map_t *m, coast_io *c, uint32_t off, unsigned npts,
       else { la += (int8_t)p[0]; lo += (int8_t)p[1]; off += 2; }
     }
     float x2, y2;
-    map_xy(m, la / scale, lo / scale + dlon, &x2, &y2);
+    int v2 = proj(m, la / scale, lo / scale + dlon, &x2, &y2);
     int ix = (int)lroundf(x2), iy = (int)lroundf(y2);
-    if (ix == lx && iy == ly && j + 1 < npts) continue;      /* still the same pixel */
-    line_f(m, x1, y1, x2, y2, MAP_SOLID);
-    x1 = x2; y1 = y2; lx = ix; ly = iy;
+    if (ix == lx && iy == ly && v2 == v1 && j + 1 < npts) continue;   /* still the same pixel */
+    if (v1 && v2) line_f(m, x1, y1, x2, y2, MAP_SOLID);
+    x1 = x2; y1 = y2; lx = ix; ly = iy; v1 = v2;
   }
 }
 
@@ -264,6 +410,7 @@ int map_coast(const map_t *m, const char *path) {
   if (ls <= -LAT_MAX * scale + 1) ls = -90 * scale;
   if (ln >= LAT_MAX * scale - 1) ln = 90 * scale;
   float px = m->k * (float)D2R / scale;                       /* pixels a file unit of longitude */
+  float rho = map_span_lon(m) / 2 * (float)M_SQRT2 + 2;       /* globe: the view's radius, deg */
   int drawn = 0;
   for (unsigned i = 0; i < npoly; i++) {
     const uint8_t *d = rd(c, 0, 16 + 16 * i, 16);
@@ -271,6 +418,14 @@ int map_coast(const map_t *m, const char *path) {
     int a = le16(d), b = le16(d + 2), lo1 = le16(d + 4), lo2 = le16(d + 6);
     uint32_t off = u32(d + 8);
     unsigned npts = u16(d + 12);
+    if (m->globe) {                                           /* every polygon once: the sphere wraps by itself */
+      float la0 = m->lat0 * scale, near = la0 < a ? a : la0 > b ? b : la0;
+      if (fabsf(near - la0) > rho * scale) continue;          /* too far north or south of the view */
+      if ((lo2 - lo1) * px < 1.0f && (b - a) * px < 1.0f) continue;
+      coast_poly(m, c, off, npts, delta, scale, 0);
+      drawn++;
+      continue;
+    }
     if (b < ls || a > ln) continue;
     if ((lo2 - lo1) * px < 1.5f && (b - a) * px < 1.5f) continue;   /* smaller than a pixel or two */
     for (int k = -1; k <= 1; k++) {
@@ -283,4 +438,50 @@ int map_coast(const map_t *m, const char *path) {
   f_close(&c->f);
   free(c);
   return drawn;
+}
+
+int map_coast_nearest(const char *path, double lat, double lon, double *deg) {
+  coast_io *c = (coast_io *)malloc(sizeof(coast_io));
+  if (!c) return -1;
+  c->len[0] = c->len[1] = 0; c->base[0] = c->base[1] = 0;
+  if (f_open(&c->f, path, FA_READ) != FR_OK) { free(c); return -1; }
+  const uint8_t *h = rd(c, 0, 0, 16);
+  if (!h || memcmp(h, "N47C", 4) || u16(h + 4) != 1) { f_close(&c->f); free(c); return -1; }
+  unsigned npoly = u16(h + 6), sc = u16(h + 8);
+  int delta = u16(h + 10) & 1;
+  float scale = sc ? (float)sc : 100.0f;
+  float p0 = (float)(lat * D2R), s0 = sinf(p0), c0 = cosf(p0);
+  float best = 4.0f;                                          /* 1 - cos(distance): 4 is more than any */
+  float bdeg = 180;
+  for (unsigned i = 0; i < npoly; i++) {
+    const uint8_t *d = rd(c, 0, 16 + 16 * i, 16);
+    if (!d) break;
+    float a = le16(d) / scale, b = le16(d + 2) / scale;
+    float nl = (float)lat < a ? a : (float)lat > b ? b : (float)lat;
+    if (fabsf(nl - (float)lat) > bdeg) continue;              /* farther in latitude alone than the best */
+    uint32_t off = u32(d + 8);
+    unsigned npts = u16(d + 12);
+    const uint8_t *p = rd(c, 1, off, 4);
+    if (!p) continue;
+    int la = le16(p), lo = le16(p + 2);
+    off += 4;
+    for (unsigned j = 0; j < npts; j++) {
+      if (j) {
+        if (!delta) { if (!(p = rd(c, 1, off, 4))) break; la = le16(p); lo = le16(p + 2); off += 4; }
+        else {
+          if (!(p = rd(c, 1, off, 2))) break;
+          if (p[0] == 0x80) { if (!(p = rd(c, 1, off, 6))) break; la = le16(p + 2); lo = le16(p + 4); off += 6; }
+          else { la += (int8_t)p[0]; lo += (int8_t)p[1]; off += 2; }
+        }
+      }
+      float p1 = la / scale * (float)D2R, dl = (float)((lo / scale - lon) * D2R);
+      float v = 1 - (s0 * sinf(p1) + c0 * cosf(p1) * cosf(dl));
+      if (v < best) { best = v; bdeg = acosf(1 - v) * (float)R2D; }
+    }
+  }
+  f_close(&c->f);
+  free(c);
+  if (best > 3.9f) return -1;
+  *deg = bdeg;
+  return 0;
 }
