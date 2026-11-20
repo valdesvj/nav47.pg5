@@ -158,3 +158,12 @@ K const char *api_city_cc(int i, int j) { return ZONES[i].c[j].cc; }
 /* OUT: the offset now (h), 1 when summer time */
 K void api_city_off(int i, int j, double jd) { int on = 0; OUT[0] = city_offset(&ZONES[i], &ZONES[i].c[j], jd, &on); OUT[1] = on; }
 K const char *api_tzdata(void) { return TZDATA_VERSION; }
+
+/* ZONE47's dot map: MAP_NCOL x MAP_NROW; column j: OUT[0] the low 32 bits, OUT[1] the high (bit i = row i, land) */
+K int api_map_ncol(void) { return MAP_NCOL; }
+K int api_map_nrow(void) { return MAP_NROW; }
+K void api_map_col(int j) { unsigned long long b = MAP_COLS[j]; OUT[0] = (double)(b & 0xFFFFFFFFull); OUT[1] = (double)(b >> 32); }
+K int api_zone_col(int i) { return ZONES[i].col; }
+/* a place: 0 no summer time, 1 by rule, 2 irregular */
+K int api_city_kind(int i, int j) { return ZONES[i].c[j].kind; }
+K const char *api_city_tzid(int i, int j) { return ZONES[i].c[j].tzid ? ZONES[i].c[j].tzid : ""; }

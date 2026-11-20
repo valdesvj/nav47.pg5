@@ -140,26 +140,97 @@ const TABS2 = (() => {
     document.getElementById("ttoday").onclick = () => { tideDay = 0; tide(); };
   }
 
-  /* ---------------------------------------------------------------- Zones */
-  function zones() {
-    const el = document.getElementById("t-zones"), n = Module._api_zone_count(), J = jd(), here = -new Date().getTimezoneOffset() / 60;
-    const rows = [];
+  /* ---------------------------------------------------------------- Zones: as ZONE47 (and Almanac 47 web) */
+  let zcur = null, zcity = 0, zkeys = false;
+  const zfo = o => o === 0 ? "UTC±0" : "UTC" + (o > 0 ? "+" : "−") + Math.floor(Math.abs(o)) +
+    (Math.abs(o) % 1 ? ":" + String(Math.round(Math.abs(o) % 1 * 60)).padStart(2, "0") : "");
+  const WD = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"], MO = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const zlocal = (J, o) => { const t = new Date((J - 2440587.5) * 864e5 + o * 36e5);
+    return `${WD[t.getUTCDay()]} ${String(t.getUTCDate()).padStart(2, "0")} ${MO[t.getUTCMonth()]} ${String(t.getUTCHours()).padStart(2, "0")}:${String(t.getUTCMinutes()).padStart(2, "0")}`; };
+  function zdata(J) {
+    const n = Module._api_zone_count(), stops = [];
     for (let i = 0; i < n; i++) {
-      const base = Module._api_zone_off(i), nc = Module._api_zone_cities(i), cities = [];
+      const nc = Module._api_zone_cities(i), cities = [];
       for (let j = 0; j < nc; j++) {
         Module._api_city_off(i, j, J); const o = N().o();
-        cities.push({ name: N().str(Module._api_city_name(i, j)), cc: N().str(Module._api_city_cc(i, j)), off: o[0], on: !!o[1] });
+        cities.push({ name: N().str(Module._api_city_name(i, j)), cc: N().str(Module._api_city_cc(i, j)), off: o[0], on: !!o[1],
+                      kind: Module._api_city_kind(i, j) });
       }
-      rows.push({ base, cities });
+      stops.push({ i, off: Module._api_zone_off(i), col: Module._api_zone_col(i), cities });
     }
-    const hm = o => { const t = new Date((J - 2440587.5) * 864e5 + o * 36e5); return String(t.getUTCHours()).padStart(2, "0") + ":" + String(t.getUTCMinutes()).padStart(2, "0"); };
-    const fo = o => "UTC" + (o === 0 ? "" : (o > 0 ? "+" : "−") + (Math.floor(Math.abs(o)) + (Math.abs(o) % 1 ? ":" + String(Math.round(Math.abs(o) % 1 * 60)).padStart(2, "0") : "")));
-    el.innerHTML = `<div class="card"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><h2>Zones</h2>
-      <span class="meta">${F().dt(J, 0)} UT · tzdata ${N().str(Module._api_tzdata())} · summer time computed as on the calculator</span></div>
+    return stops.sort((a, b) => a.off - b.off);
+  }
+  function zones() {
+    const el = document.getElementById("t-zones"), J = jd(), stops = zdata(J), here = -new Date().getTimezoneOffset() / 60;
+    let mine = 0;
+    stops.forEach((z, k) => { if (Math.abs(z.off - here) < Math.abs(stops[mine].off - here)) mine = k; });
+    if (zcur === null) { const v = localStorage.getItem("nav47web:zone"); zcur = v !== null && +v < stops.length ? +v : mine; }
+    const Z = stops[zcur]; zcity = Math.min(zcity, Z.cities.length - 1);
+    const c0 = Z.cities[zcity];
+    /* the dot map */
+    const ncol = Module._api_map_ncol(), nrow = Module._api_map_nrow();
+    const W = Math.round(Math.min(1100, (el.getBoundingClientRect().width || 1000) - 34)), dx = W / ncol, dy = dx, H = Math.round(nrow * dy + 34);
+    let g = "";
+    for (let j = 0; j < ncol; j++) {
+      Module._api_map_col(j); const o = N().o(), lo = o[0], hi32 = o[1];
+      const hi = Math.floor(j / 5) === Z.col;
+      for (let i = 0; i < nrow; i++) {
+        const land = i < 32 ? Math.floor(lo / 2 ** i) % 2 : Math.floor(hi32 / 2 ** (i - 32)) % 2;
+        const x = (j + 0.5) * dx, y = (i + 0.5) * dy;
+        if (land) g += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(dx * 0.38).toFixed(2)}" fill="${hi ? "var(--accent)" : "var(--land)"}"/>`;
+        else if (hi) g += `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="${(dx * 0.16).toFixed(2)}" fill="var(--accent)" opacity=".45"/>`;
+      }
+    }
+    for (let c = 0; c < 24; c++) {
+      const x = c * 5 * dx, z = c - 11;
+      g += `<line x1="${x}" x2="${x}" y1="0" y2="${nrow * dy}" stroke="var(--grid)"/>`;
+      g += `<text x="${x + 2.5 * dx}" y="${nrow * dy + 14}" text-anchor="middle" font-size="${dx > 6 ? 11 : 9}" fill="${c === Z.col ? "var(--accent)" : "var(--soft)"}" font-weight="${c === Z.col ? 700 : 400}">${z > 0 ? "+" + z : z}</text>`;
+      g += `<rect x="${x}" y="0" width="${5 * dx}" height="${nrow * dy + 18}" fill="transparent" data-c="${c}" style="cursor:pointer"><title>UTC${z > 0 ? "+" + z : z}</title></rect>`;
+    }
+    const mc = stops[mine].col;
+    g += `<path d="M${(mc * 5 + 2.5) * dx} ${nrow * dy + 18}l6 9h-12z" fill="var(--now)"><title>your clock's zone</title></path>`;
+    const dst = c => c.kind === 2 ? "varies" : c.kind === 1 ? (c.on ? "summer now" : "winter now") : "";
+    el.innerHTML = `<div class="card">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;align-items:baseline">
+        <h2 style="font-size:22px">${zfo(Z.off)}${Z.off === -12 ? " at sea" : ""}</h2>
+        <div style="font-size:26px;font-weight:700;font-variant-numeric:tabular-nums">${zlocal(J, c0.off)}</div></div>
+      <div class="meta">${Z.cities.length} ${Z.cities.length === 1 ? "place" : "places"} · stop ${zcur + 1} of ${stops.length} ·
+        your clock ${zfo(here)} (▲) · IANA tzdata ${N().str(Module._api_tzdata())} · summer time computed as on the calculator</div>
+      <div class="chips"><button id="zw">◀ west</button><button id="ze">east ▶</button><button id="zm">your zone</button>
+        <span class="chip" style="color:var(--now);font-weight:600">${c0.name}${c0.cc ? " " + c0.cc : ""}${c0.on ? " · summer time " + zfo(c0.off) : c0.kind === 2 ? " · DST varies" : c0.kind === 1 ? " · standard time now" : ""}</span></div>
+      <svg id="zmap" viewBox="0 0 ${W} ${H}" style="margin-top:8px">${g}</svg>
+      <div class="scroll" style="max-height:420px"><table><tr><th>Place</th><th></th><th>Local time</th><th class="num">Offset now</th><th>Summer time</th></tr>
+      ${Z.cities.map((c, k) => `<tr class="click${k === zcity ? " sel" : ""}" data-k="${k}"><td>${c.name}</td><td class="meta">${c.cc}</td>
+        <td class="mono">${zlocal(J, c.off)}</td><td class="num mono">${zfo(c.off)}</td><td>${dst(c)}</td></tr>`).join("")}</table></div>
+      <div class="meta">Keys: ← → the stop west / east, ↑ ↓ the place. Click a column of the map for its zone. The stops: every official
+        standard offset plus −12 at sea; the highlighted column is the offset's own 15°. The calculator's ZONES page, in the browser.</div>
+      <details style="margin-top:10px"><summary class="meta" style="cursor:pointer">All zones</summary>
       <div class="scroll"><table><tr><th>Zone</th><th class="num">Now</th><th>Places (★ summer time now)</th></tr>
-      ${rows.map(r => `<tr class="${r.base === here ? "sel" : ""}"><td class="mono">${fo(r.base)}</td><td class="num mono">${hm(r.base)}</td>
-        <td style="white-space:normal">${r.cities.map(c => `${c.name}${c.cc ? " " + c.cc : ""}${c.on ? ` ★ ${fo(c.off)} ${hm(c.off)}` : ""}`).join(", ")}</td></tr>`).join("")}</table></div>
-      <div class="meta">ZONE47: the official offsets (−12 at sea); this computer's zone highlighted. The calculator's own zones engine.</div></div>`;
+      ${stops.map((r, k) => `<tr class="click${k === zcur ? " sel" : ""}" data-z="${k}"><td class="mono">${zfo(r.off)}</td><td class="num mono">${zlocal(J, r.off).slice(-5)}</td>
+        <td style="white-space:normal">${r.cities.map(c => `${c.name}${c.cc ? " " + c.cc : ""}${c.on ? ` ★ ${zfo(c.off)}` : ""}`).join(", ")}</td></tr>`).join("")}</table></div></details></div>`;
+    const go = k => { zcur = ((k % stops.length) + stops.length) % stops.length; zcity = 0; localStorage.setItem("nav47web:zone", zcur); zones(); };
+    el.querySelector("#zw").onclick = () => go(zcur - 1);
+    el.querySelector("#ze").onclick = () => go(zcur + 1);
+    el.querySelector("#zm").onclick = () => go(mine);
+    el.querySelectorAll("tr[data-k]").forEach(tr => tr.onclick = () => { zcity = +tr.dataset.k; zones(); });
+    el.querySelectorAll("tr[data-z]").forEach(tr => tr.onclick = () => go(+tr.dataset.z));
+    el.querySelectorAll("rect[data-c]").forEach(r => r.onclick = () => {
+      const c = +r.dataset.c, k = stops.findIndex(z => z.col === c && Number.isInteger(z.off));
+      go(k >= 0 ? k : stops.findIndex(z => z.col === c));
+    });
+    if (!zkeys) {
+      zkeys = true;
+      document.addEventListener("keydown", e => {
+        if (document.getElementById("t-zones").hidden || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+        const n = zdata(jd()).length;
+        if (e.key === "ArrowLeft") { zcur = (zcur - 1 + n) % n; zcity = 0; }
+        else if (e.key === "ArrowRight") { zcur = (zcur + 1) % n; zcity = 0; }
+        else if (e.key === "ArrowDown") zcity++;
+        else if (e.key === "ArrowUp") zcity = Math.max(0, zcity - 1);
+        else return;
+        e.preventDefault(); localStorage.setItem("nav47web:zone", zcur); zones();
+      });
+    }
   }
   return { almanac, sky, tide, zones };
 })();

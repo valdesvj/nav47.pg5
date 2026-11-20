@@ -9,7 +9,7 @@ engines, compiled to WebAssembly with the DM42n program itself in one file, `web
 | **Almanac** | the Sun, the Moon, the planets and the stars above 10° (GHA, Dec, Hc, Zn), the Sun's day, the Moon's phases |
 | **Sky** | the dome from the DR (as the calculator's SKY2), and the brightest stars for sights |
 | **Tide** | the public stations: the day's curve, HW / LW (or the streams), day by day |
-| **Zones** | every zone's time now, its places, summer time |
+| **Zones** | as ZONE47: the dot map in 24 columns of 15°, the stops (← →), each stop's places (↑ ↓) with their local time and summer time now, your zone ▲; all the zones in a list below |
 | **Calculator** | the DM42n program itself, every page, the keys clicked or typed; *To the calculator* on the Route tab sends the plan to it |
 
 The top: **Now** (the clock) or a fixed UT, the **DR**, the times in **UT** or **ZT** (the DR's zone).
