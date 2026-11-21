@@ -66,9 +66,11 @@ so, at which heading, inside the thrusters' working limits (a bow tunnel at 30 %
     thrusters may use full thrust.
 - **BEST** (ENTER) tries every heading every 5°, on every face with FACE AUTO. It keeps the one with the most
   margin, then finds the wind she holds to from that direction, with its sea.
-- **The screen**: the platform with its working face, the vessel, the arrows for wind (W), current (C) and sea (S),
+- **The screen**: the platform with its working face, the standoff line (dashed), the face's centre line (dotted;
+  the vessel is centred on it), each thruster's force as an arrow, the weather's whole push as a thick arrow in
+  tonnes (PUSH: x 1.25, its direction, OFF or ON the platform), the vessel, the arrows for wind (W), current (C) and sea (S),
   HOLDS / OVER THE LIMITS / NO HOLD, the worst failure, blow-off or blow-on, and a bar per thruster with its limit.
-  0 shows the bars after the worst failure.
+  0 shows the bars and the arrows after the worst failure; 3 switches the bars between % of full thrust and tonnes.
 - **Keys**: 1 switches a starboard- or port-side-to set-up between parallel to the face (PAR, the usual one) and
   within ± TOL. 4 6 turn the heading by hand. UP DOWN move an hour, and the current follows the tide. 5 is now. FACE,
   SIDE, INPUT, LOAD.

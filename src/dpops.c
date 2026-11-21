@@ -304,6 +304,7 @@ void dpo_eval(Vessel *v, const DpPlat *p, const DpWx *w, int face, float hdg, Dp
   if (r->held_lim) r->held_full = 1;
   else r->held_full = alloc(v, dp_case_mask(v, 0), tau, beta, &a);   /* what she needs beyond the limits */
   r->worst = 0; r->worst_thr = 0;
+  for (int i = 0; i < v->nthr; i++) { r->f[i][0] = a.f[i][0]; r->f[i][1] = a.f[i][1]; }
   for (int i = 0; i < v->nthr; i++) {
     r->use[i] = use_of(v, i, &a, tf, tr, beta);
     float q = r->use[i] / lim[i];
@@ -323,7 +324,7 @@ void dpo_eval(Vessel *v, const DpPlat *p, const DpWx *w, int face, float hdg, Dp
     if (!ok) r->fail_held = 0;
     if (!r->fail_grp || mx > r->fail_use) {
       r->fail_grp = g; r->fail_use = mx; worst_bad = !ok;
-      for (int i = 0; i < v->nthr; i++) r->fail_wuse[i] = use_of(v, i, &a, tf, tr, beta);
+      for (int i = 0; i < v->nthr; i++) { r->fail_wuse[i] = use_of(v, i, &a, tf, tr, beta); r->ff[i][0] = a.f[i][0]; r->ff[i][1] = a.f[i][1]; }
     }
   }
   if (r->fail_use > 1 && !worst_bad) r->fail_use = 1;

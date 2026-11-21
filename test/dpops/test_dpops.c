@@ -114,6 +114,11 @@ int main(void) {
            b.fail_grp, b.fail_wuse[i] * 100);
     if (b.held_lim) CHECK(b.use[i] <= p.lim[i] * 1.02f, "%s %.2f over its limit %.2f", v.thr[i].name, b.use[i], p.lim[i]);
   }
+  { float sx = 0, sy = 0, sn = 0;                        /* the thrusters' forces balance the weather's (x 1.25) */
+    for (int i = 0; i < v.nthr; i++) { sx += b.f[i][0]; sy += b.f[i][1]; sn += v.thr[i].x * b.f[i][1] - v.thr[i].y * b.f[i][0]; }
+    CHECK(fabsf(sx + b.env[0]) < 0.02f * b.fmag + 0.5f && fabsf(sy + b.env[1]) < 0.02f * b.fmag + 0.5f,
+          "the thrust %.1f %.1f against the weather %.1f %.1f", sx, sy, b.env[0], b.env[1]);
+    printf("   the thrusters: %.1f t ahead, %.1f t to starboard; the weather %.1f t to %03.0f\n", sx / 9.80665f, sy / 9.80665f, b.fmag / 9.80665f, b.fto); }
   float lw = dpo_limit_wind(&v, &p, &ex, b.face, b.hdg);
   printf("   holds inside the limits up to %.1f kn of wind from %03.0f\n", lw, ex.wfrom);
   CHECK(lw >= ex.wkn && lw <= DPO_WIND_TOP, "limit wind %.1f", lw);

@@ -66,6 +66,8 @@ typedef struct {
   float fail_use;                       /* its highest use */
   float fail_wuse[MAX_THR];             /* the thrusters' use after that failure */
   int   rank;                           /* 3 hold + failure, 2 hold in limits, 1 only beyond the limits, 0 no hold */
+  float f[MAX_THR][2];                  /* intact: each thruster's force, kN (forward, starboard) */
+  float ff[MAX_THR][2];                 /* after the worst failure */
 } DpRes;
 
 void dpo_default(DpPlat *p);

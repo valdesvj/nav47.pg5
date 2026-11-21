@@ -343,6 +343,7 @@ static void dp_out(void) {
   for (int i = 0; i < 7; i++) { o[20 + 2 * i] = h[i][0]; o[21 + 2 * i] = h[i][1]; }
   for (int i = 0; i < DV.nthr; i++) { o[40 + i] = r->use[i]; o[60 + i] = r->fail_wuse[i]; }
   o[34] = r->env[0]; o[35] = r->env[1]; o[36] = r->env[2];
+  for (int i = 0; i < DV.nthr; i++) { o[80 + 2 * i] = r->f[i][0]; o[81 + 2 * i] = r->f[i][1]; o[104 + 2 * i] = r->ff[i][0]; o[105 + 2 * i] = r->ff[i][1]; }
 }
 K int api_dp_best(void) { dp_abort = 0; int n = dpo_best(&DV, &DPP, &DW, 5, &DR, NULL); dp_out(); return n; }
 K void api_dp_eval(int face, double hdg) { dpo_eval(&DV, &DPP, &DW, face & 3, (float)hdg, &DR); dp_out(); }

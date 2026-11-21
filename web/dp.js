@@ -51,10 +51,11 @@ const DPTAB = (() => {
     return { cset, ckn, vfrom, hs, tp };
   }
   function read() {
-    const o = Array.from(N().o().subarray(0, 80));
+    const o = Array.from(N().o().subarray(0, 130));
     const r = { hdg: o[0], face: o[1], px: o[2], py: o[3], wleft: o[4], vleft: o[5], fmag: o[6], fto: o[7], blow: o[8],
                 held: !!o[9], full: !!o[10], worst: o[11], wthr: o[12], fheld: !!o[13], fgrp: o[14], fuse: o[15], rank: o[16], normal: o[17],
-                hull: Array.from({ length: 7 }, (_, i) => [o[20 + 2 * i], o[21 + 2 * i]]), use: o.slice(40, 52), fuse_t: o.slice(60, 72) };
+                hull: Array.from({ length: 7 }, (_, i) => [o[20 + 2 * i], o[21 + 2 * i]]), use: o.slice(40, 52), fuse_t: o.slice(60, 72),
+                f: Array.from({ length: 12 }, (_, i) => [o[80 + 2 * i], o[81 + 2 * i]]), ff: Array.from({ length: 12 }, (_, i) => [o[104 + 2 * i], o[105 + 2 * i]]) };
     return r;
   }
   function vessel() {
@@ -134,12 +135,49 @@ const DPTAB = (() => {
     g.beginPath(); g.arc(X(hx), Y(hy), V.b * 0.32 * k, 0, 2 * Math.PI); g.fillStyle = "#3d444c"; g.fill();
     g.save(); g.translate(X(hx), Y(hy)); g.rotate(h + Math.PI / 2); g.fillStyle = "#fff"; g.font = `bold ${Math.max(8, V.b * 0.35 * k)}px system-ui`;
     g.textBaseline = "middle"; g.fillText("H", 0, 0); g.restore();
-    /* the thrusters: their load (intact), as a disc */
+    /* the thrusters: their load (intact) a disc, their force an arrow; the weather's whole push, thick, at midships (t) */
+    const TF = 9.80665, fmax = Math.max(res.fmag, ...V.thr.map((t, i) => Math.hypot(res.f[i][0], res.f[i][1])), 1);
+    const arrowTo = (x, y, to, L, w, c) => {
+      const a = to * Math.PI / 180, ex = x + L * Math.sin(a), ey = y - L * Math.cos(a), hd = Math.min(12, 4 + w * 3);
+      g.strokeStyle = c; g.fillStyle = c; g.lineWidth = w; g.lineCap = "round";
+      g.beginPath(); g.moveTo(x, y); g.lineTo(ex - hd * 0.6 * Math.sin(a), ey + hd * 0.6 * Math.cos(a)); g.stroke();
+      g.beginPath(); g.moveTo(ex, ey); g.lineTo(ex - hd * Math.sin(a) + hd * 0.5 * Math.cos(a), ey + hd * Math.cos(a) + hd * 0.5 * Math.sin(a));
+      g.lineTo(ex - hd * Math.sin(a) - hd * 0.5 * Math.cos(a), ey + hd * Math.cos(a) - hd * 0.5 * Math.sin(a)); g.closePath(); g.fill();
+      return [ex, ey];
+    };
+    const tips = [];
     V.thr.forEach((t, i) => {
-      const [x, y] = at(t.x, t.y), u = res.use[i] || 0, lim = t.lim || 1;
-      g.beginPath(); g.arc(X(x), Y(y), 3 + 7 * Math.min(1, u), 0, 2 * Math.PI);
-      g.fillStyle = u > lim * 1.001 ? "#c0392b" : u > lim * 0.8 ? "#e5a02a" : "#2e9e5b"; g.fill();
+      const [x, y] = at(t.x, t.y), u = res.use[i] || 0, lim = t.lim || 1, col = u > lim * 1.001 ? "#c0392b" : u > lim * 0.8 ? "#e5a02a" : "#2e9e5b";
+      g.beginPath(); g.arc(X(x), Y(y), 4, 0, 2 * Math.PI); g.fillStyle = col; g.fill();
+      const [fx_, fy_] = res.f[i], m = Math.hypot(fx_, fy_);
+      let tip = [X(x), Y(y)];
+      if (m >= 0.5) {
+        const ex = fx_ * f[0] + fy_ * sb[0], ey = fx_ * f[1] + fy_ * sb[1], to = Math.atan2(ex, ey) * 180 / Math.PI;
+        tip = arrowTo(X(x), Y(y), to, 8 + 70 * m / fmax, 2.5, col);
+      }
+      tips.push({ x: X(x), y: Y(y), tx: tip[0], ty: tip[1], name: t.name, t: m / TF });
     });
+    /* the labels: thrusters within 22 px of each other share one (their names, each force), clear of the hull */
+    const used = new Set();
+    tips.forEach((p, i) => {
+      if (used.has(i)) return;
+      const grp = tips.map((q, j) => j).filter(j => !used.has(j) && Math.hypot(tips[j].x - p.x, tips[j].y - p.y) < 22);
+      grp.forEach(j => used.add(j));
+      const mx = grp.reduce((s, j) => s + tips[j].tx, 0) / grp.length, my = grp.reduce((s, j) => s + tips[j].ty, 0) / grp.length;
+      const ox = mx - X(res.px), oy = my - Y(res.py), ol = Math.hypot(ox, oy) || 1;   /* out from midships */
+      const lab = grp.map(j => `${tips[j].name} ${tips[j].t.toFixed(1)}`).join(" · ") + " t";
+      g.font = "11px system-ui"; const w = g.measureText(lab).width + 6;
+      const lx = Math.max(w / 2 + 4, Math.min(W - w / 2 - 4, mx + 16 * ox / ol)), ly = Math.max(14, Math.min(H - 6, my + 16 * oy / ol));
+      g.fillStyle = "rgba(255,255,255,0.85)"; g.fillRect(lx - w / 2, ly - 10, w, 14);
+      g.fillStyle = "#1b2129"; g.textAlign = "center"; g.fillText(lab, lx, ly + 1);
+    });
+    if (res.fmag > 0.5) {
+      const [tx, ty] = arrowTo(X(res.px), Y(res.py), res.fto, 20 + 90 * res.fmag / fmax, 6, "rgba(200,40,30,0.85)");
+      const lab = `weather ${(res.fmag / TF).toFixed(1)} t`;
+      g.font = "bold 13px system-ui"; g.textAlign = "center";
+      const lx = tx + 22 * Math.sin(res.fto * Math.PI / 180), ly = ty - 22 * Math.cos(res.fto * Math.PI / 180) + 4, w = g.measureText(lab).width + 8;
+      g.fillStyle = "rgba(255,255,255,0.85)"; g.fillRect(lx - w / 2, ly - 13, w, 17); g.fillStyle = "#b0281e"; g.fillText(lab, lx, ly);
+    }
     /* the weather: a key in the top left corner, clear of the drawing; a mark on the ring where each comes from */
     const arrows = [[P.wfrom, `wind from ${String(Math.round(P.wfrom)).padStart(3, "0")}° ${Math.round(P.wkn)} kn`, "#1b2129", +P.wkn],
                     [res.wx.cset + 180, `current to ${String(Math.round(res.wx.cset)).padStart(3, "0")}° ${res.wx.ckn.toFixed(1)} kn`, "#1f6fb2", res.wx.ckn],
@@ -190,18 +228,20 @@ const DPTAB = (() => {
        <span class="meta">Heading</span><span><b class="mono">${String(Math.round(res.hdg)).padStart(3, "0")}°</b> ${P.hdg === null ? "the best" : "yours"}</span>
        <span class="meta">Set-up</span><span>off the face looking to <span class="mono">${String(Math.round(res.normal)).padStart(3, "0")}°</span>${P.face < 0 ? " (AUTO: the best face)" : ""}, ${setupName()}, ${P.standoff} m off</span>
        <span class="meta">Wind in the lee</span><span>${res.wleft < 0.999 ? `${Math.round(res.wleft * 100)} % of it reaches her` : "none: all of the wind"}</span>
-       <span class="meta">Weather's push</span><span><span class="mono">${Math.round(res.fmag)} kN</span> towards ${String(Math.round(res.fto)).padStart(3, "0")}°: ${res.blow >= 0 ? "blow-off" : "<b>blow-on</b>"} ${Math.abs(Math.round(res.blow))} kN</span>
+       <span class="meta">Weather's push</span><span><span class="mono">${(res.fmag / 9.80665).toFixed(1)} t</span> towards ${String(Math.round(res.fto)).padStart(3, "0")}°: ${res.blow >= 0 ? "blow-off" : "<b>blow-on</b>"} ${(Math.abs(res.blow) / 9.80665).toFixed(1)} t</span>
        <span class="meta">Wind limit</span><span><b class="mono">${limw >= 64 ? "> 64" : limw.toFixed(0)} kn</b> <span class="meta">from ${Math.round(P.wfrom)}°, with its sea (DNV Table 2-1), inside the limits, at this heading</span></span>
       </div>
-      <table style="margin-top:8px"><tr><th>Thruster</th><th>Type</th><th class="num">Group</th><th class="num">Full kN</th><th class="num">Limit</th><th style="width:34%">Intact</th><th class="num">Group ${res.fgrp} lost</th></tr>
+      <table style="margin-top:8px"><tr><th>Thruster</th><th>Type</th><th class="num">Group</th><th class="num">Full t</th><th class="num">Limit</th><th style="width:30%">Intact</th><th class="num">Force</th><th class="num">Group ${res.fgrp} lost</th></tr>
        ${V.thr.map((t, i) => { const u = res.use[i] || 0, l = t.lim || 1, c = u > l * 1.001 ? "#c0392b" : u > l * 0.8 ? "#e5a02a" : "#2e9e5b";
-         return `<tr><td>${esc(t.name)}</td><td>${esc(t.type)}</td><td class="num">${t.grp}</td><td class="num mono">${Math.round(t.kn)}</td><td class="num mono">${Math.round(l * 100)} %</td>
+         return `<tr><td>${esc(t.name)}</td><td>${esc(t.type)}</td><td class="num">${t.grp}</td><td class="num mono">${(t.kn / 9.80665).toFixed(1)}</td><td class="num mono">${Math.round(l * 100)} %</td>
          <td><div style="position:relative;height:12px;background:#e9ebec;border-radius:3px"><div style="width:${Math.min(100, u * 100)}%;height:12px;background:${c};border-radius:3px"></div>
            ${l < 1 ? `<div style="position:absolute;left:${l * 100}%;top:-3px;width:2px;height:18px;background:#1b2129"></div>` : ""}</div>
            <span class="mono" style="font-size:12px">${Math.round(u * 100)} %</span></td>
-         <td class="num mono">${t.grp === res.fgrp ? "lost" : Math.round((res.fuse_t[i] || 0) * 100) + " %"}</td></tr>`; }).join("")}</table>
+         <td class="num mono">${(Math.hypot(res.f[i][0], res.f[i][1]) / 9.80665).toFixed(1)} t</td>
+         <td class="num mono">${t.grp === res.fgrp ? "lost" : `${Math.round((res.fuse_t[i] || 0) * 100)} % · ${(Math.hypot(res.ff[i][0], res.ff[i][1]) / 9.80665).toFixed(1)} t`}</td></tr>`; }).join("")}
+       <tr><td colspan="5"><b>The weather's push</b> <span class="meta">(DNV x 1.25)</span></td><td colspan="2" class="mono"><b>${(res.fmag / 9.80665).toFixed(1)} t</b> towards ${String(Math.round(res.fto)).padStart(3, "0")}°</td></tr></table>
       <div class="meta">The four buttons: each set-up's best on ${P.face < 0 ? "the best face" : "this face"} (a click takes it). The ring: the answer at each heading of the bow on this face (green holds, and after a failure; yellow holds;
-       orange only beyond the limits; red no hold). The thrusters' discs: their load. The shaded area: the platform's lee
+       orange only beyond the limits; red no hold). The thrusters: their load a disc (green, amber near the limit, red over it), their force an arrow in tonnes; the red arrow: the weather's whole push. The shaded area: the platform's lee
        (taller than the vessel: ${P.smin} % of the wind left close in, all of it ${P.slen} heights downwind).</div>` : ""}
       <div class="controls" style="margin-top:8px"><button id="dp_best" class="on">Best heading</button>
        <label>Heading ${num("hdg", res ? Math.round(res.hdg) : 0, 5)}°</label><button class="small" id="dp_hm">−5°</button><button class="small" id="dp_hp">+5°</button></div>

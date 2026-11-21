@@ -928,7 +928,7 @@ static void draw_info(void) {
     "/NAV47/COAST_C.BIN and COAST_L.BIN. 8 2 4 6 pan or turn, 7 9 zoom, 5 fit; ROUTE 0 opens it.",
     "VOYAGE:   the plan sailed or flown on a globe that follows: the ship (from 100 kn a plane), the date and "
     "time on board, DEP ARR, run and to go. R/S play, 4 6 a step, 7 9 zoom, ENTER the speed (typed) or + - (steps), 1 3 the departure, 0 ETA.",
-    "DP OPS:   (DP, menu 3) can she keep station off a platform? The platform (a square or a rectangle, its faces, its height) in /NAV47/DPOPS.TXT, made on the web page's DP tab; the vessel a DPCAP47 .DPV (VESSEL line, or /NAV47/VESSEL.DPV; else a made-up 95 m DP2 with three bow tunnels and two azimuths). DPCAP47's engine (DNV-ST-0111 level 1's forces, x 1.25; its thrust allocation) with the wind, the current and the sea from their own directions; the platform's lee lightens the wind (taller than the vessel: 30 % of it left close in, all of it 5 heights downwind). ENTER (BEST) tries every heading within the tolerance of square to the face (every face with FACE AUTO), stern, starboard, port or bow to it, the hull STANDOFF m off; inside the working limits (LIM: the bow tunnels 30 %); then each redundancy group lost at full thrust; then the wind she holds to with its sea. 4 6 the heading by hand, UP DOWN an hour (the current follows), 5 now, 0 the bars after the worst failure, 1 starboard or port side to: parallel to the face (PAR, the usual set-up) or within the tolerance. FACE, SIDE, INPUT (the wind as SET; the current FLOW's or typed; the sea DNV's or typed; the standoff, the tolerance), LOAD reads the files again. Static, planning only: not the vessel's DP consequence analysis.",
+    "DP OPS:   (DP, menu 3) can she keep station off a platform? The platform (a square or a rectangle, its faces, its height) in /NAV47/DPOPS.TXT, made on the web page's DP tab; the vessel a DPCAP47 .DPV (VESSEL line, or /NAV47/VESSEL.DPV; else a made-up 95 m DP2 with three bow tunnels and two azimuths). DPCAP47's engine (DNV-ST-0111 level 1's forces, x 1.25; its thrust allocation). The picture: each thruster's force an arrow, the weather's whole push a thick arrow in tonnes (PUSH: x 1.25, where it pushes, OFF or ON the platform) with the wind, the current and the sea from their own directions; the platform's lee lightens the wind (taller than the vessel: 30 % of it left close in, all of it 5 heights downwind). ENTER (BEST) tries every heading within the tolerance of square to the face (every face with FACE AUTO), stern, starboard, port or bow to it, the hull STANDOFF m off; inside the working limits (LIM: the bow tunnels 30 %); then each redundancy group lost at full thrust; then the wind she holds to with its sea. 4 6 the heading by hand, UP DOWN an hour (the current follows), 5 now, 0 the bars and the arrows after the worst failure, 3 the bars in tonnes or %, 1 starboard or port side to: parallel to the face (PAR, the usual set-up) or within the tolerance. FACE, SIDE, INPUT (the wind as SET; the current FLOW's or typed; the sea DNV's or typed; the standoff, the tolerance), LOAD reads the files again. Static, planning only: not the vessel's DP consequence analysis.",
     "ETA TABLE:   (TABLE on ETA) the ETAs at the set speed and three slower ones, 0.5 kn apart: 8 2 the speed, 4 6 the step (0.25 0.5 1 kn), 5 the set speed, ENTER (USE) this line's speed for the voyage.",
     "ETA:   the plan's distance with ETD, ETA and speed: set two, the third follows (ETA typed: the speed it needs). 8 2 the field, ENTER types it (dates YYYY.MMDD, times HH.MM, in UT or LT), 0 or KEEP: a new ETD keeps the speed or the ETA, NOW: the ETD now. Saved in ROUTE.TXT (SPEED, ETD).",
     "FONTS:   C47 standardFont and tinyFont (C43 / C47 authors, GPL v3).",
@@ -1858,7 +1858,7 @@ typedef struct {
   DpPlat p;
   DpWx w;
   DpRes r;
-  int loaded, face, manual, showfail, sel, edit;
+  int loaded, face, manual, showfail, tonnes, sel, edit;
   float hdg, limw;
   char msg[48], csrc[24], vsrc[24];
 } DpS;
@@ -1981,9 +1981,21 @@ static void dp_enter(void) {
   if (DP) dp_best();
 }
 
-/* the picture: north up, the platform hatched (its working face thick), the vessel, the weather's arrows */
+/* the picture: north up, framed on the platform and the vessel; the platform hatched, its working face thick, the
+   standoff line dashed, the face's centre line dotted (the vessel centred on it); the vessel, its thrusters' forces
+   (arrows), the weather's whole push (a thick arrow, tonnes); the weather's directions bottom left */
+#define DP_T 9.80665f                                     /* kN a tonne-force */
+static void dp_arrow_w(int x, int y, float to, int len, int thick) {   /* an arrow towards true `to` */
+  for (int k = -thick; k <= thick; k++) {
+    int ox = (int)lroundf(k * cosf(to * (float)(M_PI / 180))), oy = (int)lroundf(k * sinf(to * (float)(M_PI / 180)));
+    gfx_line(x + ox, y + oy, x + ox + (int)lroundf(len * sinf(to * (float)(M_PI / 180))), y + oy - (int)lroundf(len * cosf(to * (float)(M_PI / 180))), 1);
+  }
+  arrow(x + (int)lroundf((len - 1) * sinf(to * (float)(M_PI / 180))), y - (int)lroundf((len - 1) * cosf(to * (float)(M_PI / 180))), to, 1 + thick);
+}
+
 static void dp_picture(void) {
   DpS *d = DP;
+  DpRes *r = &d->r;
   float hull[7][2], pc[4][2], o = d->p.orient * (float)(M_PI / 180);
   float a0x = sinf(o), a0y = cosf(o), a1x = cosf(o), a1y = -sinf(o);
   static const float sx[4] = { 1, 1, -1, -1 }, sy[4] = { 1, -1, -1, 1 };
@@ -1991,32 +2003,45 @@ static void dp_picture(void) {
     pc[k][0] = sx[k] * d->p.len / 2 * a0x + sy[k] * d->p.wid / 2 * a1x;
     pc[k][1] = sx[k] * d->p.len / 2 * a0y + sy[k] * d->p.wid / 2 * a1y;
   }
-  dpo_hull(&d->v, &d->p, d->r.hdg, d->r.px, d->r.py, hull);
-  float cx = d->r.px / 2, cy = d->r.py / 2, R = 1;
-  for (int k = 0; k < 4; k++) R = fmaxf(R, hypotf(pc[k][0] - cx, pc[k][1] - cy));
-  for (int k = 0; k < 7; k++) R = fmaxf(R, hypotf(hull[k][0] - cx, hull[k][1] - cy));
-  float sc = 70 / R;
-  const int X0 = 100, Y0 = 112;
+  dpo_hull(&d->v, &d->p, r->hdg, r->px, r->py, hull);
+  /* the frame: the box round the platform and the vessel, a margin for the arrows */
+  float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
+  for (int k = 0; k < 4; k++) { x0 = fminf(x0, pc[k][0]); x1 = fmaxf(x1, pc[k][0]); y0 = fminf(y0, pc[k][1]); y1 = fmaxf(y1, pc[k][1]); }
+  for (int k = 0; k < 7; k++) { x0 = fminf(x0, hull[k][0]); x1 = fmaxf(x1, hull[k][0]); y0 = fminf(y0, hull[k][1]); y1 = fmaxf(y1, hull[k][1]); }
+  float cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, sc = fminf(150 / fmaxf(1, x1 - x0), 140 / fmaxf(1, y1 - y0));
+  const int X0 = 100, Y0 = 106;
 #define PX(x) (X0 + (int)lroundf(((x) - cx) * sc))
 #define PY(y) (Y0 - (int)lroundf(((y) - cy) * sc))
-  /* the platform: hatched, its outline, the working face thick */
+  /* the platform: hatched, its outline */
   int bx0 = 999, bx1 = -999, by0 = 999, by1 = -999;
   for (int k = 0; k < 4; k++) { bx0 = imin(bx0, PX(pc[k][0])); bx1 = imax(bx1, PX(pc[k][0])); by0 = imin(by0, PY(pc[k][1])); by1 = imax(by1, PY(pc[k][1])); }
-  for (int y = by0; y <= by1; y++)
-    for (int x = bx0; x <= bx1; x++) {
-      if ((x + y) & 1 || y < 17 || y >= MENU_Y || x < 0 || x > 199) continue;
+  for (int y = imax(by0, 17); y <= imin(by1, MENU_Y - 1); y++)
+    for (int x = imax(bx0, 0); x <= imin(bx1, 199); x++) {
+      if ((x + y) & 1) continue;
       float wx = cx + (x - X0) / sc, wy = cy - (y - Y0) / sc;
       if (fabsf(wx * a0x + wy * a0y) <= d->p.len / 2 && fabsf(wx * a1x + wy * a1y) <= d->p.wid / 2) gfx_pixel(x, y, 1);
     }
   for (int k = 0; k < 4; k++) gfx_line(PX(pc[k][0]), PY(pc[k][1]), PX(pc[(k + 1) % 4][0]), PY(pc[(k + 1) % 4][1]), 1);
   static const int fk[4][2] = { { 0, 1 }, { 3, 0 }, { 2, 3 }, { 1, 2 } };   /* face 0 +a0 (corners 0 1), 1 +a1 (3 0), 2 -a0, 3 -a1 */
   int f = d->face & 3;
+  float nb = dpo_face_normal(&d->p, f) * (float)(M_PI / 180), nx = sinf(nb), ny = cosf(nb);
   for (int t = 1; t <= 3; t++) {                              /* the working face: 3 px, just outside */
-    float nb = dpo_face_normal(&d->p, f) * (float)(M_PI / 180);
-    int ox = (int)lroundf(t * sinf(nb)), oy = -(int)lroundf(t * cosf(nb));
+    int ox = (int)lroundf(t * nx), oy = -(int)lroundf(t * ny);
     gfx_line(PX(pc[fk[f][0]][0]) + ox, PY(pc[fk[f][0]][1]) + oy, PX(pc[fk[f][1]][0]) + ox, PY(pc[fk[f][1]][1]) + oy, 1);
   }
-  /* the vessel: white, its outline, the helideck at the bow, the bow line */
+  /* the standoff line (dashed, along the face) and the face's centre line (dotted, the vessel centred on it) */
+  float dd = ((f & 1) ? d->p.wid : d->p.len) / 2 + d->p.standoff, span = dpo_loa(&d->v, &d->p) * 0.6f;
+  for (float t = -span; t <= span; t += 2.5f / sc) {
+    if (((int)((t + span) * sc / 3)) & 1) continue;
+    int x = PX(nx * dd + ny * t), y = PY(ny * dd - nx * t);
+    if (x >= 0 && x < 200 && y > 17 && y < MENU_Y) gfx_pixel(x, y, 1);
+  }
+  float far = dd + dpo_loa(&d->v, &d->p) + d->v.b;
+  for (float t = ((f & 1) ? d->p.wid : d->p.len) / 2; t <= far; t += 4 / sc) {
+    int x = PX(nx * t), y = PY(ny * t);
+    if (x >= 0 && x < 200 && y > 17 && y < MENU_Y) gfx_pixel(x, y, 1);
+  }
+  /* the vessel: white, its outline, the helideck at the bow */
   for (int y = 17; y < MENU_Y; y++)
     for (int x = 0; x < 200; x++) {
       float wx = cx + (x - X0) / sc, wy = cy - (y - Y0) / sc;
@@ -2027,15 +2052,31 @@ static void dp_picture(void) {
       if (in) gfx_pixel(x, y, 0);
     }
   for (int i = 0; i < 7; i++) gfx_line(PX(hull[i][0]), PY(hull[i][1]), PX(hull[(i + 1) % 7][0]), PY(hull[(i + 1) % 7][1]), 1);
-  float L = dpo_loa(&d->v, &d->p), h = d->r.hdg * (float)(M_PI / 180), fx = sinf(h), fy = cosf(h);
-  float hx = d->r.px + fx * L * 0.33f, hy = d->r.py + fy * L * 0.33f;
-  int hr = imax(2, (int)lroundf(d->v.b * 0.32f * sc));
-  gfx_circle(PX(hx), PY(hy), hr, 1);
-  /* the thrusters: a dot each */
+  float L = dpo_loa(&d->v, &d->p), h = r->hdg * (float)(M_PI / 180), fx = sinf(h), fy = cosf(h), sbx = cosf(h), sby = -sinf(h);
+  gfx_circle(PX(r->px + fx * L * 0.33f), PY(r->py + fy * L * 0.33f), imax(2, (int)lroundf(d->v.b * 0.32f * sc)), 1);
+  /* the thrusters' forces: an arrow each, from the thruster, the longest 26 px; the weather's push, thick, at midships */
+  float (*F)[2] = d->showfail ? r->ff : r->f, fmax = r->fmag;
+  for (int i = 0; i < d->v.nthr; i++) fmax = fmaxf(fmax, hypotf(F[i][0], F[i][1]));
   for (int i = 0; i < d->v.nthr; i++) {
     const Thruster *t = &d->v.thr[i];
-    float wx = d->r.px + t->x * fx + t->y * cosf(h), wy = d->r.py + t->x * fy - t->y * sinf(h);
-    gfx_rect(PX(wx) - 1, PY(wy) - 1, 3, 3, 1);
+    float wx = r->px + t->x * fx + t->y * sbx, wy = r->py + t->x * fy + t->y * sby;
+    int tx = PX(wx), ty = PY(wy);
+    gfx_rect(tx - 1, ty - 1, 3, 3, 1);
+    float m = hypotf(F[i][0], F[i][1]);
+    if (m < 0.01f * fmax || m < 0.5f) continue;
+    float ex = F[i][0] * fx + F[i][1] * sbx, ey = F[i][0] * fy + F[i][1] * sby;      /* the thrust in the world */
+    float to = atan2f(ex, ey) * (float)(180 / M_PI);
+    dp_arrow_w(tx, ty, to, 4 + (int)lroundf(22 * m / fmax), 0);
+  }
+  if (r->fmag > 0.5f) {
+    int mx = PX(r->px), my = PY(r->py), len = 8 + (int)lroundf(26 * r->fmag / fmax);
+    dp_arrow_w(mx, my, r->fto, len, 1);
+    char s[16];
+    sprintf(s, "%.1ft", r->fmag / DP_T);
+    int lx = mx + (int)lroundf((len + 6) * sinf(r->fto * (float)(M_PI / 180))), ly = my - (int)lroundf((len + 6) * cosf(r->fto * (float)(M_PI / 180)));
+    lx = imax(2, imin(196 - 6 * (int)strlen(s), lx - 10)); ly = imax(20, imin(170, ly - 4));
+    gfx_rect(lx - 1, ly - 1, 6 * (int)strlen(s) + 2, 10, 0);
+    draw_text(&TINY, lx, ly, s, 0);
   }
 #undef PX
 #undef PY
@@ -2049,6 +2090,7 @@ static void dp_picture(void) {
     if (wx[k].v <= 0) { draw_text(&TINY, ox - 2, oy - 4, "-", 0); continue; }
     arrow(ox - (int)lround(8 * dsin(wx[k].to)), oy + (int)lround(8 * dcos(wx[k].to)), wx[k].to, 16);
   }
+  gfx_rect(0, 17, 22, 24, 0);
   arrow(8, 36, 0, 14); draw_text(&TINY, 12, 20, "N", 0);
   for (int y = 17; y < MENU_Y; y += 2) lcd_fill_rect(201, (uint32_t)y, 1, 1, 1);
 }
@@ -2068,12 +2110,13 @@ static void draw_dp(void) {
   nt(X, 34, s);
   sprintf(s, "WIND %03.0f %.0fkn", d->w.wfrom, d->w.wkn);
   nt(X, 50, s);
+  if (r->wleft < 0.995f) { sprintf(s, "LEE %.0f%%", (1 - r->wleft) * 100); draw_text(&TINY, X + 138, 54, s, 0); }
   sprintf(s, "CUR %03.0f %.1fkn", d->w.cset, d->w.ckn);
   nt(X, 66, s);
   draw_text(&TINY, X + 138, 70, N->cfg.dcauto ? "FLOW" : "TYPED", 0);
   if (d->w.hs > 0) sprintf(s, "SEA %03.0f %.1fm %.0fs", d->w.vfrom, d->w.hs, d->w.tp); else strcpy(s, "SEA none");
   nt(X, 82, s);
-  sprintf(s, "LEE %.0f%%  %s %.0fkN", (1 - r->wleft) * 100, r->blow >= 0 ? "OFF" : "ON", fabsf(r->blow));
+  sprintf(s, "PUSH %.1ft >%03.0f %s", r->fmag / DP_T, r->fto, r->blow >= 0 ? "OFF" : "ON");   /* the weather's, x 1.25 */
   nt(X, 98, s);
   const char *st = r->held_lim ? "HOLDS IN LIMITS" : r->held_full ? "OVER THE LIMITS" : "NO HOLD";
   gfx_rect(X - 2, 114, 196, 16, 1);
@@ -2083,21 +2126,23 @@ static void draw_dp(void) {
   if (d->limw >= 0) sprintf(s, "WIND LIMIT %s%.0fkn", d->limw >= DPO_WIND_TOP ? ">" : "", d->limw);
   else strcpy(s, "ENTER: BEST, LIMIT");
   nt(X, 146, s);
-  /* the thrusters' bars: 100 % = 30 px, the limit a tick; intact or after the worst failure (0) */
+  /* the thrusters' bars: 100 % = 24 px, the limit a tick; intact or after the worst failure (0); % or tonnes (3) */
   int n = d->v.nthr, cw = n ? 192 / n : 192, top = 172, H = 24;
-  if (d->showfail) sprintf(s, "GROUP %d LOST, %% OF FULL", r->fail_grp); else strcpy(s, "INTACT, % OF FULL (- THE LIMIT)");
+  if (d->showfail) sprintf(s, "GROUP %d LOST, %s", r->fail_grp, d->tonnes ? "TONNES" : "% OF FULL");
+  else sprintf(s, "INTACT, %s", d->tonnes ? "TONNES" : "% OF FULL (- THE LIMIT)");
   draw_text(&TINY, X, 163, s, 0);
   for (int i = 0; i < n; i++) {
     float u = d->showfail ? r->fail_wuse[i] : r->use[i], lim = d->p.lim[i] > 0 ? d->p.lim[i] : 1;
+    float (*F)[2] = d->showfail ? r->ff : r->f;
     int x = X + i * cw + 3, w = imin(cw - 8, 18), hgt = (int)lroundf(fminf(u, 1) * H);
     gfx_frame(x, top, w, H + 1);
     gfx_rect(x, top + H + 1 - hgt, w, hgt, 1);
     if (lim < 1 && !d->showfail) { int ly = top + H - (int)lroundf(lim * H); gfx_rect(x - 2, ly, w + 4, 1, 1); gfx_rect(x - 2, ly, 1, 1, 0); }
-    sprintf(s, "%.0f", u * 100);
+    if (d->tonnes) sprintf(s, "%.1f", hypotf(F[i][0], F[i][1]) / DP_T); else sprintf(s, "%.0f", u * 100);
     draw_text(&TINY, x + w + 1, top + H - 6, s, 0);
     draw_text(&TINY, x, top + H + 3, d->v.thr[i].name, 0);
   }
-  if (d->msg[0]) draw_text(&TINY, 2, MENU_Y - LH, d->msg, 0);
+  if (d->msg[0]) draw_text(&TINY, 80, MENU_Y - LH, d->msg, 0);
 }
 
 static void dp_key(int key) {
@@ -2108,6 +2153,7 @@ static void dp_key(int key) {
   else if (key == KEY_UP || key == KEY_DOWN) { step_time(key == KEY_UP ? 1 : -1); d->manual ? dp_eval_here() : dp_best(); }
   else if (key == KEY_5) { toff = 0; dp_best(); }
   else if (key == KEY_0) d->showfail ^= 1;
+  else if (key == KEY_3) d->tonnes ^= 1;                       /* the bars: % of full thrust or tonnes */
   else if (key == KEY_1) { d->p.par ^= 1; dp_save_plat(); dp_best(); }   /* side to: parallel to the face, or within TOL */
   else if (key == KEY_EXIT) go(PG_VALM);
 }

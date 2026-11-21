@@ -114,7 +114,8 @@ The **DP** tab runs the same C as the calculator's DP OPS (`src/dpops.c`).
   30 NM) or typed; the sea from DNV's table or typed.
 - **Four buttons** compare the set-ups at a glance: starboard side to (parallel), port side to (parallel), stern to
   and bow to, each with its best heading and result. A click takes that set-up.
-- **The answer**: the picture with the lee shaded, the best heading, and each thruster's load against its limit,
+- **The answer**: each thruster's force as an arrow in tonnes (close ones share a label), the weather's whole push
+  as a red arrow in tonnes, the picture with the lee shaded, the best heading, and each thruster's load against its limit,
   intact and after the worst failure. A ring shows every heading of the bow on that face: green holds, and after a
   failure; yellow holds; orange only beyond the limits; red no hold.
 - **Sending it on**: *Send to the Calculator tab*, or *Save DPOPS.TXT* and *Save VESSEL.DPV* for `/NAV47/` on the
