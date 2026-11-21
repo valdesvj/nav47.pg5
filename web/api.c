@@ -337,7 +337,7 @@ static void dp_out(void) {
   double *o = OUT;
   o[0] = r->hdg; o[1] = r->face; o[2] = r->px; o[3] = r->py; o[4] = r->wleft; o[5] = r->vleft; o[6] = r->fmag; o[7] = r->fto;
   o[8] = r->blow; o[9] = r->held_lim; o[10] = r->held_full; o[11] = r->worst; o[12] = r->worst_thr; o[13] = r->fail_held;
-  o[14] = r->fail_grp; o[15] = r->fail_use; o[16] = r->rank; o[17] = dpo_face_normal(&DPP, r->face);
+  o[14] = r->fail_grp; o[15] = r->fail_use; o[16] = r->rank; o[17] = dpo_face_normal(&DPP, r->face); o[18] = r->clear; o[19] = r->geo;
   float h[7][2];
   dpo_hull(&DV, &DPP, r->hdg, r->px, r->py, h);
   for (int i = 0; i < 7; i++) { o[20 + 2 * i] = h[i][0]; o[21 + 2 * i] = h[i][1]; }

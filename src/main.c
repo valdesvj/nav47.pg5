@@ -2008,8 +2008,11 @@ static void dp_picture(void) {
   float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
   for (int k = 0; k < 4; k++) { x0 = fminf(x0, pc[k][0]); x1 = fmaxf(x1, pc[k][0]); y0 = fminf(y0, pc[k][1]); y1 = fmaxf(y1, pc[k][1]); }
   for (int k = 0; k < 7; k++) { x0 = fminf(x0, hull[k][0]); x1 = fmaxf(x1, hull[k][0]); y0 = fminf(y0, hull[k][1]); y1 = fmaxf(y1, hull[k][1]); }
-  float cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, sc = fminf(150 / fmaxf(1, x1 - x0), 140 / fmaxf(1, y1 - y0));
-  const int X0 = 100, Y0 = 106;
+  float cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, R = 1;
+  for (int k = 0; k < 4; k++) R = fmaxf(R, hypotf(pc[k][0] - cx, pc[k][1] - cy));
+  for (int k = 0; k < 7; k++) R = fmaxf(R, hypotf(hull[k][0] - cx, hull[k][1] - cy));
+  const int X0 = 100, Y0 = 110, RING = 84;                    /* the drawing inside a compass ring, as a DP console */
+  float sc = 64 / R;
 #define PX(x) (X0 + (int)lroundf(((x) - cx) * sc))
 #define PY(y) (Y0 - (int)lroundf(((y) - cy) * sc))
   /* the platform: hatched, its outline */
@@ -2034,12 +2037,12 @@ static void dp_picture(void) {
   for (float t = -span; t <= span; t += 2.5f / sc) {
     if (((int)((t + span) * sc / 3)) & 1) continue;
     int x = PX(nx * dd + ny * t), y = PY(ny * dd - nx * t);
-    if (x >= 0 && x < 200 && y > 17 && y < MENU_Y) gfx_pixel(x, y, 1);
+    if ((x - X0) * (x - X0) + (y - Y0) * (y - Y0) < (RING - 3) * (RING - 3)) gfx_pixel(x, y, 1);
   }
   float far = dd + dpo_loa(&d->v, &d->p) + d->v.b;
   for (float t = ((f & 1) ? d->p.wid : d->p.len) / 2; t <= far; t += 4 / sc) {
     int x = PX(nx * t), y = PY(ny * t);
-    if (x >= 0 && x < 200 && y > 17 && y < MENU_Y) gfx_pixel(x, y, 1);
+    if ((x - X0) * (x - X0) + (y - Y0) * (y - Y0) < (RING - 3) * (RING - 3)) gfx_pixel(x, y, 1);
   }
   /* the vessel: white, its outline, the helideck at the bow */
   for (int y = 17; y < MENU_Y; y++)
@@ -2068,27 +2071,54 @@ static void dp_picture(void) {
     float to = atan2f(ex, ey) * (float)(180 / M_PI);
     dp_arrow_w(tx, ty, to, 4 + (int)lroundf(22 * m / fmax), 0);
   }
-  if (r->fmag > 0.5f) {
-    int mx = PX(r->px), my = PY(r->py), len = 8 + (int)lroundf(26 * r->fmag / fmax);
-    dp_arrow_w(mx, my, r->fto, len, 1);
-    char s[16];
-    sprintf(s, "%.1ft", r->fmag / DP_T);
-    int lx = mx + (int)lroundf((len + 6) * sinf(r->fto * (float)(M_PI / 180))), ly = my - (int)lroundf((len + 6) * cosf(r->fto * (float)(M_PI / 180)));
-    lx = imax(2, imin(196 - 6 * (int)strlen(s), lx - 10)); ly = imax(20, imin(170, ly - 4));
-    gfx_rect(lx - 1, ly - 1, 6 * (int)strlen(s) + 2, 10, 0);
-    draw_text(&TINY, lx, ly, s, 0);
-  }
 #undef PX
 #undef PY
-  /* the weather: three small arrows in the bottom left corner (where it goes), a letter each, clear of the drawing */
-  struct { float to; const char *l; float v; } wx[3] = { { d->w.wfrom + 180, "W", d->w.wkn }, { d->w.cset, "C", d->w.ckn },
-                                                       { d->w.vfrom + 180, "S", d->w.hs } };
-  gfx_rect(0, 180, 78, 28, 0);
+  /* the weather's whole push (x 1.25): a circle in the lower right corner, its direction above, tonnes below */
+  {
+    const int CX = 181, CY = 183, CR = 11;
+    char s[16];
+    gfx_rect(CX - 14, CY - CR - 2, 29, 2 * CR + 5, 0);
+    gfx_circle(CX, CY, CR, 1);
+    if (r->fmag > 0.5f) {
+      arrow(CX - (int)lround((CR - 2) * dsin(r->fto)), CY + (int)lround((CR - 2) * dcos(r->fto)), r->fto, 2 * CR - 4);
+      sprintf(s, "%03.0f", r->fto);
+    } else strcpy(s, "-");
+    draw_text(&TINY, CX - 3 * (int)strlen(s), CY - CR - 11, s, 0);
+    sprintf(s, "%.1ft", r->fmag / DP_T);
+    draw_text(&TINY, CX - 3 * (int)strlen(s), CY + CR + 3, s, 0);
+  }
+  /* the compass ring; the wind (W), the current (C) and the sea (S) as arrows on it pointing in, from where they come
+     (the current's from where it sets from); arrows close together set apart */
+  for (int a = 0; a < 360; a += 3) gfx_pixel(X0 + (int)lround(RING * dsin(a)), Y0 - (int)lround(RING * dcos(a)), 1);
+  for (int a = 0; a < 360; a += 90) {
+    gfx_line(X0 + (int)lround((RING - 4) * dsin(a)), Y0 - (int)lround((RING - 4) * dcos(a)),
+             X0 + (int)lround((RING + 3) * dsin(a)), Y0 - (int)lround((RING + 3) * dcos(a)), 1);
+  }
+  struct { float from; const char *l; float v; } wx[3] = { { d->w.wfrom, "W", d->w.wkn }, { d->w.cset + 180, "C", d->w.ckn },
+                                                       { d->w.vfrom, "S", d->w.hs } };
   for (int k = 0; k < 3; k++) {
-    int ox = 12 + 24 * k, oy = 196;
-    draw_text(&TINY, ox - 10, oy - 14, wx[k].l, 0);
-    if (wx[k].v <= 0) { draw_text(&TINY, ox - 2, oy - 4, "-", 0); continue; }
-    arrow(ox - (int)lround(8 * dsin(wx[k].to)), oy + (int)lround(8 * dcos(wx[k].to)), wx[k].to, 16);
+    if (wx[k].v <= 0) continue;
+    double a = wx[k].from;
+    int shift = 0;
+    for (int j = 0; j < k; j++) {
+      double dd = fabs(fmod(wx[j].from - a + 540, 360) - 180);
+      if (wx[j].v > 0 && dd < 14) shift++;
+    }
+    int px0 = (int)lround(shift * 9 * dcos(a)), py0 = (int)lround(shift * 9 * dsin(a));   /* sideways */
+    int tx = X0 + (int)lround((RING + 8) * dsin(a)) + px0, ty = Y0 - (int)lround((RING + 8) * dcos(a)) + py0;
+    arrow(tx, ty, a + 180, 18);
+    int lx = X0 + (int)lround((RING - 19) * dsin(a)) + px0 - 2, ly = Y0 - (int)lround((RING - 19) * dcos(a)) + py0 - 4;   /* inside, at its tip */
+    lx = imax(1, imin(194, lx)); ly = imax(18, imin(198, ly));
+    gfx_rect(lx - 1, ly - 1, 7, 9, 0);
+    draw_text(&TINY, lx, ly, wx[k].l, 0);
+  }
+  if (r->clear < d->p.standoff - 0.05f) {                     /* a turned heading: a corner closer than the standoff */
+    char s[32];
+    if (r->geo) { sprintf(s, "CORNER %.1fm", r->clear); gfx_rect(0, 198, 70, 9, 0); draw_text(&TINY, 1, 199, s, 0); }
+    else {                                                    /* closer than MINCLEAR (or into the platform): inverse */
+      sprintf(s, "TOO CLOSE: CORNER %.1fm", r->clear);
+      gfx_rect(0, 197, 128, 11, 1); draw_text(&TINY, 2, 199, s, 1);
+    }
   }
   gfx_rect(0, 17, 22, 24, 0);
   arrow(8, 36, 0, 14); draw_text(&TINY, 12, 20, "N", 0);

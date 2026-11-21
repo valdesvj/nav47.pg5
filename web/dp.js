@@ -10,7 +10,7 @@ const DPTAB = (() => {
   const SIDES = ["STERN", "STBD", "PORT", "BOW"], SIDE_T = ["stern to", "starboard side to", "port side to", "bow to"];
   const KEY = "nav47web:dp", VKEY = "nav47web:dpv";
   const D0 = { name: "EXAMPLE PQ", lat: null, lon: null, shape: "rect", len: 40, wid: 30, orient: 30, height: 45, solid: false,
-               face: -1, side: 1, par: true, standoff: 10, tol: 30, smin: 30, slen: 5, loa: 95, lims: "TUN 30",
+               face: -1, side: 1, par: true, standoff: 10, mincl: 5, tol: 30, smin: 30, slen: 5, loa: 95, lims: "TUN 30",
                wfrom: 330, wkn: 25, cauto: true, cset: 135, ckn: 1.0, sauto: true, vfrom: 330, hs: 2, tp: 7, hdg: null };
   let P = Object.assign({}, D0, JSON.parse(localStorage.getItem(KEY) || "{}"));
   let VES = localStorage.getItem(VKEY) || "";
@@ -29,7 +29,7 @@ const DPTAB = (() => {
     return ["NAV47 DPOPS 1", `PLATFORM ${P.name.replace(/,/g, " ").slice(0, 23)},${la.toFixed(5)},${lo.toFixed(5)}`,
             `SIZE ${(+P.len).toFixed(1)} ${(+wid).toFixed(1)}`, `ORIENT ${String(Math.round(P.orient) % 360).padStart(3, "0")}`,
             `HEIGHT ${Math.round(P.height)}`, `SOLID ${P.solid ? 1 : 0}`, `FACE ${P.face < 0 ? "AUTO" : P.face}`, `SIDE ${SIDES[P.side]}`, `PARALLEL ${P.par ? 1 : 0}`,
-            `STANDOFF ${(+P.standoff).toFixed(1)}`, `TOL ${Math.round(P.tol)}`, `SHELTER ${(P.smin / 100).toFixed(2)} ${(+P.slen).toFixed(1)}`,
+            `STANDOFF ${(+P.standoff).toFixed(1)}`, `MINCLEAR ${(+P.mincl).toFixed(1)}`, `TOL ${Math.round(P.tol)}`, `SHELTER ${(P.smin / 100).toFixed(2)} ${(+P.slen).toFixed(1)}`,
             `LOA ${(+P.loa).toFixed(1)}`, ...lims.map(l => "LIM " + l)].join("\n") + "\n";
   }
   function setC() {
@@ -53,7 +53,7 @@ const DPTAB = (() => {
   function read() {
     const o = Array.from(N().o().subarray(0, 130));
     const r = { hdg: o[0], face: o[1], px: o[2], py: o[3], wleft: o[4], vleft: o[5], fmag: o[6], fto: o[7], blow: o[8],
-                held: !!o[9], full: !!o[10], worst: o[11], wthr: o[12], fheld: !!o[13], fgrp: o[14], fuse: o[15], rank: o[16], normal: o[17],
+                held: !!o[9], full: !!o[10], worst: o[11], wthr: o[12], fheld: !!o[13], fgrp: o[14], fuse: o[15], rank: o[16], normal: o[17], clear: o[18], geo: !!o[19],
                 hull: Array.from({ length: 7 }, (_, i) => [o[20 + 2 * i], o[21 + 2 * i]]), use: o.slice(40, 52), fuse_t: o.slice(60, 72),
                 f: Array.from({ length: 12 }, (_, i) => [o[80 + 2 * i], o[81 + 2 * i]]), ff: Array.from({ length: 12 }, (_, i) => [o[104 + 2 * i], o[105 + 2 * i]]) };
     return r;
@@ -96,7 +96,7 @@ const DPTAB = (() => {
     const pc = [[1, 1], [1, -1], [-1, -1], [-1, 1]].map(([s, t]) => [s * P.len / 2 * a0[0] + t * wid / 2 * a1[0], s * P.len / 2 * a0[1] + t * wid / 2 * a1[1]]);
     const cx = res.px / 2, cy = res.py / 2;
     let R = 1; [...pc, ...res.hull].forEach(([x, y]) => R = Math.max(R, Math.hypot(x - cx, y - cy)));
-    const ring = Math.min(W, H) / 2 - 22, k = (ring - 34) / R, X0 = W / 2, Y0 = H / 2;
+    const ring = Math.min(W, H) / 2 - 46, k = (ring - 34) / R, X0 = W / 2, Y0 = H / 2;
     const X = x => X0 + (x - cx) * k, Y = y => Y0 - (y - cy) * k;
     /* the ring: each heading's answer (the bow's heading, this face, this side) */
     const col = rk => ["#c0392b", "#e67e22", "#e5c02a", "#2e9e5b"][rk];
@@ -106,7 +106,7 @@ const DPTAB = (() => {
       g.strokeStyle = col(s.rank); g.lineWidth = 9; g.stroke();
     }
     g.fillStyle = css("--soft") || "#667"; g.font = "11px system-ui"; g.textAlign = "center";
-    for (let d = 0; d < 360; d += 90) { const a = (d - 90) * Math.PI / 180; g.fillText(String(d).padStart(3, "0"), X0 + (ring + 16) * Math.cos(a), Y0 + (ring + 16) * Math.sin(a) + 4); }
+    for (let d = 0; d < 360; d += 90) { const a = (d - 90) * Math.PI / 180; g.fillText(String(d).padStart(3, "0"), X0 + (ring - 18) * Math.cos(a), Y0 + (ring - 18) * Math.sin(a) + 4); }
     { const a = (res.hdg - 90) * Math.PI / 180; g.beginPath(); g.moveTo(X0 + (ring - 9) * Math.cos(a), Y0 + (ring - 9) * Math.sin(a));
       g.lineTo(X0 + (ring + 9) * Math.cos(a), Y0 + (ring + 9) * Math.sin(a)); g.strokeStyle = "#1b2129"; g.lineWidth = 3; g.stroke(); }
     /* the lee: the platform swept downwind for SHELTER's length */
@@ -171,13 +171,15 @@ const DPTAB = (() => {
       g.fillStyle = "rgba(255,255,255,0.85)"; g.fillRect(lx - w / 2, ly - 10, w, 14);
       g.fillStyle = "#1b2129"; g.textAlign = "center"; g.fillText(lab, lx, ly + 1);
     });
-    if (res.fmag > 0.5) {
-      const [tx, ty] = arrowTo(X(res.px), Y(res.py), res.fto, 20 + 90 * res.fmag / fmax, 6, "rgba(200,40,30,0.85)");
-      const lab = `weather ${(res.fmag / TF).toFixed(1)} t`;
-      g.font = "bold 13px system-ui"; g.textAlign = "center";
-      const lx = tx + 22 * Math.sin(res.fto * Math.PI / 180), ly = ty - 22 * Math.cos(res.fto * Math.PI / 180) + 4, w = g.measureText(lab).width + 8;
-      g.fillStyle = "rgba(255,255,255,0.85)"; g.fillRect(lx - w / 2, ly - 13, w, 17); g.fillStyle = "#b0281e"; g.fillText(lab, lx, ly);
-    }
+    /* the weather's whole push (x 1.25): a circle in the lower right corner, its direction above, tonnes below */
+    { const cx0 = W - 48, cy0 = H - 52, cr = 24;
+      g.fillStyle = "rgba(255,255,255,0.9)"; g.beginPath(); g.arc(cx0, cy0, cr, 0, 2 * Math.PI); g.fill();
+      g.strokeStyle = "#b0281e"; g.lineWidth = 2; g.stroke();
+      if (res.fmag > 0.5) { const a = res.fto * Math.PI / 180; arrowTo(cx0 - (cr - 5) * Math.sin(a), cy0 + (cr - 5) * Math.cos(a), res.fto, 2 * cr - 10, 3.5, "#b0281e"); }
+      g.fillStyle = "#1b2129"; g.textAlign = "center"; g.font = "bold 12px system-ui";
+      g.fillText(res.fmag > 0.5 ? String(Math.round(res.fto)).padStart(3, "0") + "°" : "–", cx0, cy0 - cr - 6);
+      g.fillText(`${(res.fmag / TF).toFixed(1)} t`, cx0, cy0 + cr + 15);
+      g.font = "10px system-ui"; g.fillStyle = "#666"; g.fillText("weather's push", cx0, cy0 + cr + 27); }
     /* the weather: a key in the top left corner, clear of the drawing; a mark on the ring where each comes from */
     const arrows = [[P.wfrom, `wind from ${String(Math.round(P.wfrom)).padStart(3, "0")}° ${Math.round(P.wkn)} kn`, "#1b2129", +P.wkn],
                     [res.wx.cset + 180, `current to ${String(Math.round(res.wx.cset)).padStart(3, "0")}° ${res.wx.ckn.toFixed(1)} kn`, "#1f6fb2", res.wx.ckn],
@@ -189,10 +191,12 @@ const DPTAB = (() => {
       if (v > 0) { g.lineWidth = 2.2; APP.arrowPath(g, 22, y, (from + 180) % 360, 18); } else g.fillText("–", 18, y + 4);
       g.fillText(v > 0 ? label : label.split(" ")[0] + " none", 38, y + 4);
       if (!(v > 0)) return;
-      const a = (from - 90) * Math.PI / 180, r1 = ring + 6, r2 = ring + 15;   /* where it comes from, outside the ring */
-      g.beginPath(); g.moveTo(X0 + r1 * Math.cos(a), Y0 + r1 * Math.sin(a));
-      g.lineTo(X0 + r2 * Math.cos(a + 0.03), Y0 + r2 * Math.sin(a + 0.03)); g.lineTo(X0 + r2 * Math.cos(a - 0.03), Y0 + r2 * Math.sin(a - 0.03));
-      g.closePath(); g.fill();
+      /* on the ring, as a DP console: from where it comes, pointing in; close ones set apart sideways */
+      const near = arrows.slice(0, i).filter(([f2, , , v2]) => v2 > 0 && Math.abs(((f2 - from) % 360 + 540) % 360 - 180) < 12).length;
+      const a = from * Math.PI / 180, side = near * 16, sx = X0 + (ring + 42) * Math.sin(a) + side * Math.cos(a), sy = Y0 - (ring + 42) * Math.cos(a) + side * Math.sin(a);
+      arrowTo(sx, sy, (from + 180) % 360, 32, 3.5, c);
+      g.font = "bold 13px system-ui"; g.textAlign = "center"; g.fillStyle = c;
+      g.fillText(["W", "C", "S"][i], sx + 8 * Math.sin(a) + 11 * Math.cos(a), sy - 8 * Math.cos(a) + 11 * Math.sin(a) + 4);
     });
     g.fillStyle = "#1b2129"; g.textAlign = "left"; g.font = "bold 12px system-ui"; g.fillText("N ↑", 10, 18);
     const m = Math.pow(10, Math.floor(Math.log10(40 / k * 2))), bar = m * k;
@@ -227,6 +231,7 @@ const DPTAB = (() => {
       <div style="display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;margin:4px 2px 0;font-size:14px">
        <span class="meta">Heading</span><span><b class="mono">${String(Math.round(res.hdg)).padStart(3, "0")}°</b> ${P.hdg === null ? "the best" : "yours"}</span>
        <span class="meta">Set-up</span><span>off the face looking to <span class="mono">${String(Math.round(res.normal)).padStart(3, "0")}°</span>${P.face < 0 ? " (AUTO: the best face)" : ""}, ${setupName()}, ${P.standoff} m off</span>
+       ${res.clear < P.standoff - 0.05 ? `<span class="meta">Corner</span><span style="${res.geo ? "" : "color:#b0281e;font-weight:600"}">${res.geo ? "" : "TOO CLOSE: "}the nearest corner ${res.clear.toFixed(1)} m off the face (the heading turned; corners ≥ ${P.mincl} m)</span>` : ""}
        <span class="meta">Wind in the lee</span><span>${res.wleft < 0.999 ? `${Math.round(res.wleft * 100)} % of it reaches her` : "none: all of the wind"}</span>
        <span class="meta">Weather's push</span><span><span class="mono">${(res.fmag / 9.80665).toFixed(1)} t</span> towards ${String(Math.round(res.fto)).padStart(3, "0")}°: ${res.blow >= 0 ? "blow-off" : "<b>blow-on</b>"} ${(Math.abs(res.blow) / 9.80665).toFixed(1)} t</span>
        <span class="meta">Wind limit</span><span><b class="mono">${limw >= 64 ? "> 64" : limw.toFixed(0)} kn</b> <span class="meta">from ${Math.round(P.wfrom)}°, with its sea (DNV Table 2-1), inside the limits, at this heading</span></span>
@@ -272,7 +277,8 @@ const DPTAB = (() => {
         <label>The vessel <select id="dp_side"><option value="1:1">starboard side to, parallel</option><option value="2:1">port side to, parallel</option>
           <option value="1:0">starboard side to, ± the tolerance</option><option value="2:0">port side to, ± the tolerance</option>
           <option value="0:0">stern to</option><option value="3:0">bow to</option></select></label></div>
-       <div class="controls"><label>Standoff ${num("standoff", P.standoff)} m</label><label>Heading ± ${num("tol", P.tol, 5)}° of square</label></div></div>
+       <div class="controls"><label title="the middle of the side (or the stern, the bow) this far off the face">Standoff ${num("standoff", P.standoff)} m</label>
+        <label title="a turned heading: no corner closer to the face than this">corners ≥ ${num("mincl", P.mincl, 1)} m</label><label>Heading ± ${num("tol", P.tol, 5)}° of square</label></div></div>
       <div class="card"><h2>Vessel <span class="meta">${res ? esc(N().str(Module._api_dp_vname())) : ""}</span></h2>
        <div class="controls"><label>LOA ${num("loa", P.loa)} m</label><label>Working limits <input id="dp_lims" value="${esc(P.lims)}" style="width:150px" title="TYPE % or NAME %: TUN 30, BT3 40, AZ 80"></label></div>
        <details><summary>The vessel file (DPCAP47 .DPV) ${VES ? "· yours" : "· the example: 95 m, three bow tunnels, two azimuths (made up)"}</summary>
@@ -293,7 +299,7 @@ const DPTAB = (() => {
   }
   function bind() {
     const $ = id => document.getElementById("dp_" + id), on = (id, f) => { const e = $(id); if (e) e.onchange = f; };
-    const numf = ["wfrom", "wkn", "cset", "ckn", "vfrom", "hs", "tp", "len", "wid", "orient", "height", "smin", "slen", "standoff", "tol", "loa"];
+    const numf = ["wfrom", "wkn", "cset", "ckn", "vfrom", "hs", "tp", "len", "wid", "orient", "height", "smin", "slen", "standoff", "mincl", "tol", "loa"];
     numf.forEach(k => on(k, e => { const v = parseFloat(e.target.value); if (isFinite(v)) { P[k] = v; save(); render(true); } }));
     on("name", e => { P.name = e.target.value.trim() || "PLATFORM"; save(); render(); });
     on("pos", e => { const p = APP.parsePos(e.target.value); if (p) { P.lat = p[0]; P.lon = p[1]; save(); } render(true); });

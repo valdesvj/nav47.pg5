@@ -60,15 +60,17 @@ so, at which heading, inside the thrusters' working limits (a bow tunnel at 30 %
   - **the platform's lee**: the default rule is that the platform is taller than the vessel. Close in, 30 % of the
     wind is left; all of it returns 5 platform heights downwind. A SOLID platform shelters the waves too; a jacket
     lets them through;
-  - the hull placed **STANDOFF m off a face**, stern-, starboard-, port- or bow-to, within ± TOL degrees of square
-    to it;
+  - the vessel placed with its **working point STANDOFF m off a face**, on the face's centre line: the middle of the
+    starboard or port side (parallel to the face, the usual set-up), or the stern or the bow. A heading turned within
+    ± TOL turns her about that point; no corner may come closer than MINCLEAR (5 m), and a closer one is shown;
   - **working limits** (`LIM TUN 30`), held in the intact case. After a redundancy group is lost, the remaining
     thrusters may use full thrust.
 - **BEST** (ENTER) tries every heading every 5°, on every face with FACE AUTO. It keeps the one with the most
   margin, then finds the wind she holds to from that direction, with its sea.
 - **The screen**: the platform with its working face, the standoff line (dashed), the face's centre line (dotted;
-  the vessel is centred on it), each thruster's force as an arrow, the weather's whole push as a thick arrow in
-  tonnes (PUSH: x 1.25, its direction, OFF or ON the platform), the vessel, the arrows for wind (W), current (C) and sea (S),
+  the vessel is centred on it), each thruster's force as an arrow, the wind (W), current (C) and sea (S) as arrows on a
+  compass ring pointing in, as on a DP console, the weather's whole push in a circle in the lower right corner (its
+  direction above, tonnes below; PUSH: x 1.25, OFF or ON the platform), the vessel, the arrows for wind (W), current (C) and sea (S),
   HOLDS / OVER THE LIMITS / NO HOLD, the worst failure, blow-off or blow-on, and a bar per thruster with its limit.
   0 shows the bars and the arrows after the worst failure; 3 switches the bars between % of full thrust and tonnes.
 - **Keys**: 1 switches a starboard- or port-side-to set-up between parallel to the face (PAR, the usual one) and
@@ -91,7 +93,8 @@ SOLID 0             # 1: the waves sheltered too
 FACE AUTO           # or 0..3
 SIDE STBD           # STERN STBD PORT BOW
 PARALLEL 1          # starboard or port side to: along the face (the usual set-up); 0: within TOL
-STANDOFF 10         # m, the hull's nearest point
+STANDOFF 10         # m: the working point (the middle of the side, the stern, the bow) off the face
+MINCLEAR 5          # m: a turned heading may bring no corner closer than this
 TOL 30              # degrees either side of square
 SHELTER 0.30 5.0    # the wind left close in, the lee's length (platform heights)
 LOA 95
