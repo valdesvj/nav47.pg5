@@ -87,7 +87,7 @@ static int cmp_edit = -1;                 /* COMPARE: editing CUSTOM 0 a, 1 1/f 
 static double cmp_a;
 static char cmp_msg[32];
 static double voy_kn = 12;                /* VOYAGE: the speed, knots (ROUTE.TXT SPEED) */
-static int wp_cur, wp_edit = -1;          /* ROUTE: the cursor; editing 0 lat, 1 lon */
+static int wp_cur, wp_edit = -1, wp_new;   /* wp_new: the edit is of a waypoint just added (EXIT removes it) */          /* ROUTE: the cursor; editing 0 lat, 1 lon */
 static double wp_lat;
 static char ebuf[16];
 static int elen;
@@ -1079,12 +1079,12 @@ static void key_wp(int key) {
     } else {
       N->wlat[wp_cur] = wp_lat;
       if (elen && fabs(v) <= 180) N->wlon[wp_cur] = v;
-      wp_edit = -1;
+      wp_edit = -1; wp_new = 0;
       route_save();
     }
     return;
   }
-  if (key == KEY_EXIT) { wp_edit = -1; return; }
+  if (key == KEY_EXIT) { wp_edit = -1; if (wp_new) route_delete(); wp_new = 0; return; }
   if (key == KEY_BSP) { if (elen) ebuf[--elen] = 0; return; }
   if (key == KEY_CHS) { if (ebuf[0] == '-') { memmove(ebuf, ebuf + 1, (size_t)elen); elen--; } else if (elen < 14) { memmove(ebuf + 1, ebuf, (size_t)elen + 1); ebuf[0] = '-'; elen++; } return; }
   if (key == KEY_DOT && elen < 14 && !strchr(ebuf, '.')) { ebuf[elen++] = '.'; ebuf[elen] = 0; return; }
@@ -1137,7 +1137,13 @@ static void draw_plan(void) {
   if (e > 0) { xla += e; xlo += 2 * e; xc += 3 * e; xd += 4 * e; xcu += 5 * e; xk += 6 * e; }
   nt_r(xw, 16, "WP"); nt_c(xla - nt_w("00" NT_DEG "00.0N") / 2, 16, "LAT"); nt_c(xlo - nt_w("000" NT_DEG "00.0E") / 2, 16, "LON");
   nt_r(xc, 16, "STEER"); nt_r(xd, 16, "LEG"); nt_r(xcu, 16, "CUM");
-  if (R->n < 2) { nt(4, 48, "Needs 2 waypoints on ROUTE."); return; }
+  if (R->n < 2 && N->nwp >= 2) plan_build();             /* once more, from the start */
+  if (R->n < 2) {
+    if (N->nwp < 2) { sprintf(s, "Needs 2 waypoints on ROUTE (it has %d).", N->nwp); nt(4, 48, s); return; }
+    sprintf(s, "PLAN failed: route %d WP, plan %d, code %d", N->nwp, R->n, plan_rc); nt(4, 48, s);
+    sprintf(s, "free heap %d KB. EXIT, then R/S again.", sys_free_mem() / 1024); nt(4, 64, s);
+    return;
+  }
   int vis = 10;
   if (plan_cur >= R->n) plan_cur = R->n - 1;
   int top = plan_cur - vis / 2;
@@ -1770,8 +1776,8 @@ static void softkey(int fn) {
   case 14: go(PG_INFO); break;
   case 15: toff = 0; flow_hw_step = flow_day_step = 0; N->valid = 0; break;
   case 16: if (usbview_is_on()) usbview_off(); else usbview_on(); go(PG_INFO); break;   /* INFO shows the state */
-  case 18: route_insert(N->nwp ? N->wlat[wp_cur] : N->cfg.lat, N->nwp ? N->wlon[wp_cur] : N->cfg.lon); wp_start_edit(); break;
-  case 19: wp_start_edit(); break;
+  case 18: route_insert(N->nwp ? N->wlat[wp_cur] : N->cfg.lat, N->nwp ? N->wlon[wp_cur] : N->cfg.lon); wp_start_edit(); wp_new = 1; break;
+  case 19: wp_new = 0; wp_start_edit(); break;
   case 20: route_delete(); route_save(); break;
   case 21: N->cfg.gc = (N->cfg.gc + 1) % 3; route_save(); break;
   case 22: route_insert(N->cfg.lat, N->cfg.lon); route_save(); break;
