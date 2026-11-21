@@ -39,7 +39,7 @@
 /*  State (heap: a DMCP5 program has 8 KB of static RAM)              */
 /* ------------------------------------------------------------------ */
 enum { PG_VALM, PG_VSPLIT, PG_VSKY, PG_VALLSKY, PG_VMOON, PG_VANIM, PG_VSKY2,
-       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP, PG_CHART, PG_VOY, PG_ETA };
+       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP, PG_CHART, PG_VOY, PG_ETA, PG_ETAT };
 #define IS_VIEW(p) ((p) <= PG_VSKY2)
 
 typedef struct {
@@ -923,6 +923,7 @@ static void draw_info(void) {
     "/NAV47/COAST_C.BIN and COAST_L.BIN. 8 2 4 6 pan or turn, 7 9 zoom, 5 fit; ROUTE 0 opens it.",
     "VOYAGE:   the plan sailed or flown on a globe that follows: the ship (from 100 kn a plane), the date and "
     "time on board, DEP ARR, run and to go. R/S play, 4 6 a step, 7 9 zoom, ENTER the speed (typed) or + - (steps), 1 3 the departure, 0 ETA.",
+    "ETA TABLE:   (TABLE on ETA) the ETAs at the set speed and three slower ones, 0.5 kn apart: 8 2 the speed, 4 6 the step (0.25 0.5 1 kn), 5 the set speed, ENTER (USE) this line's speed for the voyage.",
     "ETA:   the plan's distance with ETD, ETA and speed: set two, the third follows (ETA typed: the speed it needs). 8 2 the field, ENTER types it (dates YYYY.MMDD, times HH.MM, in UT or LT), 0 or KEEP: a new ETD keeps the speed or the ETA, NOW: the ETD now. Saved in ROUTE.TXT (SPEED, ETD).",
     "FONTS:   C47 standardFont and tinyFont (C43 / C47 authors, GPL v3).",
     "",
@@ -1780,6 +1781,55 @@ static void eta_key(int key) {
   else if (key == KEY_EXIT) { go(PG_VOY); voy_etd = etd_now(); }
 }
 
+/* ------------------------------------------------------------------ */
+/*  ETA TABLE: the ETAs at the set speed and three slower ones (0.5 kn apart, or the step chosen) */
+/* ------------------------------------------------------------------ */
+static double etat_base = -1, etat_step = 0.5;
+static int etat_sel;
+
+static void draw_etat(void) {
+  char s[64], a[24], d[24];
+  header("ETA TABLE");
+  double nm = plan_nm();
+  if (nm <= 0) { nt(4, 48, "Needs a plan: ROUTE, 2 waypoints, R/S."); return; }
+  if (etat_base < 0) etat_base = voy_kn;
+  double etd = etd_now(), tz = show_tz();
+  int y, m, dd;
+  double h;
+  jd_to_ymd(etd + tz / 24 + 0.5 / 1440, &y, &m, &dd, &h);
+  sprintf(s, "%.1f NM   ETD %02d-%02d %02d:%02d %s", nm, dd, m, (int)h, (int)((h - (int)h) * 60), show_name());
+  nt(4, 20, s);
+  nt(4, 44, "SPEED"); nt_r(200, 44, "TIME"); nt_r(396, 44, "ETA");
+  gfx_rect(2, 61, 396, 1, 1);
+  for (int k = 0; k < 4; k++) {
+    double kn = etat_base - k * etat_step, yy = 70 + 28 * k;
+    if (kn < 0.5) break;
+    double hrs = nm / kn;
+    jd_to_ymd(etd + hrs / 24 + tz / 24 + 0.5 / 1440, &y, &m, &dd, &h);
+    sprintf(s, "%.2f kn%s", kn, fabs(kn - voy_kn) < 1e-6 ? " *" : ""); fmt_dur(a, hrs);
+    sprintf(d, "%02d-%02d %02d:%02d", dd, m, (int)h, (int)((h - (int)h) * 60));
+    if (k == etat_sel) { gfx_rect(2, (int)yy - 2, 396, 20, 1); nt_inv(6, (int)yy, s); nt_inv(200 - nt_w(a), (int)yy, a); nt_inv(396 - nt_w(d), (int)yy, d); }
+    else { nt(6, (int)yy, s); nt_r(200, (int)yy, a); nt_r(396, (int)yy, d); }
+  }
+  sprintf(s, "* set  8 2 speed 4 6 step %.2g kn 5 ENT use", etat_step);
+  nt(2, 192, s);
+}
+
+static void etat_key(int key) {
+  static const double STEPS[3] = { 0.25, 0.5, 1.0 };
+  int k = etat_step < 0.3 ? 0 : etat_step < 0.7 ? 1 : 2;
+  if (key == KEY_8 || key == KEY_UP) { if (etat_sel > 0) etat_sel--; else etat_base += etat_step; }
+  else if (key == KEY_2 || key == KEY_DOWN) { if (etat_sel < 3 && etat_base - (etat_sel + 1) * etat_step >= 0.5) etat_sel++; else if (etat_base - etat_step >= 0.5 + 3 * etat_step) etat_base -= etat_step; }
+  else if (key == KEY_4 && k > 0) etat_step = STEPS[k - 1];
+  else if (key == KEY_6 && k < 2) etat_step = STEPS[k + 1];
+  else if (key == KEY_5) { etat_base = voy_kn; etat_sel = 0; }
+  else if (key == KEY_ENTER) {                                /* this line's speed for the voyage */
+    double kn = etat_base - etat_sel * etat_step;
+    if (kn >= 1 && kn <= 1000) { voy_kn = kn; route_save(); }
+  }
+  else if (key == KEY_EXIT) go(PG_ETA);
+}
+
 /* the animation: a step every 250 ms while playing */
 static void voy_tick(void) {
   if (voy_step < VOY_STEPS) voy_step++;
@@ -1798,7 +1848,8 @@ static const char *PLAN_MENU[6] = { "CSV", "NMEA", "SPLIT", "CMP", "CHART", "BAC
 static const char *CMP_MENU[6] = { "ELL-", "ELL+", "EDIT", "PLAN", "CHART", "BACK" };
 static const char *CHART_MENU[6] = { "ZOOM+", "ZOOM-", "FIT", "GLOBE", "PLAN", "BACK" };
 static const char *VOY_MENU[6] = { "PLAY", "SLOWER", "FASTER", "ETA", "CHART", "BACK" };
-static const char *ETA_MENU[6] = { "NOW", "", "", "KEEP", "VOYAGE", "BACK" };
+static const char *ETA_MENU[6] = { "NOW", "TABLE", "", "KEEP", "VOYAGE", "BACK" };
+static const char *ETAT_MENU[6] = { "SPEED+", "SPEED-", "SET", "USE", "ETA", "BACK" };
 
 #define ANIM_FRAMES 24
 #define ANIM_STEP   0.5
@@ -1837,6 +1888,7 @@ static void redraw(void) {
     case PG_CHART: draw_chart(); break;
     case PG_VOY: draw_voy(); break;
     case PG_ETA: draw_eta(); break;
+    case PG_ETAT: draw_etat(); break;
     case PG_ZONES: draw_zones(); break;
     case PG_SET: draw_set(); break;
     case PG_FILES: draw_files(); break;
@@ -1849,7 +1901,7 @@ static void redraw(void) {
   CHART_MENU[3] = chart_globe ? "MERC" : "GLOBE";
   VOY_MENU[0] = voy_play ? "PAUSE" : "PLAY";
   lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0) ? EDIT_MENU :
-                     page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : page == PG_VOY ? VOY_MENU : page == PG_ETA ? ETA_MENU : MENUS[menu_page]);
+                     page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : page == PG_VOY ? VOY_MENU : page == PG_ETA ? ETA_MENU : page == PG_ETAT ? ETAT_MENU : MENUS[menu_page]);
   lcd_refresh();
   lcd_refresh_wait();        /* the LCD goes out by DMA: done before the next frame clears the buffer (no flicker) */
   usbview_send();
@@ -1905,7 +1957,13 @@ static void softkey(int fn) {
     else cmp_key(k[fn]);
     return;
   }
+  if (page == PG_ETAT) {
+    static const int k[6] = { KEY_8, KEY_2, KEY_5, KEY_ENTER, KEY_EXIT, KEY_EXIT };
+    if (fn == 5) { go(PG_VOY); voy_etd = etd_now(); } else etat_key(k[fn]);
+    return;
+  }
   if (page == PG_ETA) {
+    if (fn == 1) { etat_base = voy_kn; etat_sel = 0; go(PG_ETAT); return; }
     if (fn == 0) { voy_etd0 = 0; route_save(); }
     else if (fn == 3) eta_keep_eta ^= 1;
     else if (fn == 4 || fn == 5) { go(PG_VOY); voy_etd = etd_now(); }
@@ -2062,7 +2120,11 @@ static void handle_key(int key) {
     voy_key(key);
     return;
   case PG_ETA:
+    if (key == KEY_DIV || key == KEY_MUL) { etat_base = voy_kn; etat_sel = 0; go(PG_ETAT); return; }
     eta_key(key);
+    return;
+  case PG_ETAT:
+    etat_key(key);
     return;
   case PG_SET:
     if (key == KEY_8 || key == KEY_UP) { do sel_field = (sel_field + F_COUNT - 1) % F_COUNT; while (N->cfg.live && (sel_field == F_DATE || sel_field == F_TIME)); }

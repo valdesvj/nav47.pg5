@@ -99,7 +99,7 @@ const S = {
                        store.get("route", {})),
   objects: store.get("objects", []),
   view: store.get("view", { mode: "merc", lat0: 30, lon0: 10, k: 220 }),
-  tool: "move", objType: "platform", sel: null, keepEta: store.get("keepEta", false), pass: { from: "", to: "" }, showStreams: store.get("streams", false),
+  tool: "move", objType: "platform", sel: null, keepEta: store.get("keepEta", false), etaStep: store.get("etaStep", 0.5), pass: { from: "", to: "" }, showStreams: store.get("streams", false),
 };
 const save = () => { store.set("route", S.route); store.set("objects", S.objects); store.set("view", S.view); store.set("pos", S.pos); store.set("times", S.times); };
 const zd = () => S.times === "zt" ? Math.round(S.pos[1] / 15) : 0;       /* the times shown: UT or ZT (the DR's zone) */
@@ -652,7 +652,7 @@ const SHIP = [0x0000004000, 0x000000E000, 0x0000004000, 0x000000E000, 0x00000040
 /* the vessel on the chart, as on an ECDIS: seen from above, turned to the course; at true scale when that is big
    enough (the Mermaid Asiana 100 m x 20 m, the plane 64 m long, 60 m span), else a symbol of a fixed size; a course
    vector ahead (6 minutes' run, at least 40 px). Its side profile (the photograph) is the HUD's badge. */
-const VESSEL = { len: 100, beam: 20, planeLen: 64, minPx: 44 };
+const VESSEL = { len: 100, beam: 20, planeLen: 64, minPx: 60 };
 function drawVessel(la, lo, crs, plane) {
   const g = CH.g, [x, y, v] = proj(la, lo);
   if (!v) return;
@@ -1291,6 +1291,12 @@ function voyCard() {
       <label><input type="checkbox" id="follow" checked> follow</label></div>
     ${ROUTE.check && (ROUTE.check.land.length || ROUTE.check.hits.length) ? `<div class="meta" style="color:var(--now);font-weight:600">⛔ Not a safe route
       (${[ROUTE.check.land.length ? "over land" : "", ROUTE.check.hits.length ? "into a keep-out zone" : ""].filter(Boolean).join(", ")}): see Check.</div>` : ""}
+    <h3>ETA at the set speed and slower <span class="meta">step <select id="etastep"><option>0.25</option><option>0.5</option><option>1</option></select> kn</span></h3>
+    <table><tr><th>Speed</th><th class="num">Time</th><th class="num">ETA ${zd() ? "ZT" : "UT"}</th><th></th></tr>
+    ${[0, 1, 2, 3].map(k => { const kn = R.speed - k * S.etaStep; if (kn < 0.5) return "";
+      const h = VOY.total() / NM / kn;
+      return `<tr><td class="mono">${kn.toFixed(2)} kn${k ? "" : " *"}</td><td class="num mono">${FMT.dur(h)}</td><td class="num mono">${FMT.dt(etd + h / 24, zd())}</td>
+        <td>${k ? `<button class="small" data-use="${kn}">use</button>` : ""}</td></tr>`; }).join("")}</table>
     <div class="meta">${FMT.nm(VOY.total())} NM in ${FMT.dur(H)}: arrival ${FMT.dt(etd + H / 24, zd())} ${zd() ? "ZT" : "UT"}. The whole voyage plays in ${VOY.dur} s.</div>`;
   $("vlen").onchange = e => { R.len = Math.max(5, Math.min(500, +e.target.value || 100)); save(); draw(); };
   $("speed").onchange = e => { const was = R.speed >= 100; R.speed = Math.max(1, Math.min(1000, +e.target.value || 12)); save();
@@ -1307,6 +1313,9 @@ function voyCard() {
     const h = (jdOf(t) - etd) * 24, v = VOY.total() / NM / h;
     if (!(h > 0) || v < 1 || v > 1000) { alert("The arrival must be after the departure (1 to 1000 kn)."); voyCard(); return; }
     R.speed = v; if (!R.etd) R.etd = etd; save(); voyCard(); planCard(); draw(); };
+  $("etastep").value = String(S.etaStep);
+  $("etastep").onchange = e => { S.etaStep = +e.target.value; store.set("etaStep", S.etaStep); voyCard(); };
+  document.querySelectorAll("[data-use]").forEach(b => b.onclick = () => { R.speed = +b.dataset.use; save(); voyCard(); planCard(); draw(); });
   $("keepeta").onchange = e => { S.keepEta = e.target.checked; store.set("keepEta", S.keepEta); };
   $("etdnow").onclick = () => { R.etd = null; save(); voyCard(); planCard(); draw(); };
   $("voyplay").onclick = () => { VOY.on = true; if (VOY.t >= 1) VOY.t = 0; VOY.playing = !VOY.playing; VOY.last = 0; voyUI(); if (VOY.playing) requestAnimationFrame(VOY.tick); else draw(); };

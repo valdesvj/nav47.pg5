@@ -284,7 +284,7 @@ void map_icon(const map_t *m, double lat, double lon, double crs, int plane) {
   int x = (int)lroundf(fx), y = (int)lroundf(fy);
   if (l > 1e-4f) {
     dx /= l; dy /= l;
-    int i0 = plane ? 8 : 20, i1 = plane ? 20 : 33;
+    int i0 = plane ? 8 : 16, i1 = plane ? 20 : 28;
     for (int i = i0; i < i1; i++) {                           /* the heading line, white edged */
       int px = x + (int)lroundf(dx * i), py = y + (int)lroundf(dy * i);
       if (outcode(m, (float)px, (float)py)) break;
@@ -316,7 +316,27 @@ void map_icon(const map_t *m, double lat, double lon, double crs, int plane) {
         if (PLANE[r] & (1u << (12 - k))) gfx_pixel(x - 6 + k, y - 6 + r, 1);
     return;
   }
-  int flip = l > 1e-4f && dx < 0;                             /* heading west on the LCD: the bow to the left */
+  if (l > 1e-4f) {                                            /* the vessel from above, along its course */
+    /* in its own frame: f forward (dx, dy), r to starboard (-dy, dx); 28 px long, 9 wide: the hull (a square
+       stern, a pointed bow), the helideck forward (white, a ring, an H along the vessel) */
+    gfx_disc(x, y, 16, 0);
+    for (int v = -16; v <= 16; v++)
+      for (int u = -16; u <= 16; u++) {
+        float f = u * dx + v * dy, rr = -u * dy + v * dx, r = fabsf(rr);
+        float half = f <= 6 ? 4.6f : 4.6f * (14 - f) / 8;              /* the bow's taper from f = 6 to the stem at 14 */
+        if (f < -13.5f || f > 14 || r > half + 0.4f) continue;
+        float hf = f - 6.5f, d = sqrtf(hf * hf + rr * rr);                /* the helideck: centre f = 6.5, radius 4.4 */
+        int on = 1;
+        if (d <= 4.4f) {
+          on = d >= 3.5f;                                                  /* its ring */
+          if (fabsf(hf) <= 2.2f && fabsf(r - 1.6f) <= 0.55f) on = 1;       /* the H: two legs along the vessel ... */
+          if (fabsf(hf) <= 0.5f && r <= 1.6f) on = 1;                      /* ... and the bar across */
+        }
+        gfx_pixel(x + u, y + v, on);
+      }
+    return;
+  }
+  int flip = 0;                                               /* no course: the side view */
   gfx_rect(x - SHIP_W / 2 - 1, y - SHIP_H / 2 - 1, SHIP_W + 2, SHIP_H + 2, 0);
   for (int r = 0; r < SHIP_H; r++)
     for (int k = 0; k < SHIP_W; k++)
