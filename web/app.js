@@ -30,15 +30,25 @@ const FMT = {
 /* "27 12.0N 049 42.0E", "27°12.0'N 49°42.0'E", "27.2 49.7", "-33.92, 18.42": [lat, lon] or null */
 function parsePos(s) {
   s = String(s).toUpperCase().replace(/[°'′"]/g, " ").replace(/,/g, " ");
-  const re = /(-?\d+(?:\.\d+)?)(?:\s+(\d+(?:\.\d+)?))?\s*([NSEW])?/g;
-  const v = [];
-  let m;
-  while ((m = re.exec(s)) && v.length < 2) {
-    let x = parseFloat(m[1]);
-    if (m[2] !== undefined) x = Math.sign(x || 1) * (Math.abs(x) + parseFloat(m[2]) / 60);
-    if (m[3] === "S" || m[3] === "W") x = -Math.abs(x);
-    v.push({ x, h: m[3] });
-  }
+  /* the numbers and the hemispheres in order: 27 06.0N 050 12.0E (degrees and minutes), 27.1 50.2 (decimals), -27.1 ... */
+  const tok = s.match(/-?\d+(?:\.\d+)?|[NSEW]/g) || [];
+  const read = mins => {
+    const out = [];
+    for (let i = 0; i < tok.length && out.length < 2; i++) {
+      if (/[NSEW]/.test(tok[i])) continue;
+      let x = parseFloat(tok[i]);
+      if (mins && !/\./.test(tok[i]) && i + 1 < tok.length && !/[NSEW]/.test(tok[i + 1]) && Math.abs(parseFloat(tok[i + 1])) < 60) {
+        x = Math.sign(x || 1) * (Math.abs(x) + parseFloat(tok[i + 1]) / 60); i++;
+      }
+      const h = /[NSEW]/.test(tok[i + 1] || "") ? tok[i + 1] : undefined;
+      if (h) i++;
+      if (h === "S" || h === "W") x = -Math.abs(x);
+      out.push({ x, h });
+    }
+    return out;
+  };
+  let v = read(true);
+  if (v.length < 2) v = read(false);
   if (v.length < 2) return null;
   let [a, b] = v;
   if (a.h === "E" || a.h === "W") [a, b] = [b, a];
@@ -628,6 +638,20 @@ function drawObj(o, sel) {
     g.strokeStyle = css("--zonel"); g.lineWidth = 1; g.setLineDash([4, 3]); g.stroke(); g.setLineDash([]);
   }
   const ink = css("--ink");
+  if (o.orient !== null && o.orient !== undefined && o.a > 0) {      /* the platform's outline, to scale */
+    const t = o.orient * D2R, u0 = [Math.sin(t), Math.cos(t)], u1 = [Math.cos(t), -Math.sin(t)], m = 111320, cl = Math.cos(o.lat * D2R);
+    const pc = [[1, 1], [1, -1], [-1, -1], [-1, 1]].map(([s0, s1]) => {
+      const e = s0 * o.b / 2 * u0[0] + s1 * o.a / 2 * u1[0], n = s0 * o.b / 2 * u0[1] + s1 * o.a / 2 * u1[1];
+      return proj(o.lat + n / m, o.lon + e / (m * cl)); });
+    if (Math.max(o.a, o.b) * pxPerM(o.lat) > 5) {
+      g.beginPath(); pc.forEach(([a, b], i) => i ? g.lineTo(a, b) : g.moveTo(a, b)); g.closePath();
+      g.fillStyle = "#8a9097"; g.fill(); g.strokeStyle = ink; g.lineWidth = 1.2; g.stroke();
+      g.beginPath(); g.moveTo(pc[0][0], pc[0][1]); g.lineTo(pc[1][0], pc[1][1]); g.strokeStyle = "#d63a2a"; g.lineWidth = 3; g.stroke();   /* face 0 */
+      if (sel) { g.beginPath(); g.arc(x, y, 11, 0, 2 * Math.PI); g.strokeStyle = css("--accent"); g.lineWidth = 2; g.stroke(); }
+      g.font = "12px system-ui"; g.fillStyle = ink; g.fillText(o.name, x + 9, y - 7);
+      return;
+    }
+  }
   g.lineWidth = 1.6; g.strokeStyle = ink; g.fillStyle = ink;
   g.beginPath();
   switch (o.type) {
@@ -1167,8 +1191,8 @@ function loadRouteTxt(t) {
     else if ((m = l.match(/^ELL\s+(\d+)/))) R.ell = Math.min(+m[1], Module._api_ell_count() - 2);
     else if ((m = l.match(/^SPEED\s+([\d.]+)/))) R.speed = Math.max(1, Math.min(1000, +m[1]));
     else if ((m = l.match(/^ETD\s+([\d.]+)/))) R.etd = +m[1] > 2400000 ? +m[1] : null;
-    else if ((m = l.match(/^(-?[\d.]+)\s+(-?[\d.]+)$/)) && Math.abs(+m[1]) <= 90 && Math.abs(+m[2]) <= 180 && wps.length < 100)
-      wps.push({ lat: +m[1], lon: +m[2], name: "", obj: null });
+    else if ((m = l.match(/^(-?[\d.]+)[\s,;]+(-?[\d.]+)(?:[\s,;]+(.*))?$/)) && Math.abs(+m[1]) <= 90 && Math.abs(+m[2]) <= 180 && wps.length < 100)
+      wps.push({ lat: +m[1], lon: +m[2], name: m[3] ? m[3].trim().replace(/([\s,;]+-?[\d.]+)+$/, "").replace(/^-?[\d.]+$/, "").slice(0, 24) : "", obj: null });   /* extra columns: kept loading */
   }
   if (wps.length < 1) { alert("No waypoints in this file."); return; }
   R.wps = wps; VOY.on = false; VOY.t = 0;
@@ -1184,15 +1208,17 @@ function objList() {
   el.innerHTML = `<h2>Objects <span class="meta">${S.objects.length}</span></h2>
     <div class="controls"><label>Load <input type="file" id="objload" accept=".csv,.txt,.json,.geojson,.gpx,.kml" multiple></label>
       <button id="objcsv">Save CSV</button><button id="objex">Example field</button><button id="objclr">Forget all</button></div>
-    <div class="scroll" style="max-height:300px;margin-top:6px"><table><tr><th>Type</th><th>Name</th><th>Position</th><th class="num">Zone m</th><th></th></tr>
+    <div class="scroll" style="max-height:300px;margin-top:6px"><table><tr><th>Type</th><th>Name</th><th>Position</th><th class="num">Zone m</th><th title="the bearing face 0 looks to, and its size: 40 (a square) or 40x30 (face 0 x the other side); empty: a symbol">Face° · size m</th><th></th></tr>
     ${S.objects.map(o => `<tr class="click ${S.sel && S.sel.t === "o" && S.sel.id === o.id ? "sel" : ""}" data-oid="${o.id}">
       <td><select data-ot="${o.id}">${Object.entries(OBJ).map(([k, v]) => `<option value="${k}" ${k === o.type ? "selected" : ""}>${v.label}</option>`).join("")}</select></td>
       <td><input class="name" data-on="${o.id}" value="${esc(o.name)}"></td>
       <td><input class="pos mono" data-op="${o.id}" value="${FMT.pos(o.lat, o.lon)}"></td>
       <td><input class="num" style="width:4.5em" type="number" min="0" step="10" data-or="${o.id}" value="${o.r}"></td>
+      <td style="white-space:nowrap"><input class="num" style="width:3.6em" data-oo="${o.id}" value="${o.orient ?? ""}" placeholder="—"><input class="mono" style="width:4.6em" data-os="${o.id}" value="${o.orient !== null && o.orient !== undefined ? (o.a === o.b ? o.a : o.a + "x" + o.b) : ""}" placeholder="${PLAT_SIZE}"></td>
       <td style="white-space:nowrap"><button class="small ${S.pass.from === o.id ? "on" : ""}" data-pf="${o.id}" title="the passage from it">From</button><button class="small ${S.pass.to === o.id ? "on" : ""}" data-pt="${o.id}" title="the passage to it">To</button><button class="small" data-ofrom="${o.id}" title="a waypoint at it (added to the route)">＋WP</button><button class="small" data-ox="${o.id}">✕</button></td></tr>`).join("")}</table></div>
-    <div class="meta">Load a CSV (<span class="mono">type, name, lat, lon[, zone m]</span> or <span class="mono">name, lat, lon</span>; positions as
-      27.2 or 27 12.0N), GeoJSON, GPX or KML points. They stay in this browser, never sent anywhere.</div>`;
+    <div class="meta">Load a CSV (<span class="mono">type, name, lat, lon[, zone m[, orient[, face m[, side m]]]]</span> or <span class="mono">name, lat, lon</span>; positions as
+      27.2 or 27 12.0N; a header row may name the columns; extra columns are ignored). A platform with an orientation (the bearing its face 0 looks to)
+      is drawn to scale: one length a square, two a rectangle (face 0, the other side), none ${PLAT_SIZE} m. GeoJSON, GPX or KML points too. They stay in this browser, never sent anywhere.</div>`;
   const find = id => S.objects.find(o => o.id === id);
   const upd = () => refresh();
   document.querySelectorAll("[data-ot]").forEach(s => s.onchange = e => { const o = find(s.dataset.ot); o.type = e.target.value; o.r = OBJ[o.type].r; upd(); });
@@ -1200,6 +1226,10 @@ function objList() {
   document.querySelectorAll("[data-op]").forEach(s => s.onchange = e => { const p = parsePos(e.target.value), o = find(s.dataset.op);
     if (p) { o.lat = p[0]; o.lon = p[1]; S.route.wps.forEach(w => { if (w.obj === o.id) { w.lat = o.lat; w.lon = o.lon; } }); } upd(); });
   document.querySelectorAll("[data-or]").forEach(s => s.onchange = e => { find(s.dataset.or).r = Math.max(0, +e.target.value || 0); upd(); });
+  document.querySelectorAll("[data-oo],[data-os]").forEach(s => s.onchange = () => {
+    const id = s.dataset.oo || s.dataset.os, o = find(id), oi = document.querySelector(`[data-oo="${id}"]`), si = document.querySelector(`[data-os="${id}"]`);
+    const sz = si.value.split(/[x×*\s,]+/).filter(Boolean);
+    Object.assign(o, shapeOf(oi.value, sz[0], sz[1])); upd(); });
   document.querySelectorAll("[data-ox]").forEach(b => b.onclick = () => { S.sel = { t: "o", id: b.dataset.ox }; delSel(); });
   document.querySelectorAll("[data-ofrom]").forEach(b => b.onclick = () => { const o = find(b.dataset.ofrom); S.route.wps.push({ lat: o.lat, lon: o.lon, name: o.name, obj: o.id }); upd(); });
   /* From, then To: the passage is planned as soon as both are chosen */
@@ -1209,7 +1239,8 @@ function objList() {
     S.view.lat0 = o.lat; S.view.lon0 = o.lon; S.view.k = Math.max(S.view.k, CH.W / (0.15 * D2R)); clampView(); draw(); objList(); });
   $("objload").onchange = e => Promise.all([...e.target.files].map(f => f.text().then(t => parseObjects(t, f.name)))).then(ls => {
     const add = ls.flat(); S.objects.push(...add); alert(`${add.length} objects loaded.`); refresh(); fit(add); draw(); });
-  $("objcsv").onclick = () => download("objects.csv", "type,name,lat,lon,zone_m\n" + S.objects.map(o => [o.type, `"${o.name.replace(/"/g, "'")}"`, o.lat.toFixed(7), o.lon.toFixed(7), o.r].join(",")).join("\n") + "\n");
+  $("objcsv").onclick = () => download("objects.csv", "type,name,lat,lon,zone_m,orient,face_m,side_m\n" + S.objects.map(o => [o.type, `"${o.name.replace(/"/g, "'")}"`, o.lat.toFixed(7), o.lon.toFixed(7), o.r,
+    o.orient ?? "", o.orient !== null && o.orient !== undefined ? o.a : "", o.orient !== null && o.orient !== undefined && o.b !== o.a ? o.b : ""].join(",")).join("\n") + "\n");
   $("objex").onclick = exampleField;
   $("objclr").onclick = () => { if (confirm("Forget every object in this browser?")) { S.objects = []; S.route.wps.forEach(w => w.obj = null); refresh(); } };
 }
@@ -1225,17 +1256,29 @@ function typeOf(s) {
   if (/port|berth|pier/.test(s)) return "port";
   return null;
 }
+/* a platform's shape: orient (the bearing its face 0 looks to), a (face 0's length), b (the other side); one length: a
+   square; none: 50 m. Without orient: no shape (a symbol only) */
+const PLAT_SIZE = 50;
+function shapeOf(orient, a, b) {
+  const num = v => v !== undefined && v !== null && String(v).trim() !== "" && isFinite(+v) ? +v : null;
+  const o = num(orient);
+  if (o === null) return { orient: null, a: null, b: null };
+  const A = num(a) !== null && +a > 0 ? +a : PLAT_SIZE, B = num(b) !== null && +b > 0 ? +b : A;
+  return { orient: ((o % 360) + 360) % 360, a: A, b: B };
+}
 function parseObjects(t, name) {
-  const out = [], add = (type, nm, la, lo, r) => {
+  const out = [], add = (type, nm, la, lo, r, sh) => {
     if (!isFinite(la) || !isFinite(lo)) return;
     const ty = type || typeOf(nm) || "platform";
-    out.push({ id: newId(), type: ty, name: String(nm || OBJ[ty].label).trim(), lat: la, lon: lo, r: isFinite(r) && r !== null ? r : OBJ[ty].r });
+    out.push(Object.assign({ id: newId(), type: ty, name: String(nm || OBJ[ty].label).trim(), lat: la, lon: lo, r: isFinite(r) && r !== null ? r : OBJ[ty].r },
+                           sh || { orient: null, a: null, b: null }));
   };
   if (/\.(geo)?json$/i.test(name) || /^\s*{/.test(t)) {
     const g = JSON.parse(t);
     for (const f of g.features || []) if (f.geometry && f.geometry.type === "Point") {
       const p = f.properties || {};
-      add(typeOf(p.type || p.kind), p.name || p.title, f.geometry.coordinates[1], f.geometry.coordinates[0], p.zone_m !== undefined ? +p.zone_m : p.radius !== undefined ? +p.radius : null);
+      add(typeOf(p.type || p.kind), p.name || p.title, f.geometry.coordinates[1], f.geometry.coordinates[0], p.zone_m !== undefined ? +p.zone_m : p.radius !== undefined ? +p.radius : null,
+          shapeOf(p.orient, p.face_m, p.side_m));
     }
     return out;
   }
@@ -1246,15 +1289,29 @@ function parseObjects(t, name) {
       const [lo, la] = c.trim().split(/[\s,]+/).map(Number); add(null, (p.querySelector("name") || {}).textContent, la, lo, null); });
     return out;
   }
+  /* CSV: type, name, lat, lon[, zone_m[, orient[, face_m[, side_m]]]] (or name, lat, lon ...); a header row with these
+     names may put them in any order; extra columns are ignored */
+  let cols = null;
   for (let line of t.split(/\r?\n/)) {
     line = line.trim(); if (!line || line.startsWith("#")) continue;
     const f = line.split(/\s*[,;\t]\s*/).map(s => s.replace(/^"|"$/g, ""));
-    if (/^(type|name)$/i.test(f[0])) continue;
+    if (/^(type|name)$/i.test(f[0])) { cols = f.map(c => c.toLowerCase().replace(/[^a-z_]/g, "")); continue; }
+    if (cols && cols.includes("lat") && cols.includes("lon")) {           /* by the header's names */
+      const g = k => { const i = cols.indexOf(k); return i >= 0 ? f[i] : undefined; };
+      const pos = parsePos(`${g("lat")} ${g("lon")}`);
+      if (!pos) continue;
+      const z = g("zone_m") ?? g("zone") ?? g("radius");
+      add(typeOf(g("type")), g("name"), pos[0], pos[1], z !== undefined && z !== "" ? +z : null,
+          shapeOf(g("orient") ?? g("orientation") ?? g("face"), g("face_m") ?? g("length") ?? g("a"), g("side_m") ?? g("width") ?? g("b")));
+      continue;
+    }
     let ty = typeOf(f[0]) && f.length >= 4 && !parsePos(f[0] + " " + f[1]) ? typeOf(f[0]) : null, rest = ty ? f.slice(1) : f;
-    const nm = rest[0], pos = parsePos(rest.slice(1, 3).join(" ")) || parsePos(rest.slice(1).join(" "));
+    const nm = rest[0];
+    let pos = parsePos(rest.slice(1, 3).join(" ")), extra = rest.slice(3);
+    if (!pos) { pos = parsePos(rest.slice(1).join(" ")); extra = []; }
     if (!pos) continue;
-    const r = rest.length >= 4 && /^\d+(\.\d+)?$/.test(rest[rest.length - 1]) && rest.length > 3 ? +rest[rest.length - 1] : null;
-    add(ty, nm, pos[0], pos[1], r);
+    const z = extra[0] !== undefined && /^\d+(\.\d+)?$/.test(extra[0]) ? +extra[0] : null;
+    add(ty, nm, pos[0], pos[1], z, shapeOf(extra[1], extra[2], extra[3]));
   }
   return out;
 }

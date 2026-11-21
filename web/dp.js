@@ -212,6 +212,7 @@ const DPTAB = (() => {
 
   function render(best) {
     const el = document.getElementById("t-dp");
+    const open = [...el.querySelectorAll("details")].map(d => d.open);   /* the sections you opened stay open */
     compute(best === true);
     const V = res ? vessel() : { thr: [], loa: 0, b: 0 };
     const [la, lo] = pos(), num = (id, v, step, w) => `<input class="num" id="dp_${id}" type="number" step="${step || 1}" value="${v}" style="width:${w || 70}px">`;
@@ -265,7 +266,7 @@ const DPTAB = (() => {
        <div class="controls"><label>Name <input id="dp_name" value="${esc(P.name)}" style="width:130px"></label>
         <label>Position <input class="pos" id="dp_pos" value="${F().pos(la, lo)}" style="width:190px"></label>
         <button class="small" id="dp_dr">the DR</button>
-        ${objs.length ? `<select id="dp_obj"><option value="">an object…</option>${objs.map((o, i) => `<option value="${i}">${esc(o.name || o.type)}</option>`).join("")}</select>` : ""}</div>
+        ${objs.length ? `<select id="dp_obj"><option value="">an object…</option>${objs.map((o, i) => `<option value="${i}">${esc(o.name || o.type)}${o.orient !== null && o.orient !== undefined ? ` (${o.a === o.b ? o.a : o.a + "×" + o.b} m, ${String(Math.round(o.orient)).padStart(3, "0")}°)` : ""}</option>`).join("")}</select>` : ""}</div>
        <div class="controls"><label>Shape <select id="dp_shape"><option value="square">square</option><option value="rect">rectangle</option></select></label>
         <label>${P.shape === "square" ? "Side" : "Length"} ${num("len", P.len)} m</label>${P.shape === "square" ? "" : `<label>Width ${num("wid", P.wid)} m</label>`}
         <label>Face 0 looks to ${num("orient", P.orient, 5)}°</label></div>
@@ -294,6 +295,7 @@ const DPTAB = (() => {
      <div class="meta" style="margin:10px 2px">DPCAP47's engine: DNV-ST-0111 level 1's wind, current and wave-drift forces (x 1.25), each from its own
       direction, its thrust allocation with the thrusters' working limits in the intact case and full thrust after a
       redundancy group is lost. Static: no position excursions, no thruster wash on the platform, no current shelter. Planning, not operations: check against the vessel's DP FMEA, ASOG and capability plots.</div>`;
+    el.querySelectorAll("details").forEach((d, i) => { if (open[i]) d.open = true; });
     if (res) picture(document.getElementById("dpcv"), V);
     bind();
   }
@@ -304,7 +306,15 @@ const DPTAB = (() => {
     on("name", e => { P.name = e.target.value.trim() || "PLATFORM"; save(); render(); });
     on("pos", e => { const p = APP.parsePos(e.target.value); if (p) { P.lat = p[0]; P.lon = p[1]; save(); } render(true); });
     $("dr").onclick = () => { P.lat = null; P.lon = null; save(); render(true); };
-    on("obj", e => { const o = (S().objects || []).filter(o => /platform|rig|wellhead|spm/.test(o.type))[+e.target.value]; if (o) { P.lat = o.lat; P.lon = o.lon; P.name = (o.name || o.type).toUpperCase().slice(0, 23); save(); } render(true); });
+    on("obj", e => { const o = (S().objects || []).filter(o => /platform|rig|wellhead|spm/.test(o.type))[+e.target.value];
+      if (o) {
+        P.lat = o.lat; P.lon = o.lon; P.name = (o.name || o.type).toUpperCase().slice(0, 23);
+        if (o.orient !== null && o.orient !== undefined) {          /* its orientation and size: face 0's length across, the other side along */
+          P.orient = o.orient; P.wid = o.a; P.len = o.b; P.shape = o.a === o.b ? "square" : "rect";
+        }
+        P.hdg = null; save();
+      }
+      render(true); });
     $("shape").value = P.shape; on("shape", e => { P.shape = e.target.value; save(); render(true); });
     $("face").value = String(P.face); on("face", e => { P.face = +e.target.value; P.hdg = null; save(); render(true); });
     $("side").value = `${P.side}:${(P.side === 1 || P.side === 2) && P.par ? 1 : 0}`;
@@ -330,4 +340,9 @@ const DPTAB = (() => {
   }
   return { render };
 })();
-if (typeof TABS2 !== "undefined") TABS2.dp = () => DPTAB.render();
+/* the page's clock redraws the open tab every 5 s: not while you are typing in this one (it would wipe what you type) */
+if (typeof TABS2 !== "undefined") TABS2.dp = () => {
+  const a = document.activeElement, el = document.getElementById("t-dp");
+  if (el && a && el.contains(a) && /INPUT|TEXTAREA|SELECT/.test(a.tagName)) return;
+  DPTAB.render();
+};
