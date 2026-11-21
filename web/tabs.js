@@ -93,7 +93,7 @@ const TABS2 = (() => {
   }
 
   /* ---------------------------------------------------------------- Tide */
-  let tideSt = null, tideDay = 0;
+  let tideSt = null, tideDay = 0, tideAuto = localStorage.getItem("nav47web:tideauto") !== "0";
   function tide() {
     const el = document.getElementById("t-tide"), n = Module._api_tide_count();
     const list = Array.from({ length: n }, (_, i) => {
@@ -101,7 +101,7 @@ const TABS2 = (() => {
       return { i, name: N().str(Module._api_tide_name(i)), region: N().str(Module._api_tide_region(i)), lat: o[0], lon: o[1], tz: o[2], kind: o[3],
                src: Module._api_tide_src(i) };
     });
-    if (tideSt === null) {                                    /* the nearest to the DR */
+    if (tideSt === null || tideAuto) {                        /* AUTO: the tide station nearest the DR */
       const [la, lo] = S().pos;
       let best = 1e18;
       for (const s of list) { if (s.kind !== 0) continue; const d = N().inv(la, lo, s.lat, s.lon).s; if (d < best) { best = d; tideSt = s.i; } }
@@ -128,7 +128,8 @@ const TABS2 = (() => {
     const srcTag = r => { const s0 = list.find(s => s.region === r); return s0 && s0.src === 2 ? " (your file)" : ""; };
     el.innerHTML = `<div class="card"><div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px"><h2>Tide · ${st.name}</h2>
       <span class="meta">${String(d).padStart(2, "0")}-${String(m).padStart(2, "0")}-${y} · zone time UTC${tz >= 0 ? "+" : ""}${tz} · ${F().pos(st.lat, st.lon)}</span></div>
-      <div class="controls"><select id="tst">${regions.map(r => `<optgroup label="${r}${srcTag(r)}">${list.filter(s => s.region === r).map(s => `<option value="${s.i}" ${s.i === st.i ? "selected" : ""}>${s.name}</option>`).join("")}</optgroup>`).join("")}</select>
+      <div class="controls"><label title="the tide station nearest the DR, following it"><input type="checkbox" id="tauto" ${tideAuto ? "checked" : ""}> Auto (nearest the DR)</label>
+        <select id="tst">${regions.map(r => `<optgroup label="${r}${srcTag(r)}">${list.filter(s => s.region === r).map(s => `<option value="${s.i}" ${s.i === st.i ? "selected" : ""}>${s.name}</option>`).join("")}</optgroup>`).join("")}</select>
         <button id="tprev">← day</button><button id="ttoday">today</button><button id="tnext">day →</button></div>
       <div class="two" style="margin-top:8px"><svg viewBox="0 0 ${W} ${H}">${g}</svg>
       <div><table><tr><th></th><th class="num">Time</th><th class="num">${stream ? "Rate" : "Height"}</th>${stream ? '<th class="num">Set</th>' : ""}</tr>
@@ -138,7 +139,8 @@ const TABS2 = (() => {
         ${stream ? "Rates in knots." : "Heights above the chart datum, metres."} Not for navigation: check against the official tide tables.</div></div></div></div>
       ${APP.tfiles.card()}`;
     APP.tfiles.bind(el, () => { tideSt = null; tide(); });
-    document.getElementById("tst").onchange = e => { tideSt = +e.target.value; tide(); };
+    document.getElementById("tst").onchange = e => { tideSt = +e.target.value; tideAuto = false; localStorage.setItem("nav47web:tideauto", "0"); tide(); };
+    document.getElementById("tauto").onchange = e => { tideAuto = e.target.checked; localStorage.setItem("nav47web:tideauto", tideAuto ? "1" : "0"); tide(); };
     document.getElementById("tprev").onclick = () => { tideDay--; tide(); };
     document.getElementById("tnext").onclick = () => { tideDay++; tide(); };
     document.getElementById("ttoday").onclick = () => { tideDay = 0; tide(); };
@@ -257,10 +259,11 @@ const TABS2 = (() => {
   let fStep = 0, fHour = -1, fWind = { dir: 0, kn: 0 };
   function flow() {
     const el = document.getElementById("t-flow"), [lat, lon] = S().pos, J = jd(), have = Module._api_flw_have();
-    let h = "";
+    let h = "", atlasHere = false;
     if (have) {
       Module._api_flow(lat, lon, J, fWind.dir, fWind.kn, fStep);
       const o = Array.from(N().o().subarray(0, 40)), ref = N().str(Module._api_flw_ref()), src = N().str(Module._api_flw_source());
+      atlasHere = !!o[0] && !!o[36];
       if (!o[36]) h += `<div class="card"><h2>Flow</h2><div class="meta" style="color:var(--now)">The atlas's reference station, ${esc(ref)}, is not loaded: load its .TID file below.</div></div>`;
       else {
         const tz = o[1], t0 = o[2], day = o[3], off = o[7], inAtlas = !!o[0];
@@ -289,6 +292,20 @@ const TABS2 = (() => {
       }
     } else h += `<div class="card"><h2>Flow</h2><div class="meta">No FLOW atlas loaded: load your <span class="mono">FLOW.FLW</span> below
       (with the .TID of its reference port). Meanwhile, the stream stations near the DR.</div></div>`;
+    /* AUTO, out of the atlas: the nearest stream station within 30 NM, 6 h either side of now (as T&F) */
+    if (!atlasHere) {
+      let best = null;
+      for (const st of APP.streams.all()) { const d = N().inv(lat, lon, st.lat, st.lon).s / 1852; if (d <= 30 && (!best || d < best.d)) best = { st, d }; }
+      if (best) {
+        const rows = [];
+        for (let k = -6; k <= 6; k++) { const q = APP.streams.now(best.st.i, J + k / 24) || { kn: 0, set: 0 }; rows.push({ k, q, t: J + k / 24 }); }
+        h += `<div class="card"><h2>The stream at the DR <span class="meta">Auto: ${esc(best.st.name)}, ${best.d.toFixed(1)} NM (as T&amp;F out of the atlas)</span></h2>
+          <table><tr><th></th><th>${lab()}</th><th class="num">Set</th><th class="num">Rate</th><th></th></tr>
+          ${rows.map(r => `<tr class="${r.k === 0 ? "sel" : ""}"><td>${r.k === 0 ? "now" : (r.k > 0 ? "+" : "") + r.k + " h"}</td><td class="mono">${F().dt(r.t, off()).slice(-5)}</td>
+            <td class="num mono">${String(Math.round(((r.q.set % 360) + 360) % 360)).padStart(3, "0")}°</td><td class="num mono">${Math.abs(r.q.kn).toFixed(2)} kn</td>
+            <td>${best.st.kind === 1 ? (r.q.kn >= 0 ? "flood" : "ebb") : ""}</td></tr>`).join("")}</table></div>`;
+      } else if (!have) h += `<div class="card"><div class="meta">No stream station within 30 NM of the DR.</div></div>`;
+    }
     /* the stream stations near the DR */
     const near = APP.streams.all().map(s => ({ s, d: N().inv(lat, lon, s.lat, s.lon) })).filter(x => x.d.s < 500 * 1852)
       .sort((a, b) => a.d.s - b.d.s).slice(0, 14);
@@ -303,7 +320,8 @@ const TABS2 = (() => {
     h += APP.tfiles.card();
     el.innerHTML = h;
     APP.tfiles.bind(el, flow);
-    el.querySelectorAll("tr[data-st]").forEach(tr => tr.onclick = () => { tideSt = +tr.dataset.st; tideDay = 0; APP.showTab("tide"); });
+    el.querySelectorAll("tr[data-st]").forEach(tr => tr.onclick = () => { tideSt = +tr.dataset.st; tideDay = 0; tideAuto = false;
+      localStorage.setItem("nav47web:tideauto", "0"); APP.showTab("tide"); });
     const b = id => document.getElementById(id);
     if (b("fprev")) {
       b("fprev").onclick = () => { fStep--; flow(); }; b("fnext").onclick = () => { fStep++; flow(); }; b("fnow").onclick = () => { fStep = 0; flow(); };

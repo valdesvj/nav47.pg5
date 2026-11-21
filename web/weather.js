@@ -9,7 +9,7 @@
 const WX = (() => {
   const D = Math.PI / 180;
   const st = Object.assign({ online: false, layers: { wind: true, rain: true, cloud: true, storm: true, radar: false, sat: false },
-                             mode: "fc", lat0: 25, lon0: 30, k: 230 }, JSON.parse(localStorage.getItem("nav47web:wx") || "{}"));
+                             mode: "fc", lat0: 25, lon0: 30, k: 230, scheme: 6 }, JSON.parse(localStorage.getItem("nav47web:wx") || "{}"));
   const save = () => localStorage.setItem("nav47web:wx", JSON.stringify(st));
   let cv, g, W = 0, H = 0, dpr = 1, built = false;
   let fc = null, fcKey = "", fcBusy = false, fcErr = "", hour = 0, playing = false, timer = null;
@@ -88,14 +88,17 @@ const WX = (() => {
     const [la0] = U(0, 0), [la1] = U(0, H), lo0 = st.lon0 - span() / 2;
     const ty0 = Math.max(0, Math.floor((1 - merc(la0) / Math.PI) / 2 * n)), ty1 = Math.min(n - 1, Math.floor((1 - merc(la1) / Math.PI) / 2 * n));
     const tx0 = Math.floor((lo0 + 180) / 360 * n), tx1 = Math.floor((lo0 + span() + 180) / 360 * n);
-    g.globalAlpha = scheme === "sat" ? 0.55 : 0.75;
+    /* strong: the radar opaque and crisp, the satellite with more contrast */
+    g.globalAlpha = scheme === "sat" ? 0.75 : 1;
+    g.filter = scheme === "sat" ? "contrast(1.6) brightness(0.9)" : "saturate(1.8) contrast(1.3) brightness(1.15)";
+    g.imageSmoothingEnabled = scheme === "sat";
     for (let ty = ty0; ty <= ty1; ty++) for (let tx = tx0; tx <= tx1; tx++) {
       const x = ((tx % n) + n) % n, lo = tx / n * 360 - 180, mt = Math.PI * (1 - 2 * ty / n);
       const px = W / 2 + st.k * (lo - st.lon0) * D, py = H / 2 - st.k * (mt - merc(st.lat0));
-      const im = tile(`${rv.host}${path}/256/${z}/${x}/${ty}/${scheme === "sat" ? "0/0_0" : "2/1_1"}.png`);
+      const im = tile(`${rv.host}${path}/256/${z}/${x}/${ty}/${scheme === "sat" ? "0/0_0" : "2/0_1"}.png`);
       if (im.complete && !im.bad && im.naturalWidth) g.drawImage(im, px, py, sz + 0.5, sz + 0.5);
     }
-    g.globalAlpha = 1;
+    g.globalAlpha = 1; g.filter = "none"; g.imageSmoothingEnabled = true;
   }
 
   /* ---------------------------------------------------------------- drawing */
@@ -151,17 +154,19 @@ const WX = (() => {
   function draw() {
     if (!g || document.getElementById("t-weather").hidden) return;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    g.fillStyle = css("--sea"); g.fillRect(0, 0, W, H);
+    const dark = st.online && st.mode === "radar";              /* the radar on a dark map: the rain stands out */
+    const SEA = dark ? "#16202b" : css("--sea"), LAND = dark ? "#353b43" : css("--land"), COAST = dark ? "#8a94a3" : css("--coast");
+    g.fillStyle = SEA; g.fillRect(0, 0, W, H);
     /* the land */
     const polys = APP.loadCoast(span() < 25 ? "L" : "C"), [n0] = U(0, 0), [s0] = U(0, H), lw = st.lon0 - span() / 2 - 1, le = st.lon0 + span() / 2 + 1;
-    g.fillStyle = css("--land"); g.strokeStyle = css("--coast"); g.lineWidth = 0.8;
+    g.fillStyle = LAND; g.strokeStyle = COAST; g.lineWidth = 0.8;
     for (const Q of polys) {
       if (Q.n < s0 || Q.s > n0) continue;
       for (const off of [-360, 0, 360]) {
         if (Q.e + off < lw || Q.w + off > le) continue;
         g.beginPath();
         for (let j = 0; j < Q.lat.length; j++) { const x = W / 2 + st.k * (Q.lon[j] + off - st.lon0) * D, y = H / 2 - st.k * (merc(Q.lat[j]) - merc(st.lat0)); j ? g.lineTo(x, y) : g.moveTo(x, y); }
-        g.closePath(); g.fillStyle = Q.lev === 2 ? css("--sea") : css("--land"); g.fill(); g.stroke();
+        g.closePath(); g.fillStyle = Q.lev === 2 ? SEA : LAND; g.fill(); g.stroke();
       }
     }
     /* observed: satellite, radar */

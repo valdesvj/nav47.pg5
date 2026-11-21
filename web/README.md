@@ -9,12 +9,21 @@ engines, compiled to WebAssembly with the DM42n program itself in one file, `web
 | **Weather** | online when you switch it on: the forecast hour by hour (72 h: wind barbs, rain, clouds, thunderstorm risk) and the observed rain radar and infrared satellite clouds (the last 2 hours, every 10 minutes), on the coastline, with your route; Play animates |
 | **Almanac** | the Sun, the Moon, the planets and the stars above 10° (GHA, Dec, Hc, Zn), the Sun's day, the Moon's phases |
 | **Sky** | the dome from the DR (as the calculator's SKY2), and the brightest stars for sights |
-| **Tide** | the public stations, NOAA's current stations and your own (.TID): the day's curve, HW / LW (or the streams), day by day |
+| **Tide** | the public stations, NOAA's current stations and your own (.TID): the day's curve, HW / LW (or the streams), day by day; **Auto**: the station nearest the DR (as the calculator's AUTO) |
 | **Flow** | your FLOW atlas (.FLW) as the calculator's T&F: the stream at the DR from HW−6 to HW+6 of the reference port (springs scaled, the wind added), now, the atlas round the DR; the stream stations near the DR |
 | **Zones** | as ZONE47: the dot map in 24 columns of 15°, the stops (← →), each stop's places (↑ ↓) with their local time and summer time now, your zone ▲; all the zones in a list below |
 | **Calculator** | the DM42n program itself, every page, the keys clicked or typed; *To the calculator* on the Route tab sends the plan to it |
 
 The top: **Now** (the clock) or a fixed UT, the **DR**, the times in **UT** or **ZT** (the DR's zone).
+
+## ROUTE.TXT: the web and the calculator
+
+The Route card's **Load ROUTE.TXT** reads the calculator's route (its waypoints, RL / GC / CS, limit, split,
+ellipsoid, speed, ETD); edit it on the chart; **Save ROUTE.TXT** writes it back for `/NAV47/ROUTE.TXT` on the DM42n
+(the planned points, round the zones; 100 at most). The Voyage card: speed, departure, and **arrival** (typed: the
+speed it needs), as the calculator's ETA page; *a new departure keeps the arrival* or the speed.
+
+A flight (100 kn or more) passes over land: the land check is for vessels; the keep-out zones still apply.
 
 ## Objects and their zones
 
@@ -54,7 +63,8 @@ predictions) except the 16 whose current truly turns (rotary).
   smoothly (bilinear) between the points.
 - **Radar and satellite:** [RainViewer](https://www.rainviewer.com/api.html) (free with attribution, personal use):
   the observed rain of the last 2 hours (and its nowcast when given), every 10 minutes, and the infrared clouds.
-  Radar exists over land and near the coasts.
+  Radar exists over land and near the coasts. The radar is drawn on a dark map, opaque and crisp (RainViewer's free
+  service gives one colour scheme, Universal Blue).
 - **Lightning:** no free global feed may be used this way; the thunderstorm forecast (⚡) and high CAPE instead.
 - Only the view's grid points are sent (never your route, objects or files). The Weather chart is the web maps'
   spherical Mercator, so the radar tiles fit the coast.

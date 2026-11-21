@@ -99,7 +99,7 @@ const S = {
                        store.get("route", {})),
   objects: store.get("objects", []),
   view: store.get("view", { mode: "merc", lat0: 30, lon0: 10, k: 220 }),
-  tool: "move", objType: "platform", sel: null, pass: { from: "", to: "" }, showStreams: store.get("streams", false),
+  tool: "move", objType: "platform", sel: null, keepEta: store.get("keepEta", false), pass: { from: "", to: "" }, showStreams: store.get("streams", false),
 };
 const save = () => { store.set("route", S.route); store.set("objects", S.objects); store.set("view", S.view); store.set("pos", S.pos); store.set("times", S.times); };
 const zd = () => S.times === "zt" ? Math.round(S.pos[1] / 15) : 0;       /* the times shown: UT or ZT (the DR's zone) */
@@ -423,11 +423,12 @@ function landCrossings(P, exempt) {
 function check(rows, zones, warn) {
   const out = { min: Infinity, minObj: null, minLeg: 0, hits: [], warn: warn.slice(), land: [] };
   if (rows.length < 2) return out;
-  /* land */
+  /* land: for a vessel; a flight (100 kn or more) passes over it */
+  out.flight = S.route.speed >= 100;
   const ports = S.objects.filter(o => o.type === "port"), first = rows[0], last = rows[rows.length - 1];
   const exempt = p => NAV.inv(p[0], p[1], first.lat, first.lon).s < 3000 || NAV.inv(p[0], p[1], last.lat, last.lon).s < 3000 ||
     ports.some(o => NAV.inv(p[0], p[1], o.lat, o.lon).s < 3000);
-  for (let i = 1; i < rows.length; i++) {
+  for (let i = 1; i < rows.length && !out.flight; i++) {
     const a = rows[i - 1], b = rows[i], k = rows[i].kind !== "G" && (S.route.sail === 0 || rows[i].kind === "P" || rows[i].kind === "R");
     const n = Math.max(2, Math.min(600, Math.ceil(rows[i].leg / 2000)));
     const X = landCrossings(sailPts(a, b, n, k), exempt);
@@ -1020,6 +1021,8 @@ function routeCard() {
       <td><select data-wo="${i}"><option value="">—</option>${S.objects.map(o => `<option value="${o.id}" ${o.id === w.obj ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></td>
       <td><button class="small" data-up="${i}">↑</button><button class="small" data-dn="${i}">↓</button><button class="small" data-x="${i}">✕</button></td></tr>`).join("")}
     </table></div>
+    <div class="controls" style="margin-top:6px"><label>Load ROUTE.TXT <input type="file" id="rtload" accept=".txt,.TXT"></label>
+      <button id="rtsave" title="for the DM42n: /NAV47/ROUTE.TXT (the planned points, round the zones)">Save ROUTE.TXT</button></div>
     <div class="controls" style="margin-top:6px"><button id="wprev">Reverse</button><button id="wpclr">Clear</button>
       <button id="wpex">Example: Cape Town – Melbourne</button></div>`;
   $("sail").value = R.sail; $("ell").value = R.ell; $("split").value = R.split;
@@ -1046,8 +1049,13 @@ function routeCard() {
   document.querySelectorAll("[data-dn]").forEach(b => b.onclick = () => { const i = +b.dataset.dn; if (i < R.wps.length - 1) { [R.wps[i + 1], R.wps[i]] = [R.wps[i], R.wps[i + 1]]; upd(); } });
   document.querySelectorAll("[data-x]").forEach(b => b.onclick = () => { R.wps.splice(+b.dataset.x, 1); S.sel = null; upd(); });
   $("wprev").onclick = () => { R.wps.reverse(); upd(); };
+  $("rtload").onchange = e => { const f = e.target.files[0]; if (f) f.text().then(loadRouteTxt); };
+  $("rtsave").onclick = () => { if (ROUTE.pts.length > 100) { alert(`The calculator holds 100 waypoints; this route has ${ROUTE.pts.length} points.`); return; }
+    download("ROUTE.TXT", routeTxt()); };
   $("wpclr").onclick = () => { if (confirm("Clear the waypoints?")) { R.wps = []; VOY.on = false; upd(); } };
-  $("wpex").onclick = () => { Object.assign(R, { wps: [{ lat: -33.92, lon: 18.42, name: "Cape Town", obj: null }, { lat: -37.82, lon: 144.96, name: "Melbourne", obj: null }],
+  $("wpex").onclick = () => { Object.assign(R, { wps: [{ lat: -33.80, lon: 18.30, name: "Off Cape Town", obj: null }, { lat: -34.40, lon: 18.20, name: "W of Cape Point", obj: null },
+    { lat: -34.70, lon: 18.70, name: "S of Cape Point", obj: null }, { lat: -35.10, lon: 20.00, name: "Off Agulhas", obj: null },
+    { lat: -39.00, lon: 143.50, name: "Off Cape Otway", obj: null }, { lat: -38.33, lon: 144.65, name: "Port Phillip Heads", obj: null }],
     sail: 2, lim: 45, split: 3, val: 10, speed: 12 }); refresh(); fitRoute(); draw(); };
 }
 function checkCard() {
@@ -1056,7 +1064,8 @@ function checkCard() {
   if (rows.length < 2) { el.innerHTML = `<h2>Check</h2><div class="meta">Two waypoints or more make a route.</div>`; return; }
   const zones = S.objects.filter(o => o.r > 0);
   const chips = [`<span class="chip">${FMT.nm(rows[rows.length - 1].cum)} NM</span>`, `<span class="chip">${ROUTE.pts.length} points, ${rows.length} with the split</span>`];
-  if (c.land.length) chips.unshift(`<span class="chip warn">⛔ ${c.land.length} leg${c.land.length > 1 ? "s" : ""} over land</span>`);
+  if (c.flight) chips.push(`<span class="chip">✈ a flight (${R.speed} kn): over land allowed</span>`);
+  else if (c.land.length) chips.unshift(`<span class="chip warn">⛔ ${c.land.length} leg${c.land.length > 1 ? "s" : ""} over land</span>`);
   else chips.push(`<span class="chip ok">✓ no leg over land</span>`);
   if (zones.length) {
     if (c.hits.length) chips.push(`<span class="chip warn">⚠ ${c.hits.length} leg${c.hits.length > 1 ? "s" : ""} into a zone</span>`);
@@ -1126,8 +1135,26 @@ function planGPX() {
 /* the calculator's ROUTE.TXT: the planned points (round the zones) as its waypoints, its sailing, split, ellipsoid, speed */
 function routeTxt() {
   const R = S.route;
-  return `NAV47 ROUTE 1\n${["RL", "GC", "CS"][R.sail]}\nLIM ${R.lim.toFixed(1)}\nSPLIT ${R.split} ${(+R.val).toFixed(3)}\nELL ${R.ell}\nSPEED ${(+R.speed).toFixed(1)}\n` +
+  return `NAV47 ROUTE 1\n${["RL", "GC", "CS"][R.sail]}\nLIM ${R.lim.toFixed(1)}\nSPLIT ${R.split} ${(+R.val).toFixed(3)}\nELL ${R.ell}\nSPEED ${(+R.speed).toFixed(4)}\nETD ${(R.etd || 0).toFixed(6)}\n` +
     ROUTE.pts.map(p => `${p.lat.toFixed(7)} ${nearLon(p.lon, 0).toFixed(7)}`).join("\n") + "\n";
+}
+/* the calculator's ROUTE.TXT into the route: its waypoints, sailing, limit, split, ellipsoid, speed, departure */
+function loadRouteTxt(t) {
+  const R = S.route, wps = [];
+  for (let l of t.replace(/\r/g, "").split("\n")) {
+    l = l.trim(); let m;
+    if (l === "RL") R.sail = 0; else if (l === "GC") R.sail = 1; else if (l === "CS") R.sail = 2;
+    else if ((m = l.match(/^LIM\s+(-?[\d.]+)/))) R.lim = Math.max(10, Math.min(85, +m[1]));
+    else if ((m = l.match(/^SPLIT\s+(\d)\s+(-?[\d.]+)/))) { R.split = Math.min(3, +m[1]); R.val = +m[2]; }
+    else if ((m = l.match(/^ELL\s+(\d+)/))) R.ell = Math.min(+m[1], Module._api_ell_count() - 2);
+    else if ((m = l.match(/^SPEED\s+([\d.]+)/))) R.speed = Math.max(1, Math.min(1000, +m[1]));
+    else if ((m = l.match(/^ETD\s+([\d.]+)/))) R.etd = +m[1] > 2400000 ? +m[1] : null;
+    else if ((m = l.match(/^(-?[\d.]+)\s+(-?[\d.]+)$/)) && Math.abs(+m[1]) <= 90 && Math.abs(+m[2]) <= 180 && wps.length < 100)
+      wps.push({ lat: +m[1], lon: +m[2], name: "", obj: null });
+  }
+  if (wps.length < 1) { alert("No waypoints in this file."); return; }
+  R.wps = wps; VOY.on = false; VOY.t = 0;
+  refresh(); fitRoute(); draw();
 }
 function download(name, text) {
   const u = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
@@ -1250,17 +1277,32 @@ function voyCard() {
   const etd = VOY.etd(), H = VOY.hours();
   const iso = new Date(msOf(etd)).toISOString().slice(0, 16);
   el.innerHTML = `<h2>Voyage <span class="meta">${R.speed >= 100 ? "✈ flight" : "🚢 the Mermaid Asiana"}</span></h2>
-    <div class="controls"><label>Speed <input class="num" id="speed" type="number" min="1" max="1000" step="0.5" value="${R.speed}"> kn</label>
+    <div class="controls"><label>Speed <input class="num" id="speed" type="number" min="1" max="1000" step="0.01" value="${(+R.speed).toFixed(2)}"> kn</label>
       <label ${R.speed >= 100 ? "hidden" : ""}>Length <input class="num" id="vlen" type="number" min="5" max="500" step="1" value="${R.len || 100}"> m</label>
-      <label>Departure UT <input type="datetime-local" id="etd" value="${iso}" step="60"></label><button id="etdnow" class="small">now</button></div>
+      <label>Departure UT <input type="datetime-local" id="etd" value="${iso}" step="60"></label><button id="etdnow" class="small">now</button>
+      <label>Arrival UT <input type="datetime-local" id="eta" value="${new Date(msOf(etd + H / 24)).toISOString().slice(0, 16)}" step="60"></label>
+      <label title="a new departure keeps the arrival (the speed follows), else the speed (the arrival follows)"><input type="checkbox" id="keepeta" ${S.keepEta ? "checked" : ""}> a new departure keeps the arrival</label></div>
     <div class="controls" style="margin-top:6px"><button id="voyplay">Play</button><input type="range" id="voyt" min="0" max="1000" value="${Math.round(VOY.t * 1000)}" style="flex:1">
       <label><input type="checkbox" id="follow" checked> follow</label></div>
     ${ROUTE.check && (ROUTE.check.land.length || ROUTE.check.hits.length) ? `<div class="meta" style="color:var(--now);font-weight:600">⛔ Not a safe route
       (${[ROUTE.check.land.length ? "over land" : "", ROUTE.check.hits.length ? "into a keep-out zone" : ""].filter(Boolean).join(", ")}): see Check.</div>` : ""}
     <div class="meta">${FMT.nm(VOY.total())} NM in ${FMT.dur(H)}: arrival ${FMT.dt(etd + H / 24, zd())} ${zd() ? "ZT" : "UT"}. The whole voyage plays in ${VOY.dur} s.</div>`;
   $("vlen").onchange = e => { R.len = Math.max(5, Math.min(500, +e.target.value || 100)); save(); draw(); };
-  $("speed").onchange = e => { R.speed = Math.max(1, Math.min(1000, +e.target.value || 12)); save(); voyCard(); planCard(); draw(); };
-  $("etd").onchange = e => { const t = Date.parse(e.target.value + "Z"); if (isFinite(t)) R.etd = jdOf(t); save(); voyCard(); planCard(); draw(); };
+  $("speed").onchange = e => { const was = R.speed >= 100; R.speed = Math.max(1, Math.min(1000, +e.target.value || 12)); save();
+    if (was !== (R.speed >= 100)) refresh(); else { voyCard(); planCard(); draw(); } };
+  $("etd").onchange = e => {
+    const t = Date.parse(e.target.value + "Z"); if (!isFinite(t)) return;
+    const eta = etd + H / 24, nd = jdOf(t);
+    if (S.keepEta) { const h = (eta - nd) * 24, v = VOY.total() / NM / h;
+      if (!(h > 0) || v < 1 || v > 1000) { alert("The departure must be before the arrival (1 to 1000 kn)."); voyCard(); return; }
+      R.speed = v; }
+    R.etd = nd; save(); voyCard(); planCard(); draw(); };
+  $("eta").onchange = e => {                                   /* the arrival typed: the speed it needs */
+    const t = Date.parse(e.target.value + "Z"); if (!isFinite(t)) return;
+    const h = (jdOf(t) - etd) * 24, v = VOY.total() / NM / h;
+    if (!(h > 0) || v < 1 || v > 1000) { alert("The arrival must be after the departure (1 to 1000 kn)."); voyCard(); return; }
+    R.speed = v; if (!R.etd) R.etd = etd; save(); voyCard(); planCard(); draw(); };
+  $("keepeta").onchange = e => { S.keepEta = e.target.checked; store.set("keepEta", S.keepEta); };
   $("etdnow").onclick = () => { R.etd = null; save(); voyCard(); planCard(); draw(); };
   $("voyplay").onclick = () => { VOY.on = true; if (VOY.t >= 1) VOY.t = 0; VOY.playing = !VOY.playing; VOY.last = 0; voyUI(); if (VOY.playing) requestAnimationFrame(VOY.tick); else draw(); };
   $("voyt").oninput = e => { VOY.on = true; VOY.playing = false; VOY.t = e.target.value / 1000; voyUI();
@@ -1346,7 +1388,7 @@ const APP = {
     const ps = location.hash.match(/pass=([^&]+)/);                 /* #pass=Alpha,Delta: a passage by names (demos) */
     if (ps) { const [x, y] = decodeURIComponent(ps[1]).split(","), f = n => (S.objects.find(o => o.name === n) || {}).id; passage(f(x), f(y)); }
     const sp = location.hash.match(/spd=([\d.]+)/);               /* #spd=480: the speed (demos) */
-    if (sp) { S.route.speed = +sp[1]; voyCard(); draw(); }
+    if (sp) { S.route.speed = +sp[1]; refresh(); }
     const zm = location.hash.match(/zoom=([\d.]+)/);              /* #zoom=6: closer (demos) */
     if (zm) { S.view.k *= +zm[1]; clampView(); draw(); }
   },
