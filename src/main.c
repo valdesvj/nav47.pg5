@@ -928,7 +928,7 @@ static void draw_info(void) {
     "/NAV47/COAST_C.BIN and COAST_L.BIN. 8 2 4 6 pan or turn, 7 9 zoom, 5 fit; ROUTE 0 opens it.",
     "VOYAGE:   the plan sailed or flown on a globe that follows: the ship (from 100 kn a plane), the date and "
     "time on board, DEP ARR, run and to go. R/S play, 4 6 a step, 7 9 zoom, ENTER the speed (typed) or + - (steps), 1 3 the departure, 0 ETA.",
-    "DP OPS:   (DP, menu 3) can she keep station off a platform? The platform (a square or a rectangle, its faces, its height) in /NAV47/DPOPS.TXT, made on the web page's DP tab; the vessel a DPCAP47 .DPV (VESSEL line, or /NAV47/VESSEL.DPV; else a made-up 95 m DP2 with three bow tunnels and two azimuths). DPCAP47's engine (DNV-ST-0111 level 1's forces, x 1.25; its thrust allocation) with the wind, the current and the sea from their own directions; the platform's lee lightens the wind (taller than the vessel: 30 % of it left close in, all of it 5 heights downwind). ENTER (BEST) tries every heading within the tolerance of square to the face (every face with FACE AUTO), stern, starboard, port or bow to it, the hull STANDOFF m off; inside the working limits (LIM: the bow tunnels 30 %); then each redundancy group lost at full thrust; then the wind she holds to with its sea. 4 6 the heading by hand, UP DOWN an hour (the current follows), 5 now, 0 the bars after the worst failure. FACE, SIDE, INPUT (the wind as SET; the current FLOW's or typed; the sea DNV's or typed; the standoff, the tolerance), LOAD reads the files again. Static, planning only: not the vessel's DP consequence analysis.",
+    "DP OPS:   (DP, menu 3) can she keep station off a platform? The platform (a square or a rectangle, its faces, its height) in /NAV47/DPOPS.TXT, made on the web page's DP tab; the vessel a DPCAP47 .DPV (VESSEL line, or /NAV47/VESSEL.DPV; else a made-up 95 m DP2 with three bow tunnels and two azimuths). DPCAP47's engine (DNV-ST-0111 level 1's forces, x 1.25; its thrust allocation) with the wind, the current and the sea from their own directions; the platform's lee lightens the wind (taller than the vessel: 30 % of it left close in, all of it 5 heights downwind). ENTER (BEST) tries every heading within the tolerance of square to the face (every face with FACE AUTO), stern, starboard, port or bow to it, the hull STANDOFF m off; inside the working limits (LIM: the bow tunnels 30 %); then each redundancy group lost at full thrust; then the wind she holds to with its sea. 4 6 the heading by hand, UP DOWN an hour (the current follows), 5 now, 0 the bars after the worst failure, 1 starboard or port side to: parallel to the face (PAR, the usual set-up) or within the tolerance. FACE, SIDE, INPUT (the wind as SET; the current FLOW's or typed; the sea DNV's or typed; the standoff, the tolerance), LOAD reads the files again. Static, planning only: not the vessel's DP consequence analysis.",
     "ETA TABLE:   (TABLE on ETA) the ETAs at the set speed and three slower ones, 0.5 kn apart: 8 2 the speed, 4 6 the step (0.25 0.5 1 kn), 5 the set speed, ENTER (USE) this line's speed for the voyage.",
     "ETA:   the plan's distance with ETD, ETA and speed: set two, the third follows (ETA typed: the speed it needs). 8 2 the field, ENTER types it (dates YYYY.MMDD, times HH.MM, in UT or LT), 0 or KEEP: a new ETD keeps the speed or the ETA, NOW: the ETD now. Saved in ROUTE.TXT (SPEED, ETD).",
     "FONTS:   C47 standardFont and tinyFont (C43 / C47 authors, GPL v3).",
@@ -2011,7 +2011,7 @@ static void dp_picture(void) {
   for (int k = 0; k < 4; k++) gfx_line(PX(pc[k][0]), PY(pc[k][1]), PX(pc[(k + 1) % 4][0]), PY(pc[(k + 1) % 4][1]), 1);
   static const int fk[4][2] = { { 0, 1 }, { 3, 0 }, { 2, 3 }, { 1, 2 } };   /* face 0 +a0 (corners 0 1), 1 +a1 (3 0), 2 -a0, 3 -a1 */
   int f = d->face & 3;
-  for (int t = -1; t <= 1; t++) {
+  for (int t = 1; t <= 3; t++) {                              /* the working face: 3 px, just outside */
     float nb = dpo_face_normal(&d->p, f) * (float)(M_PI / 180);
     int ox = (int)lroundf(t * sinf(nb)), oy = -(int)lroundf(t * cosf(nb));
     gfx_line(PX(pc[fk[f][0]][0]) + ox, PY(pc[fk[f][0]][1]) + oy, PX(pc[fk[f][1]][0]) + ox, PY(pc[fk[f][1]][1]) + oy, 1);
@@ -2039,16 +2039,15 @@ static void dp_picture(void) {
   }
 #undef PX
 #undef PY
-  /* the weather: arrows coming in from the picture's edge, a letter each; north */
-  struct { float from; const char *l; float v; } wx[3] = { { d->w.wfrom, "W", d->w.wkn }, { d->w.cset + 180, "C", d->w.ckn },
-                                                         { d->w.vfrom, "S", d->w.hs } };
+  /* the weather: three small arrows in the bottom left corner (where it goes), a letter each, clear of the drawing */
+  struct { float to; const char *l; float v; } wx[3] = { { d->w.wfrom + 180, "W", d->w.wkn }, { d->w.cset, "C", d->w.ckn },
+                                                       { d->w.vfrom + 180, "S", d->w.hs } };
+  gfx_rect(0, 180, 78, 28, 0);
   for (int k = 0; k < 3; k++) {
-    if (wx[k].v <= 0) continue;
-    double a = wx[k].from;
-    int rad = 88 - 16 * k, ex = X0 + (int)lround(rad * dsin(a)), ey = Y0 - (int)lround(rad * dcos(a));
-    ex = imax(8, imin(192, ex)); ey = imax(24, imin(200, ey));
-    arrow(ex, ey, a + 180, 18 - 3 * k);
-    draw_text(&TINY, ex + (dsin(a) > 0 ? -12 : 4), ey + (dcos(a) > 0 ? 2 : -10), wx[k].l, 0);
+    int ox = 12 + 24 * k, oy = 196;
+    draw_text(&TINY, ox - 10, oy - 14, wx[k].l, 0);
+    if (wx[k].v <= 0) { draw_text(&TINY, ox - 2, oy - 4, "-", 0); continue; }
+    arrow(ox - (int)lround(8 * dsin(wx[k].to)), oy + (int)lround(8 * dcos(wx[k].to)), wx[k].to, 16);
   }
   arrow(8, 36, 0, 14); draw_text(&TINY, 12, 20, "N", 0);
   for (int y = 17; y < MENU_Y; y += 2) lcd_fill_rect(201, (uint32_t)y, 1, 1, 1);
@@ -2062,7 +2061,8 @@ static void draw_dp(void) {
   char s[64];
   dp_picture();
   const int X = 206;
-  sprintf(s, "FACE %03.0f%s %s", dpo_face_normal(&d->p, d->face), d->p.face < 0 ? "*" : "", DPO_SIDE[d->p.side]);
+  sprintf(s, "FACE %03.0f%s %s%s", dpo_face_normal(&d->p, d->face), d->p.face < 0 ? "*" : "", DPO_SIDE[d->p.side],
+          dpo_tol(&d->p) == 0 && d->p.side != DPS_STERN && d->p.side != DPS_BOW ? " PAR" : "");
   nt(X, 18, s);
   sprintf(s, "HDG %03.0f%s  %.0fm OFF", r->hdg, d->manual ? " SET" : " BEST", d->p.standoff);
   nt(X, 34, s);
@@ -2108,6 +2108,7 @@ static void dp_key(int key) {
   else if (key == KEY_UP || key == KEY_DOWN) { step_time(key == KEY_UP ? 1 : -1); d->manual ? dp_eval_here() : dp_best(); }
   else if (key == KEY_5) { toff = 0; dp_best(); }
   else if (key == KEY_0) d->showfail ^= 1;
+  else if (key == KEY_1) { d->p.par ^= 1; dp_save_plat(); dp_best(); }   /* side to: parallel to the face, or within TOL */
   else if (key == KEY_EXIT) go(PG_VALM);
 }
 

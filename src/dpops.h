@@ -30,6 +30,7 @@ typedef struct {
   int   side;                           /* DPS_ */
   float standoff;                       /* m, the hull's nearest point off the face */
   float tol;                            /* degrees either side of square to the face */
+  int   par;                            /* starboard or port side to: parallel to the face (the usual set-up; TOL not used) */
   float smin, slen;                     /* shelter: the wind left close in the lee (0.3), the lee's length (5 heights) */
   float loa;                            /* the vessel's length overall, m (0: Lpp x 1.07) */
   float lim[MAX_THR];                   /* working limit, a fraction of full thrust (1: none), after LIM lines */
@@ -72,6 +73,7 @@ int  dpo_parse(const char *text, DpPlat *p, char *err, int errn);   /* DPOPS.TXT
 int  dpo_write(const DpPlat *p, char *buf, int n);                  /* DPOPS.TXT, the length */
 void dpo_limits(const Vessel *v, DpPlat *p);                         /* the LIM lines on this vessel's thrusters */
 float dpo_loa(const Vessel *v, const DpPlat *p);
+float dpo_tol(const DpPlat *p);                                      /* the tolerance used: 0 parallel */
 void dpo_waves_auto(DpWx *w);                                        /* Hs, Tp from DNV's Table 2-1 at the wind */
 float dpo_face_normal(const DpPlat *p, int face);
 int  dpo_place(const Vessel *v, const DpPlat *p, int face, float hdg, float *px, float *py);

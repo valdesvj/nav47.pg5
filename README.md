@@ -69,7 +69,8 @@ so, at which heading, inside the thrusters' working limits (a bow tunnel at 30 %
 - **The screen**: the platform with its working face, the vessel, the arrows for wind (W), current (C) and sea (S),
   HOLDS / OVER THE LIMITS / NO HOLD, the worst failure, blow-off or blow-on, and a bar per thruster with its limit.
   0 shows the bars after the worst failure.
-- **Keys**: 4 6 turn the heading by hand. UP DOWN move an hour, and the current follows the tide. 5 is now. FACE,
+- **Keys**: 1 switches a starboard- or port-side-to set-up between parallel to the face (PAR, the usual one) and
+  within ± TOL. 4 6 turn the heading by hand. UP DOWN move an hour, and the current follows the tide. 5 is now. FACE,
   SIDE, INPUT, LOAD.
 - **The weather**: the wind is SET's (FLOW's own). The current comes from the FLOW program at the platform: your
   atlas, else a stream station within 30 NM; or you type it. The sea comes from DNV's table for the wind, or you
@@ -86,7 +87,8 @@ ORIENT 030          # the bearing face 0 looks to; faces 1 2 3 at +90 +180 +270
 HEIGHT 45           # m
 SOLID 0             # 1: the waves sheltered too
 FACE AUTO           # or 0..3
-SIDE STERN          # STBD PORT BOW
+SIDE STBD           # STERN STBD PORT BOW
+PARALLEL 1          # starboard or port side to: along the face (the usual set-up); 0: within TOL
 STANDOFF 10         # m, the hull's nearest point
 TOL 30              # degrees either side of square
 SHELTER 0.30 5.0    # the wind left close in, the lee's length (platform heights)

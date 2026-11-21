@@ -112,6 +112,8 @@ The **DP** tab runs the same C as the calculator's DP OPS (`src/dpops.c`).
 - **The vessel**: a DPCAP47 `.DPV` (the example, or load yours; it stays in this browser), and the working limits.
 - **The weather**: the wind; the current from the flow program (your FLOW atlas, else a stream station within
   30 NM) or typed; the sea from DNV's table or typed.
+- **Four buttons** compare the set-ups at a glance: starboard side to (parallel), port side to (parallel), stern to
+  and bow to, each with its best heading and result. A click takes that set-up.
 - **The answer**: the picture with the lee shaded, the best heading, and each thruster's load against its limit,
   intact and after the worst failure. A ring shows every heading of the bow on that face: green holds, and after a
   failure; yellow holds; orange only beyond the limits; red no hold.

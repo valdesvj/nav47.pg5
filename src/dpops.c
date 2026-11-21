@@ -33,7 +33,7 @@ const char DPO_EXAMPLE_PLAT[] =
   "# an example: a made-up platform\n"
   "PLATFORM EXAMPLE PQ,26.7000,50.5000\n"
   "SIZE 40 30\nORIENT 030\nHEIGHT 45\nSOLID 0\n"
-  "FACE AUTO\nSIDE STERN\nSTANDOFF 10\nTOL 30\nSHELTER 0.3 5\nLOA 95\n"
+  "FACE AUTO\nSIDE STBD\nPARALLEL 1\nSTANDOFF 10\nTOL 30\nSHELTER 0.3 5\nLOA 95\n"
   "LIM TUN 30\n";
 
 static float wrap(float a) { a = fmodf(a, 360.0f); return a < 0 ? a + 360 : a; }
@@ -54,7 +54,7 @@ int dpo_parse(const char *text, DpPlat *p, char *err, int errn) {
   int ln = 0, have = 0;
   float keep_loa = p->loa;
   memset(p, 0, sizeof *p);
-  p->len = 40; p->wid = 30; p->height = 45; p->face = -1; p->standoff = 10; p->tol = 30; p->smin = 0.3f; p->slen = 5;
+  p->len = 40; p->wid = 30; p->height = 45; p->face = -1; p->standoff = 10; p->tol = 30; p->par = 1; p->smin = 0.3f; p->slen = 5;
   p->loa = keep_loa;
   strcpy(p->name, "PLATFORM");
   err[0] = 0;
@@ -94,6 +94,7 @@ int dpo_parse(const char *text, DpPlat *p, char *err, int errn) {
       for (int i = 0; i < DPS_N; i++) if (ieq(s, DPO_SIDE[i])) p->side = i;
     } else if (ieq(key, "STANDOFF")) p->standoff = (float)atof(s);
     else if (ieq(key, "TOL")) p->tol = (float)atof(s);
+    else if (ieq(key, "PARALLEL")) p->par = atoi(s) != 0;
     else if (ieq(key, "SHELTER")) sscanf(s, "%f %f", &p->smin, &p->slen);
     else if (ieq(key, "LOA")) p->loa = (float)atof(s);
     else if (ieq(key, "VESSEL")) snprintf(p->vessel, sizeof p->vessel, "%s", s);
@@ -122,8 +123,8 @@ int dpo_write(const DpPlat *p, char *buf, int n) {
     p->name, p->lat, p->lon, p->len, p->wid, p->orient, p->height, p->solid);
   if (p->face < 0) k += snprintf(buf + k, (size_t)(n - k), "FACE AUTO\n");
   else k += snprintf(buf + k, (size_t)(n - k), "FACE %d\n", p->face);
-  k += snprintf(buf + k, (size_t)(n - k), "SIDE %s\nSTANDOFF %.1f\nTOL %.0f\nSHELTER %.2f %.1f\n",
-                DPO_SIDE[p->side], p->standoff, p->tol, p->smin, p->slen);
+  k += snprintf(buf + k, (size_t)(n - k), "SIDE %s\nPARALLEL %d\nSTANDOFF %.1f\nTOL %.0f\nSHELTER %.2f %.1f\n",
+                DPO_SIDE[p->side], p->par, p->standoff, p->tol, p->smin, p->slen);
   if (p->loa > 0) k += snprintf(buf + k, (size_t)(n - k), "LOA %.1f\n", p->loa);
   if (p->vessel[0]) k += snprintf(buf + k, (size_t)(n - k), "VESSEL %s\n", p->vessel);
   for (int i = 0; i < p->nlim; i++) k += snprintf(buf + k, (size_t)(n - k), "LIM %s %.0f\n", p->limname[i], p->limpct[i]);
@@ -145,6 +146,7 @@ void dpo_limits(const Vessel *v, DpPlat *p) {
       }
 }
 
+float dpo_tol(const DpPlat *p) { return p->par && (p->side == DPS_STBD || p->side == DPS_PORT) ? 0 : p->tol; }
 float dpo_loa(const Vessel *v, const DpPlat *p) { return p->loa > 0 ? p->loa : v->lpp * 1.07f; }
 
 void dpo_waves_auto(DpWx *w) {
@@ -333,16 +335,17 @@ static float score(const DpRes *r) { return (float)r->rank * 10 - r->worst - (r-
 int dpo_best(Vessel *v, const DpPlat *p, const DpWx *w, float step, DpRes *best, void (*progress)(int, int)) {
   int f0 = p->face < 0 ? 0 : p->face, f1 = p->face < 0 ? 3 : p->face, n = 0, tot;
   if (step < 1) step = 1;
-  int nh = (int)(2 * p->tol / step) + 1;
+  float tol = dpo_tol(p);
+  int nh = (int)(2 * tol / step) + 1;
   tot = nh * (f1 - f0 + 1);
   float bs = -1e9f;
   DpRes r;
   memset(best, 0, sizeof *best);
   for (int f = f0; f <= f1; f++)
     for (int k = 0; k < nh; k++) {
-      float h = nominal(p, f) - p->tol + step * (float)k;
+      float h = nominal(p, f) - tol + step * (float)k;
       dpo_eval(v, p, w, f, h, &r);
-      float sc = score(&r) - fabsf(step * (float)k - p->tol) * 1e-4f;   /* ties: nearest square to the face */
+      float sc = score(&r) - fabsf(step * (float)k - tol) * 1e-4f;   /* ties: nearest square to the face */
       if (sc > bs) { bs = sc; *best = r; }
       n++;
       if (progress) progress(n, tot);

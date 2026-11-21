@@ -120,6 +120,20 @@ int main(void) {
   dpo_eval(&v, &p, &ex, 1, 120 + 90, &b);
   printf("   the same weather, face 1 STBD side to (heading 210): %s, the worst %s %.0f %% of its limit\n", b.rank >= 2 ? "holds" : b.rank == 1 ? "only beyond the limits" : "NO HOLD", v.thr[b.worst_thr].name, b.worst * 100);
 
+  /* parallel: starboard or port side to, the heading along the face */
+  for (int sd = DPS_STBD; sd <= DPS_PORT; sd++) {
+    DpPlat t = p;
+    t.side = sd; t.par = 1; t.face = 1;
+    DpRes q;
+    dpo_best(&v, &t, &ex, 5, &q, NULL);
+    float want = fmodf(dpo_face_normal(&t, 1) + (sd == DPS_STBD ? 90 : 270), 360);
+    CHECK(fabsf(q.hdg - want) < 0.01f, "parallel %s: heading %.1f, not %.1f", DPO_SIDE[sd], q.hdg, want);
+    float hull[7][2];
+    dpo_hull(&v, &t, q.hdg, q.px, q.py, hull);
+    float nb = dpo_face_normal(&t, 1) * 0.017453292f, d0 = hull[0][0] * sinf(nb) + hull[0][1] * cosf(nb), d6 = hull[6][0] * sinf(nb) + hull[6][1] * cosf(nb);
+    printf("5. %s side parallel to face 1: heading %03.0f, %s; the stern corners %.1f and %.1f m off the face's line\n", DPO_SIDE[sd], q.hdg,
+           q.rank >= 2 ? "holds" : q.rank == 1 ? "only beyond the limits" : "no hold", d0 - t.wid / 2, d6 - t.wid / 2);
+  }
   /* the file */
   char buf[600];
   dpo_write(&p, buf, sizeof buf);

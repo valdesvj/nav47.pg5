@@ -10,11 +10,14 @@ const DPTAB = (() => {
   const SIDES = ["STERN", "STBD", "PORT", "BOW"], SIDE_T = ["stern to", "starboard side to", "port side to", "bow to"];
   const KEY = "nav47web:dp", VKEY = "nav47web:dpv";
   const D0 = { name: "EXAMPLE PQ", lat: null, lon: null, shape: "rect", len: 40, wid: 30, orient: 30, height: 45, solid: false,
-               face: -1, side: 0, standoff: 10, tol: 30, smin: 30, slen: 5, loa: 95, lims: "TUN 30",
+               face: -1, side: 1, par: true, standoff: 10, tol: 30, smin: 30, slen: 5, loa: 95, lims: "TUN 30",
                wfrom: 330, wkn: 25, cauto: true, cset: 135, ckn: 1.0, sauto: true, vfrom: 330, hs: 2, tp: 7, hdg: null };
   let P = Object.assign({}, D0, JSON.parse(localStorage.getItem(KEY) || "{}"));
   let VES = localStorage.getItem(VKEY) || "";
-  let res = null, sweep = [], limw = null, csrc = "", err = "";
+  let res = null, sweep = [], limw = null, csrc = "", err = "", quick = [];
+  /* the set-ups compared at a click: [side, parallel, label] */
+  const SETUPS = [[1, true, "Starboard side to, parallel"], [2, true, "Port side to, parallel"], [0, false, "Stern to"], [3, false, "Bow to"]];
+  const setupName = () => P.side === 1 || P.side === 2 ? `${SIDE_T[P.side]}, ${P.par ? "parallel to the face" : `within ±${P.tol}° of parallel`}` : `${SIDE_T[P.side]}, ±${P.tol}°`;
   const save = () => localStorage.setItem(KEY, JSON.stringify(P));
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
   const pos = () => P.lat === null ? S().pos : [P.lat, P.lon];
@@ -25,7 +28,7 @@ const DPTAB = (() => {
     const lims = P.lims.split(/[\n,;]+/).map(s => s.trim()).filter(s => /^\S+\s+\d+(\.\d+)?$/.test(s));
     return ["NAV47 DPOPS 1", `PLATFORM ${P.name.replace(/,/g, " ").slice(0, 23)},${la.toFixed(5)},${lo.toFixed(5)}`,
             `SIZE ${(+P.len).toFixed(1)} ${(+wid).toFixed(1)}`, `ORIENT ${String(Math.round(P.orient) % 360).padStart(3, "0")}`,
-            `HEIGHT ${Math.round(P.height)}`, `SOLID ${P.solid ? 1 : 0}`, `FACE ${P.face < 0 ? "AUTO" : P.face}`, `SIDE ${SIDES[P.side]}`,
+            `HEIGHT ${Math.round(P.height)}`, `SOLID ${P.solid ? 1 : 0}`, `FACE ${P.face < 0 ? "AUTO" : P.face}`, `SIDE ${SIDES[P.side]}`, `PARALLEL ${P.par ? 1 : 0}`,
             `STANDOFF ${(+P.standoff).toFixed(1)}`, `TOL ${Math.round(P.tol)}`, `SHELTER ${(P.smin / 100).toFixed(2)} ${(+P.slen).toFixed(1)}`,
             `LOA ${(+P.loa).toFixed(1)}`, ...lims.map(l => "LIM " + l)].join("\n") + "\n";
   }
@@ -61,6 +64,15 @@ const DPTAB = (() => {
       x: o[4 + 5 * i], y: o[5 + 5 * i], grp: o[6 + 5 * i], kn: o[7 + 5 * i], lim: o[8 + 5 * i] })) };
   }
   function compute(best) {
+    /* each set-up's best, for the quick comparison (the page's own set-up last) */
+    const keep = [P.side, P.par];
+    quick = SETUPS.map(([sd, par, label]) => {
+      P.side = sd; P.par = par;
+      if (!setC()) return { label, ok: false };
+      weather(); Module._api_dp_best(); const r = read();
+      return { label, sd, par, ok: true, rank: r.rank, hdg: r.hdg, normal: r.normal, worst: r.worst, fgrp: r.fgrp, blow: r.blow };
+    });
+    [P.side, P.par] = keep;
     if (!setC()) { res = null; return; }
     const wx = weather();
     if (best || P.hdg === null) { Module._api_dp_best(); res = read(); P.hdg = null; limw = Module._api_dp_limit(); }
@@ -128,15 +140,21 @@ const DPTAB = (() => {
       g.beginPath(); g.arc(X(x), Y(y), 3 + 7 * Math.min(1, u), 0, 2 * Math.PI);
       g.fillStyle = u > lim * 1.001 ? "#c0392b" : u > lim * 0.8 ? "#e5a02a" : "#2e9e5b"; g.fill();
     });
-    /* the weather */
-    const arrows = [[P.wfrom, `wind ${Math.round(P.wkn)} kn`, "#1b2129", +P.wkn], [res.wx.cset + 180, `current ${res.wx.ckn.toFixed(1)} kn`, "#1f6fb2", res.wx.ckn],
-                    [res.wx.vfrom, `sea ${res.wx.hs.toFixed(1)} m`, "#6b4fa0", res.wx.hs]];
+    /* the weather: a key in the top left corner, clear of the drawing; a mark on the ring where each comes from */
+    const arrows = [[P.wfrom, `wind from ${String(Math.round(P.wfrom)).padStart(3, "0")}° ${Math.round(P.wkn)} kn`, "#1b2129", +P.wkn],
+                    [res.wx.cset + 180, `current to ${String(Math.round(res.wx.cset)).padStart(3, "0")}° ${res.wx.ckn.toFixed(1)} kn`, "#1f6fb2", res.wx.ckn],
+                    [res.wx.vfrom, `sea from ${String(Math.round(res.wx.vfrom)).padStart(3, "0")}° ${res.wx.hs.toFixed(1)} m`, "#6b4fa0", res.wx.hs]];
+    g.fillStyle = "rgba(255,255,255,0.85)"; g.fillRect(6, 26, 178, 74); g.strokeStyle = "#c9ced3"; g.lineWidth = 1; g.strokeRect(6, 26, 178, 74);
     arrows.forEach(([from, label, c, v], i) => {
+      const y = 42 + 21 * i;
+      g.fillStyle = c; g.strokeStyle = c; g.font = "12px system-ui"; g.textAlign = "left";
+      if (v > 0) { g.lineWidth = 2.2; APP.arrowPath(g, 22, y, (from + 180) % 360, 18); } else g.fillText("–", 18, y + 4);
+      g.fillText(v > 0 ? label : label.split(" ")[0] + " none", 38, y + 4);
       if (!(v > 0)) return;
-      const a = from * Math.PI / 180, r0 = ring - 30 - 18 * i, sx = X0 + r0 * Math.sin(a), sy = Y0 - r0 * Math.cos(a), L = 34;
-      const ex = sx - L * Math.sin(a), ey = sy + L * Math.cos(a);
-      g.strokeStyle = c; g.fillStyle = c; g.lineWidth = 2.5; APP.arrowPath(g, (sx + ex) / 2, (sy + ey) / 2, (from + 180) % 360, L);
-      g.font = "11px system-ui"; g.textAlign = "center"; g.fillText(label, sx + 14 * Math.sin(a), sy - 14 * Math.cos(a));
+      const a = (from - 90) * Math.PI / 180, r1 = ring + 6, r2 = ring + 15;   /* where it comes from, outside the ring */
+      g.beginPath(); g.moveTo(X0 + r1 * Math.cos(a), Y0 + r1 * Math.sin(a));
+      g.lineTo(X0 + r2 * Math.cos(a + 0.03), Y0 + r2 * Math.sin(a + 0.03)); g.lineTo(X0 + r2 * Math.cos(a - 0.03), Y0 + r2 * Math.sin(a - 0.03));
+      g.closePath(); g.fill();
     });
     g.fillStyle = "#1b2129"; g.textAlign = "left"; g.font = "bold 12px system-ui"; g.fillText("N ↑", 10, 18);
     const m = Math.pow(10, Math.floor(Math.log10(40 / k * 2))), bar = m * k;
@@ -160,14 +178,21 @@ const DPTAB = (() => {
     const objs = (S().objects || []).filter(o => /platform|rig|wellhead|spm/.test(o.type));
     el.innerHTML = `<div class="grid2" style="display:grid;grid-template-columns:minmax(380px,1.25fr) minmax(330px,1fr);gap:14px">
      <div class="card"><h2>DP operation · ${esc(P.name)} <span class="meta">${F().pos(la, lo)}</span></h2>
+      <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:8px">${quick.map((q, i) => {
+        const bg = !q.ok ? "#eee" : ["#f8dcd8", "#fbe3cc", "#fdf0d5", "#dff3e6"][q.rank], on = q.sd === P.side && (q.sd > 2 || q.sd < 1 || q.par === !!P.par);
+        return `<button class="dpq" data-q="${i}" style="text-align:left;padding:6px 8px;border-radius:8px;border:${on ? "2px solid #1b2129" : "1px solid #c9ced3"};background:${bg};line-height:1.3">
+          <b>${q.label}</b><br>${q.ok ? `<span class="mono">${String(Math.round(q.hdg)).padStart(3, "0")}°</span> off ${String(Math.round(q.normal)).padStart(3, "0")}° ·
+          ${["no hold", "beyond limits", "holds", "holds + failure"][q.rank]}<br><span class="meta">worst ${Math.round(q.worst * 100)} % of its limit · ${q.blow >= 0 ? "blow-off" : "blow-on"}</span>` : ""}</button>`; }).join("")}</div>
       <canvas id="dpcv" style="width:100%;height:560px;border-radius:8px"></canvas>
       ${err ? `<div class="meta" style="color:var(--now)">${esc(err)}</div>` : ""}
       ${res ? `<div class="pill ${st[0]}" style="margin:8px 0;padding:6px 10px;border-radius:8px;font-weight:600;background:${st[0] === "ok" ? "#dff3e6" : st[0] === "warn" ? "#fdf0d5" : "#f8dcd8"}">${st[1]}</div>
-      <table><tr><td>Heading</td><td class="num mono">${String(Math.round(res.hdg)).padStart(3, "0")}° ${P.hdg === null ? "(the best)" : "(yours)"}</td>
-        <td>Face</td><td class="num mono">${String(Math.round(res.normal)).padStart(3, "0")}°${P.face < 0 ? " (AUTO)" : ""}, ${SIDE_T[P.side]}, ${P.standoff} m off</td></tr>
-       <tr><td>Wind in the lee</td><td class="num mono">${Math.round(res.wleft * 100)} % of it</td><td>Weather's push</td>
-        <td class="num mono">${Math.round(res.fmag)} kN to ${String(Math.round(res.fto)).padStart(3, "0")}°, ${res.blow >= 0 ? "blow-off" : "<b>blow-on</b>"} ${Math.abs(Math.round(res.blow))} kN</td></tr>
-       <tr><td>Wind limit</td><td class="num mono">${limw >= 64 ? "> 64" : limw.toFixed(0)} kn</td><td colspan="2" class="meta">the wind from ${Math.round(P.wfrom)}° raised with its sea (DNV Table 2-1), inside the limits, this heading</td></tr></table>
+      <div style="display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;margin:4px 2px 0;font-size:14px">
+       <span class="meta">Heading</span><span><b class="mono">${String(Math.round(res.hdg)).padStart(3, "0")}°</b> ${P.hdg === null ? "the best" : "yours"}</span>
+       <span class="meta">Set-up</span><span>off the face looking to <span class="mono">${String(Math.round(res.normal)).padStart(3, "0")}°</span>${P.face < 0 ? " (AUTO: the best face)" : ""}, ${setupName()}, ${P.standoff} m off</span>
+       <span class="meta">Wind in the lee</span><span>${res.wleft < 0.999 ? `${Math.round(res.wleft * 100)} % of it reaches her` : "none: all of the wind"}</span>
+       <span class="meta">Weather's push</span><span><span class="mono">${Math.round(res.fmag)} kN</span> towards ${String(Math.round(res.fto)).padStart(3, "0")}°: ${res.blow >= 0 ? "blow-off" : "<b>blow-on</b>"} ${Math.abs(Math.round(res.blow))} kN</span>
+       <span class="meta">Wind limit</span><span><b class="mono">${limw >= 64 ? "> 64" : limw.toFixed(0)} kn</b> <span class="meta">from ${Math.round(P.wfrom)}°, with its sea (DNV Table 2-1), inside the limits, at this heading</span></span>
+      </div>
       <table style="margin-top:8px"><tr><th>Thruster</th><th>Type</th><th class="num">Group</th><th class="num">Full kN</th><th class="num">Limit</th><th style="width:34%">Intact</th><th class="num">Group ${res.fgrp} lost</th></tr>
        ${V.thr.map((t, i) => { const u = res.use[i] || 0, l = t.lim || 1, c = u > l * 1.001 ? "#c0392b" : u > l * 0.8 ? "#e5a02a" : "#2e9e5b";
          return `<tr><td>${esc(t.name)}</td><td>${esc(t.type)}</td><td class="num">${t.grp}</td><td class="num mono">${Math.round(t.kn)}</td><td class="num mono">${Math.round(l * 100)} %</td>
@@ -175,7 +200,7 @@ const DPTAB = (() => {
            ${l < 1 ? `<div style="position:absolute;left:${l * 100}%;top:-3px;width:2px;height:18px;background:#1b2129"></div>` : ""}</div>
            <span class="mono" style="font-size:12px">${Math.round(u * 100)} %</span></td>
          <td class="num mono">${t.grp === res.fgrp ? "lost" : Math.round((res.fuse_t[i] || 0) * 100) + " %"}</td></tr>`; }).join("")}</table>
-      <div class="meta">The ring: the answer at each heading of the bow on this face (green holds, and after a failure; yellow holds;
+      <div class="meta">The four buttons: each set-up's best on ${P.face < 0 ? "the best face" : "this face"} (a click takes it). The ring: the answer at each heading of the bow on this face (green holds, and after a failure; yellow holds;
        orange only beyond the limits; red no hold). The thrusters' discs: their load. The shaded area: the platform's lee
        (taller than the vessel: ${P.smin} % of the wind left close in, all of it ${P.slen} heights downwind).</div>` : ""}
       <div class="controls" style="margin-top:8px"><button id="dp_best" class="on">Best heading</button>
@@ -204,7 +229,9 @@ const DPTAB = (() => {
         <label>Lee: ${num("smin", P.smin, 5, 60)} % of the wind close in, all of it at ${num("slen", P.slen, 0.5, 60)} heights</label></div>
        <div class="controls"><label>Working face <select id="dp_face"><option value="-1">AUTO (the best)</option>
          ${[0, 1, 2, 3].map(f => `<option value="${f}">${f}: looks to ${String(Math.round((+P.orient + 90 * f) % 360)).padStart(3, "0")}°</option>`).join("")}</select></label>
-        <label>The vessel <select id="dp_side">${SIDE_T.map((s, i) => `<option value="${i}">${s}</option>`).join("")}</select></label></div>
+        <label>The vessel <select id="dp_side"><option value="1:1">starboard side to, parallel</option><option value="2:1">port side to, parallel</option>
+          <option value="1:0">starboard side to, ± the tolerance</option><option value="2:0">port side to, ± the tolerance</option>
+          <option value="0:0">stern to</option><option value="3:0">bow to</option></select></label></div>
        <div class="controls"><label>Standoff ${num("standoff", P.standoff)} m</label><label>Heading ± ${num("tol", P.tol, 5)}° of square</label></div></div>
       <div class="card"><h2>Vessel <span class="meta">${res ? esc(N().str(Module._api_dp_vname())) : ""}</span></h2>
        <div class="controls"><label>LOA ${num("loa", P.loa)} m</label><label>Working limits <input id="dp_lims" value="${esc(P.lims)}" style="width:150px" title="TYPE % or NAME %: TUN 30, BT3 40, AZ 80"></label></div>
@@ -234,7 +261,9 @@ const DPTAB = (() => {
     on("obj", e => { const o = (S().objects || []).filter(o => /platform|rig|wellhead|spm/.test(o.type))[+e.target.value]; if (o) { P.lat = o.lat; P.lon = o.lon; P.name = (o.name || o.type).toUpperCase().slice(0, 23); save(); } render(true); });
     $("shape").value = P.shape; on("shape", e => { P.shape = e.target.value; save(); render(true); });
     $("face").value = String(P.face); on("face", e => { P.face = +e.target.value; P.hdg = null; save(); render(true); });
-    $("side").value = String(P.side); on("side", e => { P.side = +e.target.value; P.hdg = null; save(); render(true); });
+    $("side").value = `${P.side}:${(P.side === 1 || P.side === 2) && P.par ? 1 : 0}`;
+    on("side", e => { const [a, b] = e.target.value.split(":"); P.side = +a; P.par = b === "1"; P.hdg = null; save(); render(true); });
+    document.querySelectorAll(".dpq").forEach(b => b.onclick = () => { const q = quick[+b.dataset.q]; P.side = q.sd; P.par = q.par; P.hdg = null; save(); render(true); });
     on("solid", e => { P.solid = e.target.checked; save(); render(true); });
     on("cauto", e => { P.cauto = e.target.checked; save(); render(true); });
     on("sauto", e => { P.sauto = e.target.checked; save(); render(true); });
