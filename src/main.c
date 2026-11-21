@@ -887,7 +887,7 @@ static void draw_info(void) {
     "CHART:   Mercator or GLOBE (F4) over the coastline, Natural Earth 110 m and 50 m (public domain), "
     "/NAV47/COAST_C.BIN and COAST_L.BIN. 8 2 4 6 pan or turn, 7 9 zoom, 5 fit; ROUTE 0 opens it.",
     "VOYAGE:   the plan sailed or flown on a globe that follows: the ship (from 100 kn a plane), the date and "
-    "time on board, DEP ARR, run and to go. R/S play, 4 6 a step, + - knots, 1 3 the departure.",
+    "time on board, DEP ARR, run and to go. R/S play, 4 6 a step, 7 9 zoom, ENTER the speed (typed) or + - (steps), 1 3 the departure.",
     "FONTS:   C47 standardFont and tinyFont (C43 / C47 authors, GPL v3).",
     "",
     "DOES NOT REPLACE THE NAUTICAL ALMANAC, OFFICIAL CHARTS OR TIDE TABLES. Not for use as the primary "
@@ -1496,7 +1496,7 @@ static void chart_key(int key) {
 #define VOY_STEPS 96
 #define VOY_W     220                                  /* the globe's box: x 0..219, rows 16..190 */
 static map_t voy_m;
-static int voy_step, voy_play, voy_back = PG_PLAN;
+static int voy_step, voy_play, voy_back = PG_PLAN, voy_edit;   /* voy_edit: typing the speed */
 static double voy_etd;                                 /* the departure, UT (JD) */
 static const double VOY_KN[] = { 4, 6, 8, 10, 12, 14, 16, 18, 20, 25, 30, 40, 250, 300, 400, 450, 480, 500, 550 };
 
@@ -1595,7 +1595,8 @@ static void draw_voy(void) {
   int pw = XR - X, px = (int)((double)pw * voy_step / VOY_STEPS);            /* the progress */
   gfx_frame(X, y + 2, pw, 8); gfx_rect(X, y + 2, px, 8, 1);
   if (voy_step >= VOY_STEPS) strcpy(s, plane ? "LANDED  R/S again" : "ARRIVED  R/S again");
-  else sprintf(s, "%s  4 6 step  +- kn  1 3 ETD", voy_play ? "R/S pause" : "R/S play");
+  else sprintf(s, "%s 4 6 step ENT/+- kn 1 3 ETD", voy_play ? "R/S pause" : "R/S play");
+  if (voy_edit) { sprintf(s, "SPEED kn: %s_  ENTER ok  EXIT", ebuf); nt_inv(2, 192, s); return; }
   nt(2, 192, s);
 }
 
@@ -1608,7 +1609,23 @@ static void voy_speed(int dir) {
   route_save();
 }
 
+/* the speed typed: digits and a point, ENTER keeps it (1 to 1000 kn) */
+static void voy_edit_key(int key) {
+  int d = digit(key);
+  if (key == KEY_ENTER) {
+    double v = atof(ebuf);
+    if (elen && v >= 1 && v <= 1000) { voy_kn = v; route_save(); }
+    voy_edit = 0;
+    return;
+  }
+  if (key == KEY_EXIT) { voy_edit = 0; return; }
+  if (key == KEY_BSP) { if (elen) ebuf[--elen] = 0; return; }
+  if (key == KEY_DOT && elen < 6 && !strchr(ebuf, '.')) { ebuf[elen++] = '.'; ebuf[elen] = 0; return; }
+  if (d >= 0 && elen < 6) { ebuf[elen++] = (char)('0' + d); ebuf[elen] = 0; }
+}
+
 static void voy_key(int key) {
+  if (key == KEY_ENTER) { voy_play = 0; voy_edit = 1; elen = 0; ebuf[0] = 0; return; }
   if (key == KEY_RUN) {
     if (voy_step >= VOY_STEPS) voy_step = 0;
     voy_play = !voy_play;
@@ -1691,7 +1708,7 @@ static void redraw(void) {
   MENUS[0][2] = page == PG_VSKY ? "SKY2" : "SKY";
   CHART_MENU[3] = chart_globe ? "MERC" : "GLOBE";
   VOY_MENU[0] = voy_play ? "PAUSE" : "PLAY";
-  lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0) ? EDIT_MENU :
+  lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit) ? EDIT_MENU :
                      page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : page == PG_VOY ? VOY_MENU : MENUS[menu_page]);
   lcd_refresh();
   lcd_refresh_wait();        /* the LCD goes out by DMA: done before the next frame clears the buffer (no flicker) */
@@ -1806,10 +1823,11 @@ static void handle_key(int key) {
       return;
     }
   }
-  if ((edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0) && key == KEY_F6) key = KEY_EXIT;
+  if ((edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit) && key == KEY_F6) key = KEY_EXIT;
   if (edit_field >= 0) { key_edit(key); return; }
   if (wp_edit >= 0) { key_wp(key); return; }
   if (cmp_edit >= 0) { cmp_edit_key(key); return; }
+  if (voy_edit) { voy_edit_key(key); return; }
   if (key >= KEY_F1 && key <= KEY_F6) { softkey(key - KEY_F1); vframe = 0; return; }
   if (key == KEY_CHS) { N->cfg.lt ^= 1; N->valid = 0; cfg_save(); return; }   /* +/-: the times in UT or LT, every page */
   if (IS_VIEW(page)) {
