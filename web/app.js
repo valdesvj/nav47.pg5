@@ -94,13 +94,14 @@ const S = {
   tab: store.get("tab", "route"),
   live: true, jd: jdOf(Date.now()),
   pos: store.get("pos", [26.5, 50.1667]),
-  times: store.get("times", "ut"),
-  route: Object.assign({ wps: [], sail: 1, lim: 60, split: 0, val: 10, ell: 0, avoid: true, speed: 12, etd: null, margin: 50, clear: 50, len: 100 },
+  times: store.get("times", "ut") === "ut" ? "ut" : "zt",
+  route: Object.assign({ wps: [], sail: 1, lim: 60, split: 0, val: 10, ell: 0, avoid: true, speed: 12, etd: null, margin: 50, clear: 50, len: 95 },
                        store.get("route", {})),
   objects: store.get("objects", []),
   view: store.get("view", { mode: "merc", lat0: 30, lon0: 10, k: 220 }),
   tool: "move", objType: "platform", sel: null, keepEta: store.get("keepEta", false), etaStep: store.get("etaStep", 0.5), pass: { from: "", to: "" }, showStreams: store.get("streams", false),
 };
+if (S.route.len === 100) S.route.len = 95;                       /* the old default: the Mermaid Asiana is 95 m */
 const save = () => { store.set("route", S.route); store.set("objects", S.objects); store.set("view", S.view); store.set("pos", S.pos); store.set("times", S.times); };
 const zd = () => S.times === "zt" ? Math.round(S.pos[1] / 15) : 0;       /* the times shown: UT or ZT (the DR's zone) */
 const nowJd = () => S.live ? jdOf(Date.now()) : S.jd;
@@ -650,10 +651,10 @@ function drawObj(o, sel) {
 const SHIP = [0x0000004000, 0x000000E000, 0x0000004000, 0x000000E000, 0x0000004000, 0x000001F000, 0x000003FFFF, 0x000002AB02,
               0x00FFE3FE84, 0x007FDFFF48, 0x0060BFFFB0, 0x00607FFFFC, 0x00F1FFFFFC, 0x1FFFFFFFFC, 0x1FFFFFFFF8, 0x1FFFFFFFF0];
 /* the vessel on the chart, as on an ECDIS: seen from above, turned to the course; at true scale when that is big
-   enough (the Mermaid Asiana 100 m x 20 m, the plane 64 m long, 60 m span), else a symbol of a fixed size; a course
+   enough (the Mermaid Asiana 95 m x 22 m, the plane 64 m long, 60 m span), else a symbol of a fixed size; a course
    vector ahead (6 minutes' run, at least 40 px). Its side profile (the photograph) is the HUD's badge. */
-const VESSEL = { len: 100, beam: 20, planeLen: 64, minPx: 60 };
-function drawVessel(la, lo, crs, plane) {
+const VESSEL = { len: 95, beam: 22, planeLen: 64, minPx: 60 };
+function drawVessel(la, lo, crs, plane, stopped) {
   const g = CH.g, [x, y, v] = proj(la, lo);
   if (!v) return;
   const [ax, ay] = proj(la + 0.001 * Math.cos(crs * D2R), lo + 0.001 * Math.sin(crs * D2R) / Math.max(0.01, Math.cos(la * D2R)));
@@ -668,6 +669,18 @@ function drawVessel(la, lo, crs, plane) {
   g.beginPath(); g.moveTo(x + fx * L / 2 * scale, y + fy * L / 2 * scale); g.lineTo(x + fx * vl, y + fy * vl); g.stroke();
   g.beginPath(); g.moveTo(x + fx * vl, y + fy * vl); g.lineTo(x + fx * (vl - 7) - fy * 4, y + fy * (vl - 7) + fx * 4);
   g.lineTo(x + fx * (vl - 7) + fy * 4, y + fy * (vl - 7) - fx * 4); g.closePath(); g.fillStyle = css("--now"); g.fill();
+  if (stopped && !plane) {                                         /* at the start or the arrival: its side, the bow to the course */
+    g.setTransform(CH.dpr, 0, 0, CH.dpr, 0, 0);
+    const W = 37, Hh = 16, px = Math.max(2.4, L * scale / W), flip = fx < 0;
+    const on = (r, k) => Math.floor(SHIP[r] / 2 ** (W - 1 - k)) % 2;
+    const col = (r, k) => r >= 11 || (r >= 10 && k >= 29) || (r === 9 && k >= 31) ? "#d63a2a"
+      : r <= 6 || (r === 7 && k >= 27) ? "#5b6470" : r === 9 && k >= 15 && k <= 18 ? "#f08a24" : "#f4f4f2";
+    const X = k => x + ((flip ? W - 1 - k : k) - W / 2) * px, Y = r => y + (r - Hh + 3) * px;
+    g.fillStyle = "#1b2129";
+    for (let r = 0; r < Hh; r++) for (let k = 0; k < W; k++) if (on(r, k)) g.fillRect(X(k) - 1, Y(r) - 1, px + 2, px + 2);
+    for (let r = 0; r < Hh; r++) for (let k = 0; k < W; k++) if (on(r, k)) { g.fillStyle = col(r, k); g.fillRect(X(k), Y(r), px + 0.3, px + 0.3); }
+    g.restore(); return;
+  }
   /* the vessel's own frame: +X forward, +Y to starboard, metres */
   g.setTransform(CH.dpr * fx * scale, CH.dpr * fy * scale, -CH.dpr * fy * scale, CH.dpr * fx * scale, CH.dpr * x, CH.dpr * y);
   const lw = 1.2 / scale;
@@ -683,14 +696,14 @@ function drawVessel(la, lo, crs, plane) {
     /* the hull: a square stern, straight sides, a pointed bow */
     g.beginPath(); g.moveTo(-H, -B); g.lineTo(H * 0.45, -B); g.quadraticCurveTo(H * 0.9, -B, H, 0); g.quadraticCurveTo(H * 0.9, B, H * 0.45, B);
     g.lineTo(-H, B); g.closePath(); g.fillStyle = "#d63a2a"; g.fill(); g.strokeStyle = "#1b2129"; g.lineWidth = lw * 1.4; g.stroke();
-    g.fillStyle = "#c3c8cd"; g.fillRect(-H * 0.95, -B * 0.82, H * 1.05, B * 1.64);                         /* the working deck */
-    g.fillStyle = "#f4f4f2"; g.fillRect(H * 0.08, -B * 0.8, H * 0.5, B * 1.6); g.strokeRect(H * 0.08, -B * 0.8, H * 0.5, B * 1.6);  /* superstructure */
-    g.beginPath(); g.arc(H * 0.62, 0, B * 1.05, 0, 2 * Math.PI); g.fillStyle = "#4d5560"; g.fill(); g.stroke();   /* the helideck */
-    g.save(); g.translate(H * 0.62, 0); g.rotate(Math.PI / 2); g.fillStyle = "#f2d14a";
-    g.font = `bold ${B * 1.1}px system-ui`; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("H", 0, 0); g.restore();
-    g.beginPath(); g.arc(-H * 0.76, B * 0.45, B * 0.32, 0, 2 * Math.PI); g.fillStyle = "#f4f4f2"; g.fill(); g.stroke();  /* the crane */
-    g.fillStyle = "#f4f4f2"; g.fillRect(-H * 0.76, B * 0.32, H * 0.62, B * 0.26); g.strokeRect(-H * 0.76, B * 0.32, H * 0.62, B * 0.26); /* its boom, forward */
-    g.fillStyle = "#f08a24"; g.fillRect(-H * 0.02, B * 0.55, H * 0.12, B * 0.4);                                 /* the rescue boat */
+    g.fillStyle = "#e9ebec"; g.fillRect(-H * 0.95, -B * 0.82, H * 1.3, B * 1.64);                         /* the open deck */
+    g.fillStyle = "#9aa1a8"; g.fillRect(H * 0.2, -B * 0.85, H * 0.25, B * 1.7); g.strokeRect(H * 0.2, -B * 0.85, H * 0.25, B * 1.7);  /* the bridge block */
+    g.fillStyle = "#9aa1a8"; g.fillRect(-H * 0.92, B * 0.3, H * 1.1, B * 0.45); g.strokeRect(-H * 0.92, B * 0.3, H * 1.1, B * 0.45); /* the crane, parked to starboard */
+    g.beginPath(); g.arc(-H * 0.82, B * 0.52, B * 0.3, 0, 2 * Math.PI); g.fillStyle = "#6b737b"; g.fill(); g.stroke();  /* its pedestal, aft */
+    g.beginPath(); g.arc(H * 0.7, 0, B * 0.9, 0, 2 * Math.PI); g.fillStyle = "#3d444c"; g.fill(); g.stroke();   /* the helideck, at the bow */
+    g.save(); g.translate(H * 0.7, 0); g.rotate(Math.PI / 2); g.fillStyle = "#ffffff";
+    g.font = `bold ${B * 1.0}px system-ui`; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText("H", 0, 0); g.restore();
+    g.fillStyle = "#f08a24"; g.fillRect(-H * 0.1, -B * 0.75, H * 0.14, B * 0.35);                                /* the rescue boat, port */
   }
   g.restore();
 }
@@ -763,7 +776,7 @@ function draw() {
     if (S.sel && S.sel.t === "w" && S.sel.i === i) { g.beginPath(); g.arc(x, y, 11, 0, 2 * Math.PI); g.stroke(); }
   });
   { const [x, y, v] = proj(S.pos[0], S.pos[1]); if (v) { g.strokeStyle = css("--now"); g.lineWidth = 2; g.beginPath(); g.moveTo(x - 8, y); g.lineTo(x + 8, y); g.moveTo(x, y - 8); g.lineTo(x, y + 8); g.stroke(); } }
-  if (VOY.on) { const p = VOY.at(); if (p) drawVessel(p.lat, p.lon, p.crs, R.speed >= 100); }
+  if (VOY.on) { const p = VOY.at(); if (p) drawVessel(p.lat, p.lon, p.crs, R.speed >= 100, !VOY.playing && (VOY.t <= 0 || VOY.t >= 1)); }
   /* the scale and the corner */
   g.font = "12px system-ui"; g.fillStyle = css("--soft");
   const la0 = unproj(CH.W / 2, CH.H / 2);
@@ -1283,7 +1296,7 @@ function voyCard() {
   const iso = new Date(msOf(etd)).toISOString().slice(0, 16);
   el.innerHTML = `<h2>Voyage <span class="meta">${R.speed >= 100 ? "✈ flight" : "🚢 the Mermaid Asiana"}</span></h2>
     <div class="controls"><label>Speed <input class="num" id="speed" type="number" min="1" max="1000" step="0.01" value="${(+R.speed).toFixed(2)}"> kn</label>
-      <label ${R.speed >= 100 ? "hidden" : ""}>Length <input class="num" id="vlen" type="number" min="5" max="500" step="1" value="${R.len || 100}"> m</label>
+      <label ${R.speed >= 100 ? "hidden" : ""}>Length <input class="num" id="vlen" type="number" min="5" max="500" step="1" value="${R.len || 95}"> m</label>
       <label>Departure UT <input type="datetime-local" id="etd" value="${iso}" step="60"></label><button id="etdnow" class="small">now</button>
       <label>Arrival UT <input type="datetime-local" id="eta" value="${new Date(msOf(etd + H / 24)).toISOString().slice(0, 16)}" step="60"></label>
       <label title="a new departure keeps the arrival (the speed follows), else the speed (the arrival follows)"><input type="checkbox" id="keepeta" ${S.keepEta ? "checked" : ""}> a new departure keeps the arrival</label></div>
@@ -1337,12 +1350,16 @@ function showTab(t) {
 }
 function header() {
   const ut = $("ut"), dr = $("dr"), now = $("now"), times = $("times");
-  times.innerHTML = '<option value="ut">UT</option><option value="zt">ZT (the DR\'s zone)</option>';
-  const show = () => { ut.value = new Date(msOf(nowJd())).toISOString().slice(0, 16); now.classList.toggle("on", S.live); };
+  times.innerHTML = '<option value="ut">all times UT</option><option value="zt">all times ZT (the DR\'s zone)</option>';
+  const show = () => {
+    ut.value = new Date(msOf(nowJd())).toISOString().slice(0, 16); now.classList.toggle("on", S.live);
+    const z = Math.round(S.pos[1] / 15), d = new Date(msOf(nowJd()) + z * 36e5), p2 = n => String(n).padStart(2, "0");
+    $("ztclock").textContent = `ZT ${p2(d.getUTCDate())}-${p2(d.getUTCMonth() + 1)} ${p2(d.getUTCHours())}:${p2(d.getUTCMinutes())} (UTC${z >= 0 ? "+" : "−"}${Math.abs(z)})`;
+  };
   dr.value = FMT.pos(S.pos[0], S.pos[1]); times.value = S.times; show();
   now.onclick = () => { S.live = !S.live; S.jd = jdOf(Date.now()); show(); rerender(); };
   ut.onchange = () => { const t = Date.parse(ut.value + "Z"); if (isFinite(t)) { S.live = false; S.jd = jdOf(t); } show(); rerender(); };
-  dr.onchange = () => { const p = parsePos(dr.value); if (p) S.pos = p; dr.value = FMT.pos(S.pos[0], S.pos[1]); save(); rerender(); };
+  dr.onchange = () => { const p = parsePos(dr.value); if (p) S.pos = p; dr.value = FMT.pos(S.pos[0], S.pos[1]); save(); show(); rerender(); };
   times.onchange = () => { S.times = times.value; save(); rerender(); };
   setInterval(() => { if (S.live) { show(); if (S.tab !== "route" && S.tab !== "calc") rerender(); } }, 5000);
 }

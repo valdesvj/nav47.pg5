@@ -1613,7 +1613,7 @@ static void draw_voy(void) {
     }
   }
   for (int i = 0; i < R->n; i++) if (R->w[i].flags & WPT_USER) map_mark(&voy_m, R->w[i].lat, R->w[i].lon, 1);
-  map_icon(&voy_m, lat, lon, crs, plane);
+  map_icon(&voy_m, lat, lon, crs, plane, !voy_play && (voy_step == 0 || voy_step >= VOY_STEPS));   /* stopped: its side */
   map_space(&voy_m);
   gfx_rect(0, CHART_Y0 + CHART_H, LCD_X, 1, 1);
   gfx_rect(VOY_W, CHART_Y0, 1, CHART_H, 1);

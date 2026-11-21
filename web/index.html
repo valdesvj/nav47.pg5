@@ -85,10 +85,11 @@
 </head>
 <body>
 <header>
-  <h1>NAV47 <span>Almanac 47 · Tide 47 · Zones 47 · passage planning</span></h1>
+  <h1>NAV47 <span>1.0 · Almanac 47 · Tide 47 · Zones 47 · passage planning</span></h1>
   <div class="controls">
     <button id="now" class="on" title="follow the clock">Now</button>
     <label>UT <input type="datetime-local" id="ut" step="60"></label>
+    <span id="ztclock" class="meta mono" title="the zone time of the DR (its longitude / 15)"></span>
     <label>DR <input class="pos" id="dr" placeholder="27 12.0N 049 42.0E"></label>
     <label>Times <select id="times"><option value="ut">UT</option><option value="lt">LT</option></select></label>
   </div>
@@ -137,18 +138,38 @@
 </main>
 <footer>Not for navigation: check against official charts, the Nautical Almanac and tide tables. By Victor Valdes, Master Mariner.
   Coastlines: Natural Earth (public domain). Geodesics: GeographicLib (C. F. F. Karney, MIT). Your objects and routes stay in this browser.</footer>
-<script src="calc.js"></script>
-<script src="app.js"></script>
-<script src="tabs.js"></script>
-<script src="weather.js"></script>
+<div id="fail" hidden style="position:fixed;top:0;left:0;right:0;z-index:99;background:#b3261e;color:#fff;padding:10px 16px;font:14px system-ui">
+  <b>NAV47 could not start:</b> <span id="failmsg"></span>
+  <button id="failreset" style="margin-left:12px">Forget this page's saved data and reload</button></div>
+<script>
+/* if the page can't start: say why, and offer a clean start (a stale or broken saved state, a blocked script) */
+function nav47fail(msg) {
+  const f = document.getElementById("fail"); if (!f) return;
+  document.getElementById("failmsg").textContent = msg; f.hidden = false;
+  document.getElementById("failreset").onclick = () => {
+    Object.keys(localStorage).filter(k => /^nav47(web|fs):/.test(k) && !/tidefile:/.test(k)).forEach(k => localStorage.removeItem(k));
+    location.hash = ""; location.reload();
+  };
+}
+window.addEventListener("error", e => { if (!window.NAV47_UP) nav47fail((e.message || "a script failed") + (e.filename ? " (" + e.filename.split("/").pop() + ":" + e.lineno + ")" : "")); });
+setTimeout(() => { if (!window.NAV47_UP) nav47fail("still loading after 30 s: nav47.js missing or blocked? Open web/index.html from the repository (make web)."); }, 30000);
+</script>
+<script src="calc.js?v=1.0"></script>
+<script src="app.js?v=1.0"></script>
+<script src="tabs.js?v=1.0"></script>
+<script src="weather.js?v=1.0"></script>
 <script>
 window.Module = {
   nav47_lcd: fb => CALC.lcd(fb),
   nav47_saved: () => CALC.saveAll(),
   print: t => console.log(t), printErr: t => console.log(t),
-  onRuntimeInitialized() { Module.ready = true; CALC.restore(); APP.start(); },
+  onRuntimeInitialized() {
+    Module.ready = true;
+    try { CALC.restore(); APP.start(); window.NAV47_UP = true; }
+    catch (e) { console.error(e); nav47fail(e.message + " (" + ((e.stack || "").split("\n")[1] || "").trim() + ")"); }
+  },
 };
 </script>
-<script src="nav47.js"></script>
+<script src="nav47.js?v=1.0"></script>
 </body>
 </html>

@@ -274,7 +274,7 @@ static const uint64_t SHIP[SHIP_H] = { 0x0000004000ULL, 0x000000E000ULL, 0x00000
 static const uint16_t PLANE[13] = { 0x0040, 0x00E0, 0x00E0, 0x00E0, 0x01F0, 0x0FFE, 0x1FFF, 0x00E0, 0x00E0, 0x00E0,
                                     0x01F0, 0x03F8, 0x0000 };
 
-void map_icon(const map_t *m, double lat, double lon, double crs, int plane) {
+void map_icon(const map_t *m, double lat, double lon, double crs, int plane, int stopped) {
   float fx, fy, ax, ay;
   lon = near_lon(lon, m->lon0);
   if (!proj(m, lat, lon, &fx, &fy) || outcode(m, fx, fy)) return;
@@ -284,7 +284,7 @@ void map_icon(const map_t *m, double lat, double lon, double crs, int plane) {
   int x = (int)lroundf(fx), y = (int)lroundf(fy);
   if (l > 1e-4f) {
     dx /= l; dy /= l;
-    int i0 = plane ? 8 : 16, i1 = plane ? 20 : 28;
+    int i0 = plane ? 8 : stopped ? 20 : 22, i1 = plane ? 20 : stopped ? 33 : 34;
     for (int i = i0; i < i1; i++) {                           /* the heading line, white edged */
       int px = x + (int)lroundf(dx * i), py = y + (int)lroundf(dy * i);
       if (outcode(m, (float)px, (float)py)) break;
@@ -316,27 +316,35 @@ void map_icon(const map_t *m, double lat, double lon, double crs, int plane) {
         if (PLANE[r] & (1u << (12 - k))) gfx_pixel(x - 6 + k, y - 6 + r, 1);
     return;
   }
-  if (l > 1e-4f) {                                            /* the vessel from above, along its course */
-    /* in its own frame: f forward (dx, dy), r to starboard (-dy, dx); 28 px long, 9 wide: the hull (a square
-       stern, a pointed bow), the helideck forward (white, a ring, an H along the vessel) */
-    gfx_disc(x, y, 16, 0);
-    for (int v = -16; v <= 16; v++)
-      for (int u = -16; u <= 16; u++) {
-        float f = u * dx + v * dy, rr = -u * dy + v * dx, r = fabsf(rr);
-        float half = f <= 6 ? 4.6f : 4.6f * (14 - f) / 8;              /* the bow's taper from f = 6 to the stem at 14 */
-        if (f < -13.5f || f > 14 || r > half + 0.4f) continue;
-        float hf = f - 6.5f, d = sqrtf(hf * hf + rr * rr);                /* the helideck: centre f = 6.5, radius 4.4 */
-        int on = 1;
-        if (d <= 4.4f) {
-          on = d >= 3.5f;                                                  /* its ring */
-          if (fabsf(hf) <= 2.2f && fabsf(r - 1.6f) <= 0.55f) on = 1;       /* the H: two legs along the vessel ... */
-          if (fabsf(hf) <= 0.5f && r <= 1.6f) on = 1;                      /* ... and the bar across */
+  if (l > 1e-4f && !stopped) {                                /* under way: the vessel from above, along its course */
+    /* the Mermaid Asiana, 95 m x 22 m, drawn 40 px x 9 px. In its frame: f forward (dx, dy), r to starboard (-dy, dx).
+       The hull outlined (a square stern, a raked bow), the helideck at the bow (black, a white H along the vessel), the
+       bridge block just aft of it (grey), the crane along the starboard side from the stern to the bridge (grey,
+       its pedestal aft); the open deck white. Grey: every other pixel. */
+    const float HALF = 4.6f, AFT = -20, FWD = 20, TAPER = 9, HC = 13.5f, HR = 5.2f;
+    gfx_disc(x, y, 23, 0);
+    for (int v = -23; v <= 23; v++)
+      for (int u = -23; u <= 23; u++) {
+        float f = u * dx + v * dy, sr = -u * dy + v * dx, r = fabsf(sr);
+        float half = f <= FWD - TAPER ? HALF : HALF * (FWD - f) / TAPER;
+        int grey = ((x + u) + (y + v)) & 1, on = -1;
+        float hf = f - HC, d = sqrtf(hf * hf + sr * sr);
+        if (d <= HR) {                                                          /* the helideck: black, a white H */
+          on = 1;
+          if ((fabsf(hf) <= 2.6f && fabsf(r - 1.9f) <= 0.6f) || (fabsf(hf) <= 0.6f && r <= 1.9f)) on = 0;
+        } else if (f >= AFT && f <= FWD && r <= half + 0.5f) {
+          if (r >= half - 0.6f || f <= AFT + 0.9f) on = 1;                       /* the hull's outline, the stern */
+          else if (f >= HC - HR - 4.5f && f < HC - HR + 0.3f) on = grey;         /* the bridge block */
+          else if (sr >= 1.2f && f <= HC - HR - 4.5f) on = grey;                 /* the crane, starboard */
+          else on = 0;                                                            /* the open deck */
+          float pf = f - (AFT + 3.5f), pr = sr - 2.7f;
+          if (pf * pf + pr * pr <= 2.0f) on = 1;                                 /* the crane's pedestal */
         }
-        gfx_pixel(x + u, y + v, on);
+        if (on >= 0) gfx_pixel(x + u, y + v, on);
       }
     return;
   }
-  int flip = 0;                                               /* no course: the side view */
+  int flip = l > 1e-4f && dx < 0;                             /* stopped: the side view, the bow to the heading */
   gfx_rect(x - SHIP_W / 2 - 1, y - SHIP_H / 2 - 1, SHIP_W + 2, SHIP_H + 2, 0);
   for (int r = 0; r < SHIP_H; r++)
     for (int k = 0; k < SHIP_W; k++)
