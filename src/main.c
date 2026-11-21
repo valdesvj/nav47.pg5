@@ -1433,6 +1433,7 @@ static void draw_chart(void) {
     if (plan_dirty || legs_dirty) plan_build();
   }
   route_t *R = route ? &geo_route : NULL;
+  if (R && R->n < 2) { route = 0; R = NULL; }             /* no plan: the chart without it */
   if (chart_refit) { chart_fit(); chart_refit = 0; }
   chart_m.e = (float)sqrt(geo_ell.f * (2 - geo_ell.f));   /* the ellipsoid may have changed */
   int step = map_grid(&chart_m);
@@ -1544,6 +1545,7 @@ static void draw_voy(void) {
   if (!route || !geo_route_alloc()) { header("VOYAGE"); nt(4, 48, "Needs a route (ROUTE, 2 waypoints)."); return; }
   if (plan_dirty || legs_dirty) plan_build();
   route_t *R = &geo_route;
+  if (R->n < 2) { header("VOYAGE"); nt(4, 48, "No plan: PLAN first (R/S on ROUTE)."); return; }
   double tot = R->w[R->n - 1].cum_m, sd = tot * voy_step / VOY_STEPS;
   double hours = tot / NM / voy_kn, el = hours * voy_step / VOY_STEPS;
   double lat, lon, crs;

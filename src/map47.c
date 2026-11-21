@@ -174,6 +174,7 @@ static int outcode(const map_t *m, float x, float y) {
 }
 
 static void line_f(const map_t *m, float x1, float y1, float x2, float y2, int style) {
+  if (!isfinite(x1) || !isfinite(y1) || !isfinite(x2) || !isfinite(y2)) return;   /* a bad point: never a runaway line */
   int c1 = outcode(m, x1, y1), c2 = outcode(m, x2, y2);
   float xa = m->x0, xb = m->x0 + m->w - 1, ya = m->y0, yb = m->y0 + m->h - 1;
   while (c1 | c2) {                                           /* Cohen-Sutherland */

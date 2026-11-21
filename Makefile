@@ -55,7 +55,8 @@ CFLAGS += -O0 -g -DDEBUG
 else
 CFLAGS += -O2 -g
 endif
-CFLAGS += -MD -MP -MF .dep/$(@F).d
+# the header dependencies, one folder a build (the default and the TinyUSB builds must not share them)
+CFLAGS += -MD -MP -MF $(BUILD_DIR)/.dep/$(@F).d
 
 LDSCRIPT = stm32_program.ld
 LDFLAGS  = $(CPUFLAGS) -T$(LDSCRIPT) -Wl,-Map=$(BUILD_DIR)/$(TARGET).map,--cref -Wl,--gc-sections \
@@ -144,7 +145,7 @@ both:
 clean:
 	-rm -fR .dep $(BUILD_DIR)
 
--include $(shell mkdir .dep 2>/dev/null) $(wildcard .dep/*)
+-include $(shell mkdir -p $(BUILD_DIR)/.dep 2>/dev/null) $(wildcard $(BUILD_DIR)/.dep/*)
 
 .PHONY: both clean all test test-usb data sim FORCE
 include web.mk
