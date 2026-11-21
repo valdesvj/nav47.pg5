@@ -928,7 +928,7 @@ static void draw_info(void) {
     "/NAV47/COAST_C.BIN and COAST_L.BIN. 8 2 4 6 pan or turn, 7 9 zoom, 5 fit; ROUTE 0 opens it.",
     "VOYAGE:   the plan sailed or flown on a globe that follows: the ship (from 100 kn a plane), the date and "
     "time on board, DEP ARR, run and to go. R/S play, 4 6 a step, 7 9 zoom, ENTER the speed (typed) or + - (steps), 1 3 the departure, 0 ETA.",
-    "DP OPS:   (DP, menu 3) can she keep station off a platform? The platform (a square or a rectangle, its faces, its height) in /NAV47/DPOPS.TXT, made on the web page's DP tab; the vessel a DPCAP47 .DPV (VESSEL line, or /NAV47/VESSEL.DPV; else a made-up 95 m DP2 with three bow tunnels and two azimuths). DPCAP47's engine (DNV-ST-0111 level 1's forces, x 1.25; its thrust allocation). The picture: each thruster's force an arrow, the weather's whole push a thick arrow in tonnes (PUSH: x 1.25, where it pushes, OFF or ON the platform) with the wind, the current and the sea from their own directions; the platform's lee lightens the wind (taller than the vessel: 30 % of it left close in, all of it 5 heights downwind). ENTER (BEST) tries every heading within the tolerance of square to the face (every face with FACE AUTO), stern, starboard, port or bow to it, the hull STANDOFF m off; inside the working limits (LIM: the bow tunnels 30 %); then each redundancy group lost at full thrust; then the wind she holds to with its sea. 4 6 the heading by hand, UP DOWN an hour (the current follows), 5 now, 0 the bars and the arrows after the worst failure, 3 the bars in tonnes or %, 1 starboard or port side to: parallel to the face (PAR, the usual set-up) or within the tolerance. FACE, SIDE, INPUT (the wind as SET; the current FLOW's or typed; the sea DNV's or typed; the standoff, the tolerance), LOAD reads the files again. Static, planning only: not the vessel's DP consequence analysis.",
+    "DP OPS:   (DP, menu 3) can she keep station off a platform? The platform (a square or a rectangle, its faces, its height) in /NAV47/DPOPS.TXT, made on the web page's DP tab; the vessel a DPCAP47 .DPV (VESSEL line, or /NAV47/VESSEL.DPV; else a made-up 95 m DP2 with three bow tunnels and two azimuths). DPCAP47's engine (DNV-ST-0111 level 1's forces, x 1.25; its thrust allocation). The picture: each thruster's force an arrow, the weather's whole push a thick arrow in tonnes (PUSH: x 1.25, where it pushes, OFF or ON the platform) with the wind, the current and the sea from their own directions; the platform's lee lightens the wind (taller than the vessel: 30 % of it left close in, all of it 5 heights downwind). ENTER (BEST) tries every heading within the tolerance of square to the face (every face with FACE AUTO), stern, starboard, port or bow to it, the hull STANDOFF m off; inside the working limits (LIM: the bow tunnels 30 %); then each redundancy group lost at full thrust; then the wind she holds to with its sea. 4 6 the heading by hand, 7 9 the wind's direction 10 degrees, 8 2 its speed 1 kn, UP DOWN an hour (the current follows), 5 now, 0 the bars and the arrows after the worst failure, 3 the bars in tonnes or %, 1 starboard or port side to: parallel to the face (PAR, the usual set-up) or within the tolerance. FACE, SIDE, INPUT (the wind as SET; the current FLOW's or typed; the sea DNV's or typed; the standoff, the tolerance), LOAD reads the files again. Static, planning only: not the vessel's DP consequence analysis.",
     "ETA TABLE:   (TABLE on ETA) the ETAs at the set speed and three slower ones, 0.5 kn apart: 8 2 the speed, 4 6 the step (0.25 0.5 1 kn), 5 the set speed, ENTER (USE) this line's speed for the voyage.",
     "ETA:   the plan's distance with ETD, ETA and speed: set two, the third follows (ETA typed: the speed it needs). 8 2 the field, ENTER types it (dates YYYY.MMDD, times HH.MM, in UT or LT), 0 or KEEP: a new ETD keeps the speed or the ETA, NOW: the ETD now. Saved in ROUTE.TXT (SPEED, ETD).",
     "FONTS:   C47 standardFont and tinyFont (C43 / C47 authors, GPL v3).",
@@ -2179,6 +2179,17 @@ static void dp_key(int key) {
   else if (key == KEY_4 || key == KEY_6) { d->hdg = fmodf(d->r.hdg + (key == KEY_4 ? 355 : 5), 360); d->manual = 1; dp_eval_here(); }
   else if (key == KEY_UP || key == KEY_DOWN) { step_time(key == KEY_UP ? 1 : -1); d->manual ? dp_eval_here() : dp_best(); }
   else if (key == KEY_5) { toff = 0; dp_best(); }
+  else if (key == KEY_7 || key == KEY_9 || key == KEY_8 || key == KEY_2) {   /* the wind: 7 9 its direction, 8 2 its speed */
+    Cfg *c = &N->cfg;
+    if (key == KEY_7) c->wdir = fmod(c->wdir + 350, 360);
+    else if (key == KEY_9) c->wdir = fmod(c->wdir + 10, 360);
+    else if (key == KEY_8) c->wkn = fmin(99, c->wkn + 1);
+    else c->wkn = fmax(0, c->wkn - 1);
+    c->wdir = 10 * floor(c->wdir / 10 + 0.5); if (c->wdir >= 360) c->wdir -= 360;
+    c->wkn = floor(c->wkn + 0.5);
+    cfg_save();
+    d->manual ? dp_eval_here() : dp_best();
+  }
   else if (key == KEY_0) d->showfail ^= 1;
   else if (key == KEY_3) d->tonnes ^= 1;                       /* the bars: % of full thrust or tonnes */
   else if (key == KEY_1) { d->p.par ^= 1; dp_save_plat(); dp_best(); }   /* side to: parallel to the face, or within TOL */

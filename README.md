@@ -74,7 +74,8 @@ so, at which heading, inside the thrusters' working limits (a bow tunnel at 30 %
   HOLDS / OVER THE LIMITS / NO HOLD, the worst failure, blow-off or blow-on, and a bar per thruster with its limit.
   0 shows the bars and the arrows after the worst failure; 3 switches the bars between % of full thrust and tonnes.
 - **Keys**: 1 switches a starboard- or port-side-to set-up between parallel to the face (PAR, the usual one) and
-  within ± TOL. 4 6 turn the heading by hand. UP DOWN move an hour, and the current follows the tide. 5 is now. FACE,
+  within ± TOL. 4 6 turn the heading by hand. 7 9 turn the wind 10°, 8 2 change its speed by 1 kn (the sea
+  follows when it is DNV's). UP DOWN move an hour, and the current follows the tide. 5 is now. FACE,
   SIDE, INPUT, LOAD.
 - **The weather**: the wind is SET's (FLOW's own). The current comes from the FLOW program at the platform: your
   atlas, else a stream station within 30 NM; or you type it. The sea comes from DNV's table for the wind, or you
