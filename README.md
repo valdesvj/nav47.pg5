@@ -48,6 +48,60 @@ Each row shows the leg from the waypoint before: **CRS** (true), **DIST** and **
 
 The route is saved in `/NAV47/ROUTE.TXT` (one `lat lon` per line, degrees), up to 40 waypoints.
 
+## DP OPS: station keeping off a platform
+
+**DP** (menu 3) asks: can the vessel hold station a few metres off a platform in today's wind, current and sea? If
+so, at which heading, inside the thrusters' working limits (a bow tunnel at 30 %), and after the worst single failure?
+
+- **The engine** is DPCAP47's (`src/dp/dpcap.c`, a copy: `make dpsync DPCAP47=~/opt/dpcap47.pg5`). It gives
+  DNV-ST-0111 level 1's wind, current and wave-drift forces (x 1.25), and its thrust allocation.
+  `src/dpops.c` adds:
+  - wind, current and sea from **their own directions**;
+  - **the platform's lee**: the default rule is that the platform is taller than the vessel. Close in, 30 % of the
+    wind is left; all of it returns 5 platform heights downwind. A SOLID platform shelters the waves too; a jacket
+    lets them through;
+  - the hull placed **STANDOFF m off a face**, stern-, starboard-, port- or bow-to, within ± TOL degrees of square
+    to it;
+  - **working limits** (`LIM TUN 30`), held in the intact case. After a redundancy group is lost, the remaining
+    thrusters may use full thrust.
+- **BEST** (ENTER) tries every heading every 5°, on every face with FACE AUTO. It keeps the one with the most
+  margin, then finds the wind she holds to from that direction, with its sea.
+- **The screen**: the platform with its working face, the vessel, the arrows for wind (W), current (C) and sea (S),
+  HOLDS / OVER THE LIMITS / NO HOLD, the worst failure, blow-off or blow-on, and a bar per thruster with its limit.
+  0 shows the bars after the worst failure.
+- **Keys**: 4 6 turn the heading by hand. UP DOWN move an hour, and the current follows the tide. 5 is now. FACE,
+  SIDE, INPUT, LOAD.
+- **The weather**: the wind is SET's (FLOW's own). The current comes from the FLOW program at the platform: your
+  atlas, else a stream station within 30 NM; or you type it. The sea comes from DNV's table for the wind, or you
+  type it (INPUT).
+- **The files**: the platform is `/NAV47/DPOPS.TXT`, made on the web page's **DP** tab. The vessel is a DPCAP47
+  `.DPV`: the VESSEL line, or `/NAV47/VESSEL.DPV`. Without one, NAV47 uses a made-up 95 m x 22 m DP2 with three
+  bow tunnels and two azimuths. Keep your real vessel's file on your disk, not in the repository.
+
+```
+NAV47 DPOPS 1
+PLATFORM EXAMPLE PQ,26.70000,50.50000
+SIZE 40 30          # m: along ORIENT, across (SIZE 40: a square)
+ORIENT 030          # the bearing face 0 looks to; faces 1 2 3 at +90 +180 +270
+HEIGHT 45           # m
+SOLID 0             # 1: the waves sheltered too
+FACE AUTO           # or 0..3
+SIDE STERN          # STBD PORT BOW
+STANDOFF 10         # m, the hull's nearest point
+TOL 30              # degrees either side of square
+SHELTER 0.30 5.0    # the wind left close in, the lee's length (platform heights)
+LOA 95
+LIM TUN 30          # a type (TUN AZI AZD PROP, AZ both azimuths) or a thruster's name, % of full thrust
+```
+
+It is a static balance (DNV level 1). It does not model position excursions, thruster wash on the platform, or
+shelter from the current. **Planning, not operations:** check against the vessel's DP FMEA, ASOG and capability
+plots. `make test-dp` checks it:
+- without lee or limits, every case gives the same answer as DPCAP47's own `dp_held`;
+- the hull stays at least STANDOFF m off, on every side, face and heading;
+- the lee works as described;
+- the limits hold.
+
 ## The screen on your PC (USB)
 
 **`>> >>` USB** (it shows `USB*` while on) sends the screen to the PC over the USB cable, through **DMCP5's serial

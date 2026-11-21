@@ -6,6 +6,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
 #include "astro.h"
 #include "almdata.h"
 #include "views.h"
@@ -17,6 +18,7 @@
 #include "geo_route.h"
 #include "geo_ellipsoids.h"
 #include "tidefile.h"
+#include "dpops.h"
 
 #define K EMSCRIPTEN_KEEPALIVE
 static double OUT[8192], IN[4096];
@@ -293,5 +295,93 @@ K int api_stream_now(int i, double jd) {
   double h;
   st_local(s, jd, &n, &h);
   stream_now(s, n, h, &OUT[0], &OUT[1]);
+  return 1;
+}
+
+/* ---------------------------------------------------------------- DP OPS (src/dpops.c, DPCAP47's engine): the
+   platform's DPOPS.TXT and the vessel's .DPV as text, the weather, the best heading or a heading's balance */
+static Vessel DV;
+static DpPlat DPP;
+static DpWx DW;
+static DpRes DR;
+static char DERR[64];
+K const char *api_dp_err(void) { return DERR; }
+K const char *api_dp_example_vessel(void) { return DPO_EXAMPLE_VESSEL; }
+K const char *api_dp_example_plat(void) { return DPO_EXAMPLE_PLAT; }
+/* 0 ok, else see api_dp_err */
+K int api_dp_set(const char *plat, const char *vessel) {
+  DERR[0] = 0;
+  if (dpo_parse(plat, &DPP, DERR, sizeof DERR)) return 1;
+  memset(&DV, 0, sizeof DV);
+  if (dp_parse(&DV, vessel && *vessel ? vessel : DPO_EXAMPLE_VESSEL, DERR, sizeof DERR)) return 2;
+  dp_prepare(&DV);
+  dpo_limits(&DV, &DPP);
+  return 0;
+}
+K const char *api_dp_vname(void) { return DV.name; }
+K const char *api_dp_tname(int i) { return i >= 0 && i < DV.nthr ? DV.thr[i].name : ""; }
+K const char *api_dp_ttype(int i) { return i >= 0 && i < DV.nthr ? DP_TYPE[DV.thr[i].type] : ""; }
+/* OUT: lpp, b, loa, nthr, then a thruster: x, y, group, full kN, limit */
+K void api_dp_vessel(void) {
+  OUT[0] = DV.lpp; OUT[1] = DV.b; OUT[2] = dpo_loa(&DV, &DPP); OUT[3] = DV.nthr;
+  for (int i = 0; i < DV.nthr; i++) { double *o = OUT + 4 + 5 * i; o[0] = DV.thr[i].x; o[1] = DV.thr[i].y; o[2] = DV.thr[i].grp; o[3] = DV.thr[i].tf; o[4] = DPP.lim[i]; }
+}
+K void api_dp_wx(double wfrom, double wkn, double cset, double ckn, double vfrom, double hs, double tp) {
+  DW.wfrom = (float)wfrom; DW.wkn = (float)wkn; DW.cset = (float)cset; DW.ckn = (float)ckn;
+  DW.vfrom = (float)vfrom; DW.hs = (float)hs; DW.tp = (float)tp;
+}
+/* DNV's sea for a wind: OUT hs, tp */
+K void api_dp_sea(double wkn) { DpWx w = { 0, (float)wkn, 0, 0, 0, 0, 0 }; dpo_waves_auto(&w); OUT[0] = w.hs; OUT[1] = w.tp; }
+static void dp_out(void) {
+  DpRes *r = &DR;
+  double *o = OUT;
+  o[0] = r->hdg; o[1] = r->face; o[2] = r->px; o[3] = r->py; o[4] = r->wleft; o[5] = r->vleft; o[6] = r->fmag; o[7] = r->fto;
+  o[8] = r->blow; o[9] = r->held_lim; o[10] = r->held_full; o[11] = r->worst; o[12] = r->worst_thr; o[13] = r->fail_held;
+  o[14] = r->fail_grp; o[15] = r->fail_use; o[16] = r->rank; o[17] = dpo_face_normal(&DPP, r->face);
+  float h[7][2];
+  dpo_hull(&DV, &DPP, r->hdg, r->px, r->py, h);
+  for (int i = 0; i < 7; i++) { o[20 + 2 * i] = h[i][0]; o[21 + 2 * i] = h[i][1]; }
+  for (int i = 0; i < DV.nthr; i++) { o[40 + i] = r->use[i]; o[60 + i] = r->fail_wuse[i]; }
+  o[34] = r->env[0]; o[35] = r->env[1]; o[36] = r->env[2];
+}
+K int api_dp_best(void) { dp_abort = 0; int n = dpo_best(&DV, &DPP, &DW, 5, &DR, NULL); dp_out(); return n; }
+K void api_dp_eval(int face, double hdg) { dpo_eval(&DV, &DPP, &DW, face & 3, (float)hdg, &DR); dp_out(); }
+K double api_dp_limit(void) { return dpo_limit_wind(&DV, &DPP, &DW, DR.face, DR.hdg); }
+/* each heading the side allows on a face (every 5 degrees): OUT [heading, rank, worst] x n; n */
+K int api_dp_sweep(int face) {
+  int n = 0;
+  DpRes r;
+  for (int h = 0; h < 360; h += 5) {
+    dpo_eval(&DV, &DPP, &DW, face & 3, (float)h, &r);
+    OUT[3 * n] = h; OUT[3 * n + 1] = r.rank; OUT[3 * n + 2] = r.worst; n++;
+  }
+  return n;
+}
+/* the current at a position, as the calculator's DP OPS: the atlas (springs, the wind added), else a stream station
+   within 30 NM. OUT: set, kn; the source's name */
+static char DCSRC[48];
+K const char *api_dp_csrc(void) { return DCSRC; }
+K int api_dp_current(double lat, double lon, double jd, double wdir, double wkn) {
+  OUT[0] = OUT[1] = 0;
+  if (api_flow(lat, lon, jd, wdir, wkn, 0) && OUT[34] >= 0) {
+    double se = OUT[34], kn = OUT[35];
+    OUT[0] = se; OUT[1] = kn;
+    snprintf(DCSRC, sizeof DCSRC, "your FLOW atlas");
+    return 1;
+  }
+  int n = api_tide_count(), best = -1;
+  double bd = 30;
+  for (int i = 0; i < n; i++) {
+    const TStation *s = station(i, NULL);
+    if (!s || s->kind == TK_TIDE) continue;
+    double d = 60 * acos(fmin(1, sin(lat * M_PI / 180) * sin(s->lat * M_PI / 180) +
+                         cos(lat * M_PI / 180) * cos(s->lat * M_PI / 180) * cos((lon - s->lon) * M_PI / 180))) * 180 / M_PI;
+    if (d < bd) { bd = d; best = i; }
+  }
+  if (best < 0) { snprintf(DCSRC, sizeof DCSRC, "no stream within 30 NM"); return 0; }
+  api_stream_now(best, jd);
+  double rate = OUT[0], set = OUT[1];
+  OUT[0] = set; OUT[1] = fabs(rate);
+  snprintf(DCSRC, sizeof DCSRC, "%.28s, %.0f NM", station(best, NULL)->name, bd);
   return 1;
 }

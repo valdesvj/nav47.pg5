@@ -65,6 +65,7 @@ LDFLAGS  = $(CPUFLAGS) -T$(LDSCRIPT) -Wl,-Map=$(BUILD_DIR)/$(TARGET).map,--cref 
 all: $(BUILD_DIR)/$(TARGET).pg5
 
 include geo47.mk
+include dpops.mk
 
 OBJECTS  = $(addprefix $(BUILD_DIR)/,$(notdir $(C_SOURCES:.c=.o)))
 vpath %.c $(sort $(dir $(C_SOURCES)))
@@ -128,7 +129,7 @@ SIM_DEFS = $(if $(filter sercon,$(USB)),,-DSERCON_TINYUSB)
 SIM_SRC = test/sim/sim.c src/main.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
           src/c47scr.c src/views.c src/fonts21.c src/ntext.c src/moon47.c src/route.c $(SIM_USB) \
           src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c \
-          $(GEO47_SRC) src/geo_nav.c src/map47.c
+          $(GEO47_SRC) src/geo_nav.c src/map47.c $(DPOPS_SRC)
 $(BUILD_DIR)/gen/simfont.h: test/sim/gen_simfont.py
 	@mkdir -p $(BUILD_DIR)/gen
 	$(PYTHON) test/sim/gen_simfont.py $@
