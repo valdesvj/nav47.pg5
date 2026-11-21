@@ -15,6 +15,7 @@ WEB_FLAGS = -O2 -std=gnu11 -w -ffp-contract=off '-D__packed=__attribute__((__pac
 
 web: $(WEB_OUT)
 $(WEB_OUT): web/api.c $(wildcard src/*.h src/geo47/*.h) $(filter-out %tidedata_priv.c,$(SIM_SRC)) $(BUILD_DIR)/gen/simfont.h build/coast/COAST_C.BIN build/coast/COAST_L.BIN $(WEB_NOAA) web.mk
+	@test -n "$(WEB_NOAA)" || { echo "make web: no build/noaa/N*.TID - run make noaa first (NOAA's current stations)"; exit 1; }
 	@mkdir -p build/web build/emcache
 	$(PYTHON) tools/gen_tides.py private - build/web/tidedata_priv.c >/dev/null
 	EM_CACHE=$(CURDIR)/build/emcache $(EMCC) $(WEB_FLAGS) -o $@ $(WEB_SRC)

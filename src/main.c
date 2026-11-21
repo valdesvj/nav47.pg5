@@ -49,6 +49,7 @@ typedef struct {
   double fixed_jd;          /* UT */
   double wdir, wkn;         /* wind (from), knots, for FLOW */
   int    tsrc, treg, tst;   /* tide station: source (0 public, 1 private, 2 file), region, station */
+  int    tauto;             /* 1: TIDE and T&F take the stations nearest the position (AUTO) */
   int    zone, city;        /* ZONES stop and city */
   char   files[4][40];      /* loaded tide files, reloaded at start */
   int    nfiles;
@@ -218,8 +219,29 @@ static void draw_zones(void) {
 static int src_nreg(int src) { return src == 0 ? PUB_NREGIONS : src == 1 ? PRIV_NREGIONS : N->nfr; }
 static const TRegion *src_reg(int src, int r) { return src == 0 ? &PUB_REGIONS[r] : src == 1 ? &PRIV_REGIONS[r] : &N->fr[r]; }
 
+/* the station nearest (lat, lon) of a kind (want 0: a tide, 1: a stream), every source; its distance (NM) in *nm */
+static const TStation *nearest_station(double lat, double lon, int want, double *nm, int *src, int *reg, int *st) {
+  const TStation *best = NULL;
+  double bd = 1e18;
+  for (int sc = 0; sc < 3; sc++)
+    for (int r = 0; r < src_nreg(sc); r++) {
+      const TRegion *R = src_reg(sc, r);
+      for (int i = 0; i < R->n; i++) {
+        const TStation *p = &R->st[i];
+        if ((p->kind != TK_TIDE) != want) continue;
+        double dd = 60 * hypot(p->lat - lat, (p->lon - lon) * dcos(lat));
+        if (dd < bd) { bd = dd; best = p; if (src) { *src = sc; *reg = r; *st = i; } }
+      }
+    }
+  if (nm) *nm = bd;
+  return best;
+}
 static const TStation *cur_station(void) {
   Cfg *c = &N->cfg;
+  if (c->tauto) {                                        /* AUTO: the tide station nearest the position */
+    int sc, r, i;
+    if (nearest_station(c->lat, c->lon, 0, NULL, &sc, &r, &i)) { c->tsrc = sc; c->treg = r; c->tst = i; }
+  }
   if (c->tsrc < 0 || c->tsrc > 2 || c->treg >= src_nreg(c->tsrc)) { c->tsrc = 0; c->treg = 0; c->tst = 0; }
   const TRegion *r = src_reg(c->tsrc, c->treg);
   if (c->tst >= r->n) c->tst = 0;
@@ -281,6 +303,7 @@ static void pick_choose(void) {
   int n = list_rows(rows, MAXROWS);
   if (pick_cursor < n && rows[pick_cursor].st >= 0) {
     N->cfg.tsrc = rows[pick_cursor].src; N->cfg.treg = rows[pick_cursor].reg; N->cfg.tst = rows[pick_cursor].st;
+    N->cfg.tauto = 0;                                    /* a station chosen: no longer AUTO */
     st_day_off = 0;
   }
   page = PG_STATION;
@@ -366,6 +389,11 @@ static void draw_tide(void) {
   double FU[13], FV[13];
   int have_flow = ref && flow_cell(fl, N->cfg.lat, N->cfg.lon, FU, FV);
   const TStation *st = ref ? ref : cur_station();
+  if (N->cfg.tauto && !have_flow) {                      /* AUTO, out of the atlas: a stream station near, else the tide */
+    double dn;
+    const TStation *ss = nearest_station(N->cfg.lat, N->cfg.lon, 1, &dn, NULL, NULL, NULL);
+    st = ss && dn <= 30 ? ss : cur_station();
+  }
   int tidal = st->kind == TK_TIDE;
   long n0;
   double h0, tzl = st_local(st, ut, &n0, &h0);
@@ -449,6 +477,7 @@ static void draw_tide(void) {
       double dd = 60 * hypot(p->lat - N->cfg.lat, (p->lon - N->cfg.lon) * dcos(N->cfg.lat));
       if (dd < bd) { bd = dd; rst = p; }
     }
+    if (N->cfg.tauto) { double dn; const TStation *p = nearest_station(N->cfg.lat, N->cfg.lon, 0, &dn, NULL, NULL, NULL); if (p) { rst = p; bd = dn; } }
     dist = bd;
   }
   /* its local day holding the table's High Water */
@@ -523,7 +552,7 @@ static void station_step(int d) {                /* the next / previous station 
     if (rows[i].st >= 0 && rows[i].src == N->cfg.tsrc && rows[i].reg == N->cfg.treg && rows[i].st == N->cfg.tst) cur = i;
   int i = cur;
   do { i = (i + d + n) % n; } while (rows[i].st < 0 && i != cur);
-  if (rows[i].st >= 0) { N->cfg.tsrc = rows[i].src; N->cfg.treg = rows[i].reg; N->cfg.tst = rows[i].st; }
+  if (rows[i].st >= 0) { N->cfg.tsrc = rows[i].src; N->cfg.treg = rows[i].reg; N->cfg.tst = rows[i].st; N->cfg.tauto = 0; }
 }
 
 static void draw_station(void) {
@@ -548,7 +577,9 @@ static void draw_station(void) {
   if (!stream) sprintf(s, "m above %s  %s%s", st->datum, z, N->cfg.tsrc == 1 ? "  PRIV" : N->cfg.tsrc == 2 ? "  FILE" : "");
   else if (!rot) sprintf(s, "kn  fl %03.0f" NT_DEG " eb %03.0f" NT_DEG "  %s", st->flood, st->ebb, z);
   else sprintf(s, "kn rotary  %s", z);
-  if (nt_w(s) > 248) { char *c = strstr(s, "  UT"); if (!c) c = strstr(s, "  UTC"); if (c) *c = 0; }
+  int room = N->cfg.tauto ? 248 - nt_w("  AUTO") : 248;
+  if (nt_w(s) > room) { char *c = strstr(s, "  UT"); if (!c) c = strstr(s, "  UTC"); if (c) *c = 0; }
+  if (N->cfg.tauto) strcat(s, "  AUTO");                /* the station nearest the position */
   nt(2, 17, s);
   /* the station's name: the first row of the column of the HW / LW times */
   int ex = 254, ey = 36;
@@ -636,7 +667,7 @@ static void draw_station(void) {
     sprintf(s, "springs ~%02d-%02d   neaps ~%02d-%02d  (Moon +1.5 d)", d2, m2, d3, m3);
     nt(2, 176, s);
   }
-  nt(2, 192, "8 2 station  4 6 day  5 today  ENTER list");
+  nt(2, 192, N->cfg.tauto ? "AUTO  8 2 station 4 6 day 5 today ENTER list" : "8 2 station 4 6 day 5 today ENTER list 0 AUTO");
 }
 
 /* ------------------------------------------------------------------ */
@@ -788,8 +819,8 @@ static void cfg_save(void) {
   if (!b) return;
   Cfg *c = &N->cfg;
   char *o = b;
-  o += sprintf(o, "NAV47 CFG 1\nLAT %.9f\nLON %.9f\nTZ %.4f\nLIVE %d\nFIXED %.9f\nWIND %.1f %.1f\nTIDE %d %d %d\nZONE %d %d\nSOUTH %d\nGC %d\nLT %d\n",
-               c->lat, c->lon, c->tz, c->live, c->fixed_jd, c->wdir, c->wkn, c->tsrc, c->treg, c->tst, c->zone, c->city,
+  o += sprintf(o, "NAV47 CFG 1\nLAT %.9f\nLON %.9f\nTZ %.4f\nLIVE %d\nFIXED %.9f\nWIND %.1f %.1f\nTIDE %d %d %d\nTAUTO %d\nZONE %d %d\nSOUTH %d\nGC %d\nLT %d\n",
+               c->lat, c->lon, c->tz, c->live, c->fixed_jd, c->wdir, c->wkn, c->tsrc, c->treg, c->tst, c->tauto, c->zone, c->city,
                c->south, c->gc, c->lt);
   for (int i = 0; i < c->nfiles; i++) o += sprintf(o, "FILE %s\n", c->files[i]);
   sys_disk_write_enable(1);
@@ -804,7 +835,7 @@ static void cfg_save(void) {
 static void cfg_load(void) {
   Cfg *c = &N->cfg;
   c->lat = 26.5; c->lon = 50.1667; c->tz = 3; c->live = 1; c->fixed_jd = jd_ymd(2026, 11, 2, 12);
-  c->wdir = 0; c->wkn = 0; c->zone = -1;
+  c->wdir = 0; c->wkn = 0; c->zone = -1; c->tauto = 1;
   char *t = read_text(CFGFILE);
   if (!t) return;
   char *l = strtok(t, "\n");
@@ -817,6 +848,7 @@ static void cfg_load(void) {
     else if (!strncmp(l, "FIXED ", 6)) c->fixed_jd = atof(l + 6);
     else if (!strncmp(l, "WIND ", 5)) sscanf(l + 5, "%lf %lf", &c->wdir, &c->wkn);
     else if (!strncmp(l, "TIDE ", 5)) sscanf(l + 5, "%d %d %d", &c->tsrc, &c->treg, &c->tst);
+    else if (!strncmp(l, "TAUTO ", 6)) c->tauto = atoi(l + 6) != 0;
     else if (!strncmp(l, "ZONE ", 5)) sscanf(l + 5, "%d %d", &c->zone, &c->city);
     else if (!strncmp(l, "SOUTH ", 6)) c->south = atoi(l + 6);
     else if (!strncmp(l, "GC ", 3)) c->gc = atoi(l + 3);
@@ -880,7 +912,9 @@ static void draw_info(void) {
     "and Polaris (Almanac 47 NAVINIT_FULL series, double precision, no tables).",
     "VIEWS:   ALMAN SPLIT SKY ALLSK MOON ANIM, and SKY2: the dome, the zenith in the centre (SKY again, or 0).",
     "ZONES:   IANA tz database, summer time computed on the calculator. Map: GLOBE (NOAA).",
-    "TIDES:   Schureman harmonic method (Tide 47). NOAA (public domain), TICON-3 (CC-BY 4.0).",
+    "TIDES:   Schureman harmonic method (Tide 47). NOAA (public domain), TICON-3 (CC-BY 4.0). AUTO (0 on TIDE or T&F): "
+    "the stations nearest the position (SET or HERE), every source; T&F: the atlas where it covers the position, else a "
+    "stream station within 30 NM, else the tide. Choosing a station (ENTER, 8 2) ends AUTO.",
     "ROUTE:   RL rhumb line, GC great circle, CS composite (the limit with 4 6), on the WGS84 ellipsoid or another "
     "(COMPARE, 7 9). Geodesics: GeographicLib (C. F. F. Karney, MIT); rhumb lines exact on the ellipsoid.",
     "PLAN:   the route split every N NM, into N legs or on whole meridians; ENTER PLAN.CSV, shift ENTER "
@@ -1976,6 +2010,7 @@ static void handle_key(int key) {
     else if (key == KEY_3) { flow_day_step++; flow_hw_step = 0; }
     else if (key == KEY_5) flow_hw_step = flow_day_step = 0;
     else if (key == KEY_ENTER) pick_open();
+    else if (key == KEY_0) { N->cfg.tauto ^= 1; cfg_save(); }
     break;
   case PG_STATION:
     if (key == KEY_8 || key == KEY_UP) station_step(-1);
@@ -1984,6 +2019,7 @@ static void handle_key(int key) {
     else if (key == KEY_6) st_day_off++;
     else if (key == KEY_5) st_day_off = 0;
     else if (key == KEY_ENTER) pick_open();
+    else if (key == KEY_0) N->cfg.tauto ^= 1;
     if (key != KEY_EXIT) cfg_save();
     break;
   case PG_INFO: {                                       /* 8 2 scroll, 7 9 a page */

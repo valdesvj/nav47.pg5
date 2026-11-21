@@ -142,8 +142,10 @@ both:
 	$(MAKE) USB=sercon
 	$(MAKE) USB=tinyusb BUILD_DIR=$(BUILD_DIR)/tinyusb
 
+# clean: the compiled output only; the data made once (coast, noaa: downloaded; tidefiles) stay
 clean:
-	-rm -fR .dep $(BUILD_DIR)
+	-rm -fR .dep
+	-find $(BUILD_DIR) -mindepth 1 -maxdepth 1 ! -name coast ! -name noaa ! -name tidefiles -exec rm -rf {} + 2>/dev/null
 
 -include $(shell mkdir -p $(BUILD_DIR)/.dep 2>/dev/null) $(wildcard $(BUILD_DIR)/.dep/*)
 
