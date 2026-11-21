@@ -55,13 +55,17 @@ CFLAGS += -O0 -g -DDEBUG
 else
 CFLAGS += -O2 -g
 endif
-CFLAGS += -MD -MP -MF .dep/$(@F).d
+# the header dependencies, one folder a build (the default and the TinyUSB builds must not share them)
+CFLAGS += -MD -MP -MF $(BUILD_DIR)/.dep/$(@F).d
 
 LDSCRIPT = stm32_program.ld
 LDFLAGS  = $(CPUFLAGS) -T$(LDSCRIPT) -Wl,-Map=$(BUILD_DIR)/$(TARGET).map,--cref -Wl,--gc-sections \
            -Wl,--wrap=_malloc_r -g -lm
 
 all: $(BUILD_DIR)/$(TARGET).pg5
+
+include geo47.mk
+include dpops.mk
 
 OBJECTS  = $(addprefix $(BUILD_DIR)/,$(notdir $(C_SOURCES:.c=.o)))
 vpath %.c $(sort $(dir $(C_SOURCES)))
@@ -124,23 +128,27 @@ SIM_USB = $(if $(filter sercon,$(USB)),src/sercon.c test/sim/sercon_sim.c,\
 SIM_DEFS = $(if $(filter sercon,$(USB)),,-DSERCON_TINYUSB)
 SIM_SRC = test/sim/sim.c src/main.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
           src/c47scr.c src/views.c src/fonts21.c src/ntext.c src/moon47.c src/route.c $(SIM_USB) \
-          src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c
+          src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c \
+          $(GEO47_SRC) src/geo_nav.c src/map47.c $(DPOPS_SRC)
 $(BUILD_DIR)/gen/simfont.h: test/sim/gen_simfont.py
 	@mkdir -p $(BUILD_DIR)/gen
 	$(PYTHON) test/sim/gen_simfont.py $@
 
 sim: $(SIM_SRC) $(BUILD_DIR)/gen/simfont.h | $(BUILD_DIR)
 	gcc -std=gnu11 -O2 -w -ffp-contract=off '-D__packed=__attribute__((__packed__))' '-D__weak=__attribute__((weak))' \
-	    -DNAV47_SIM $(SIM_DEFS) -Itest/sim -Isrc -Isrc/usb -I$(BUILD_DIR)/gen -o $(BUILD_DIR)/sim $(SIM_SRC) -lm
+	    -DNAV47_SIM $(SIM_DEFS) -Itest/sim -Isrc -I$(GEO47_DIR) -Isrc/usb -I$(BUILD_DIR)/gen -o $(BUILD_DIR)/sim $(SIM_SRC) -lm
 
 # both .pg5 at once: build/<NAME>.pg5 (DMCP5 3.58's console) and build/tinyusb/<NAME>.pg5 (any DMCP5)
 both:
 	$(MAKE) USB=sercon
 	$(MAKE) USB=tinyusb BUILD_DIR=$(BUILD_DIR)/tinyusb
 
+# clean: the compiled output only; the data made once (coast, noaa: downloaded; tidefiles) stay
 clean:
-	-rm -fR .dep $(BUILD_DIR)
+	-rm -fR .dep
+	-find $(BUILD_DIR) -mindepth 1 -maxdepth 1 ! -name coast ! -name noaa ! -name ticon ! -name tidefiles -exec rm -rf {} + 2>/dev/null
 
--include $(shell mkdir .dep 2>/dev/null) $(wildcard .dep/*)
+-include $(shell mkdir -p $(BUILD_DIR)/.dep 2>/dev/null) $(wildcard $(BUILD_DIR)/.dep/*)
 
 .PHONY: both clean all test test-usb data sim FORCE
+include web.mk

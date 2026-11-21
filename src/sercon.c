@@ -79,6 +79,19 @@ void usbview_state(char *a, char *b, int n) {
 #endif
 }
 
+int usbview_line(int ch, const char *s) {
+  char b[256];
+  if (!on) return -1;
+  int n = snprintf(b, sizeof b - 2, "%s", s);
+  if (n > (int)sizeof b - 3) n = (int)sizeof b - 3;
+  b[n++] = '\r'; b[n++] = '\n';
+  usb_serial_write((uint8_t)ch, b, n);            /* DMCP sends at most 255 bytes a call: an NMEA line is <= 82 */
+#ifdef SERCON_TINYUSB
+  usbcon_poll();
+#endif
+  return 0;
+}
+
 /* the main loop's wait while the USB is on */
 void usbser_idle(uint32_t ms) {
 #ifdef SERCON_TINYUSB

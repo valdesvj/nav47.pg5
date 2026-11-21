@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NAV47</title>
+<style>
+  :root {
+    --paper: #f4f3ee; --card: #ffffff; --ink: #1b2129; --soft: #697381; --line: #e2e0d8; --grid: #ebe8e0;
+    --accent: #1f5f99; --sun: #c9840a; --now: #c0392b; --chip: #edf2f7; --ok: #1e7b4a;
+    --sea: #dfeaf2; --land: #d8d2bf; --coast: #8f8770; --zone: rgba(192, 57, 43, .13); --zonel: #c0392b;
+    --track: #1f5f99; --sky-day: #dbeaf7; --sky-twi: #8aa3c4; --sky-night: #18233a;
+    --body: #2b2d31; --key: #3a3c40; --keyink: #e8ebe2; --gold: #e8b23a; --lcd: rgb(223,230,214);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --paper: #11151a; --card: #192028; --ink: #e7ebf0; --soft: #98a2af; --line: #29323c; --grid: #222a33;
+            --accent: #6db0ec; --sun: #f0b43c; --now: #ff7b6b; --chip: #212d39; --ok: #5fd39a;
+            --sea: #142130; --land: #3b4250; --coast: #7d8698; --zone: rgba(255, 123, 107, .16); --zonel: #ff7b6b;
+            --track: #6db0ec; --sky-day: #2c4a66; --sky-twi: #1d3150; --sky-night: #0b1220; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 12px 16px 4px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+  h1 { font-size: 20px; margin: 0 6px 0 0; } h1 span { color: var(--soft); font-weight: 400; font-size: 13px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; }
+  select, input, button { font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 5px 9px; }
+  button { cursor: pointer; } button:hover { border-color: var(--accent); }
+  button.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  button.small { padding: 2px 7px; font-size: 13px; }
+  label { color: var(--soft); font-size: 13px; }
+  input.pos { width: 13em; } input.num { width: 5.5em; } input.name { width: 9em; }
+  .tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 16px 0; }
+  .tab { border-radius: 999px; padding: 4px 14px; }
+  main { padding: 0 16px 24px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; margin-top: 10px; }
+  .card h2 { margin: 0 0 6px; font-size: 17px; }
+  .card h3 { margin: 10px 0 4px; font-size: 14px; color: var(--soft); font-weight: 600; }
+  .meta { color: var(--soft); font-size: 13px; margin-top: 4px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+  .chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: 13px; }
+  .chip.warn { color: var(--now); font-weight: 600; } .chip.ok { color: var(--ok); font-weight: 600; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); white-space: nowrap; font-size: 13.5px; }
+  th { color: var(--soft); font-weight: 500; font-size: 12.5px; }
+  td.num, th.num { text-align: right; } .mono { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  tr.dim td { color: var(--soft); } tr.sel td { background: var(--chip); } tr.click { cursor: pointer; }
+  .scroll { overflow: auto; }
+  .split { display: grid; grid-template-columns: minmax(0, 1fr) 430px; gap: 14px; align-items: start; }
+  @media (max-width: 1100px) { .split { grid-template-columns: 1fr; } }
+  .chartwrap { position: relative; }
+  canvas#chart { display: block; width: 100%; height: 620px; border-radius: 10px; border: 1px solid var(--line); touch-action: none; background: var(--sea); }
+  .tools { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 8px; }
+  .hud { position: absolute; left: 10px; bottom: 10px; background: color-mix(in srgb, var(--card) 88%, transparent); border: 1px solid var(--line);
+         border-radius: 10px; padding: 8px 12px; font-size: 13px; min-width: 230px; pointer-events: none; }
+  .hud .big { font-size: 20px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .hud table td { border: 0; padding: 1px 4px; }
+  .tip { position: absolute; pointer-events: none; background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px;
+         font-size: 12.5px; white-space: nowrap; display: none; box-shadow: 0 2px 8px rgba(0,0,0,.15); }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--soft); margin-top: 6px; }
+  .legend svg { display: inline-block; width: auto; vertical-align: middle; }
+  .split .card input.pos { width: 11.6em; font-size: 13px; } .split .card input.name { width: 6.5em; font-size: 13px; }
+  .split .card td select { max-width: 7.5em; font-size: 13px; padding: 3px 4px; } .split .card td input { padding: 3px 5px; }
+  .split .card td { padding: 3px 3px; }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; align-items: start; }
+  @media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
+  svg { display: block; width: 100%; height: auto; }
+  footer { color: var(--soft); font-size: 12px; padding: 4px 16px 24px; }
+  [hidden] { display: none !important; }
+  /* the calculator */
+  .calcwrap { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; margin-top: 10px; }
+  .calc { background: var(--body); border-radius: 18px; padding: 18px 18px 22px; box-shadow: 0 6px 24px rgba(0,0,0,.25); }
+  canvas#lcd { display: block; background: var(--lcd); image-rendering: pixelated; width: 800px; max-width: calc(100vw - 72px);
+               height: auto; border-radius: 4px; border: 6px solid #1a1b1e; }
+  .keys { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; margin-top: 14px; }
+  .keys.main { grid-template-columns: repeat(5, 1fr); }
+  button.k { font: 600 15px system-ui, sans-serif; color: var(--keyink); background: var(--key); border: 1px solid #55585e;
+             border-radius: 7px; padding: 9px 0; user-select: none; }
+  button.k:active { background: #55585e; } button.k.f { background: #4a4d52; }
+  button.k.shift { background: var(--gold); color: #1c1f1c; border-color: var(--gold); } button.k.shift.on { outline: 3px solid #fff3; }
+  button.k.wide { grid-column: span 2; }
+  .calcpanel { flex: 1 1 320px; max-width: 520px; }
+  kbd { font: 12px ui-monospace, monospace; border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  #calcstatus { color: #aab; font-size: 13px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>NAV47 <span>1.0 · Almanac 47 · Tide 47 · Zones 47 · passage planning</span></h1>
+  <div class="controls">
+    <button id="now" class="on" title="follow the clock">Now</button>
+    <label>UT <input type="datetime-local" id="ut" step="60"></label>
+    <span id="ztclock" class="meta mono" title="the zone time of the DR (its longitude / 15)"></span>
+    <label>DR <input class="pos" id="dr" placeholder="27 12.0N 049 42.0E"></label>
+    <label>Times <select id="times"><option value="ut">UT</option><option value="lt">LT</option></select></label>
+  </div>
+</header>
+<nav class="tabs" id="tabs"></nav>
+<main>
+  <section id="t-route"></section>
+  <section id="t-weather" hidden></section>
+  <section id="t-almanac" hidden></section>
+  <section id="t-sky" hidden></section>
+  <section id="t-tide" hidden></section>
+  <section id="t-flow" hidden></section>
+  <section id="t-zones" hidden></section>
+  <section id="t-dp" hidden></section>
+  <section id="t-calc" hidden>
+    <div class="calcwrap">
+      <div class="calc">
+        <canvas id="lcd" width="400" height="240"></canvas>
+        <div class="keys" id="fkeys"></div>
+        <div class="keys main" id="keys"></div>
+        <div id="calcstatus">loading…</div>
+      </div>
+      <div class="calcpanel">
+        <div class="card">
+          <h2>The DM42n program</h2>
+          <div class="meta">The calculator's own C, every page as on the DM42n. Click the keys or use the keyboard:
+            <kbd>F1</kbd>–<kbd>F6</kbd>, <kbd>0</kbd>–<kbd>9</kbd>, <kbd>Enter</kbd>, <kbd>Esc</kbd> EXIT, <kbd>Backspace</kbd>,
+            <kbd>↑</kbd> <kbd>↓</kbd>, <kbd>←</kbd> <kbd>→</kbd> as 4 and 6, <kbd>.</kbd>, <kbd>-</kbd> +/−, <kbd>+</kbd>,
+            <kbd>Shift</kbd> or <kbd>s</kbd>, <kbd>r</kbd> or <kbd>Space</kbd> R/S.</div>
+        </div>
+        <div class="card">
+          <h2>Routes</h2>
+          <button data-route="jfk">New York – London</button> <button data-route="cape">Cape Town – Melbourne (CS)</button>
+          <button data-route="pac">Tokyo – San Francisco</button> <button data-route="none">No route</button>
+          <div style="margin-top:6px"><label>Load a ROUTE.TXT <input type="file" id="loadroute" accept=".txt,.TXT"></label></div>
+          <div class="meta">The Route tab's <b>To the calculator</b> sends its plan here. NAV47 reads ROUTE.TXT when it starts: the page restarts it.</div>
+        </div>
+        <div class="card">
+          <h2>The calculator's disk</h2>
+          <table id="files"></table>
+          <div style="margin-top:6px"><button id="png">Save the screen (PNG)</button> <button id="reset">Forget the calculator's files</button></div>
+          <div class="meta">Kept in this browser, never sent anywhere.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+<footer>Not for navigation: check against official charts, the Nautical Almanac and tide tables. By Victor Valdes, Master Mariner.
+  Coastlines: Natural Earth (public domain). Geodesics: GeographicLib (C. F. F. Karney, MIT). Your objects and routes stay in this browser.</footer>
+<div id="fail" hidden style="position:fixed;top:0;left:0;right:0;z-index:99;background:#b3261e;color:#fff;padding:10px 16px;font:14px system-ui">
+  <b>NAV47 could not start:</b> <span id="failmsg"></span>
+  <button id="failreset" style="margin-left:12px">Forget this page's saved data and reload</button></div>
+<script>
+/* if the page can't start: say why, and offer a clean start (a stale or broken saved state, a blocked script) */
+function nav47fail(msg) {
+  const f = document.getElementById("fail"); if (!f) return;
+  document.getElementById("failmsg").textContent = msg; f.hidden = false;
+  document.getElementById("failreset").onclick = () => {
+    Object.keys(localStorage).filter(k => /^nav47(web|fs):/.test(k) && !/tidefile:/.test(k)).forEach(k => localStorage.removeItem(k));
+    location.hash = ""; location.reload();
+  };
+}
+window.addEventListener("error", e => { if (!window.NAV47_UP) nav47fail((e.message || "a script failed") + (e.filename ? " (" + e.filename.split("/").pop() + ":" + e.lineno + ")" : "")); });
+setTimeout(() => { if (!window.NAV47_UP) nav47fail("still loading after 30 s: nav47.js missing or blocked? Open web/index.html from the repository (make web)."); }, 30000);
+</script>
+<script src="calc.js?v=1.0"></script>
+<script src="app.js?v=1.0"></script>
+<script src="tabs.js?v=1.0"></script>
+<script src="dp.js?v=1.0"></script>
+<script src="weather.js?v=1.0"></script>
+<script>
+window.Module = {
+  nav47_lcd: fb => CALC.lcd(fb),
+  nav47_saved: () => CALC.saveAll(),
+  print: t => console.log(t), printErr: t => console.log(t),
+  onRuntimeInitialized() {
+    Module.ready = true;
+    try { CALC.restore(); APP.start(); window.NAV47_UP = true; }
+    catch (e) { console.error(e); nav47fail(e.message + " (" + ((e.stack || "").split("\n")[1] || "").trim() + ")"); }
+  },
+};
+</script>
+<script src="nav47.js?v=1.0"></script>
+</body>
+</html>

@@ -3,10 +3,14 @@
  * 400x240 LCD as PBM snapshots (test/sim/render.py turns them into PNG).
  *
  *   build/sim KEY KEY ... SNAP:name ...
- *   keys: F1..F6 0..9 ENTER EXIT BSP UP DOWN SHIFT CHS DOT, WAIT:ms; HOSTL: the PC sends L on the serial console
+ *   keys: F1..F6 0..9 ENTER EXIT BSP UP DOWN SHIFT CHS DOT ADD RUN, WAIT:ms; HOSTL: the PC sends L on the serial console
  *         (DMCP marks every row unsent and gives the program key 77)
  *   env:  NAV47_CLOCK="2026-11-02 12:00"  (the calculator clock), NAV47_FILE=path (the file chosen in FILES)
  *   files: ./simdisk/ is the calculator disk
+ *
+ * NAV47_WEB (make web): the same layer in the browser (Emscripten, Asyncify): the keys come from the page
+ * (nav47_key), the LCD goes to its canvas at each refresh (Module.nav47_lcd), the clock is the browser's, the waits
+ * yield to the browser, a file written is handed to the page (Module.nav47_saved) to keep in localStorage.
  */
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +19,13 @@
 #include "dmcp.h"
 #include "gfx.h"
 #include "simfont.h"
+#include <sys/stat.h>
+#ifdef NAV47_WEB
+#include <emscripten.h>
+#define WEB_LCD() EM_ASM({ if (Module.nav47_lcd) Module.nav47_lcd(HEAPU8.subarray($0, $0 + $1)); }, &fb[0][0], LCD_X * LCD_Y)
+#else
+#define WEB_LCD()
+#endif
 
 sys_sdb_t sim_sdb;
 static disp_stat_t ds20, ds24, dsReg;
@@ -28,10 +39,10 @@ void lcd_clear_buf(void) { memset(fb, 0, sizeof fb); }
 /* a refresh: DMCP's serial console sends the changed rows (test/sim/sercon_sim.c; nothing in the TinyUSB sim) */
 __attribute__((weak)) void sim_lcd_out(int forced) { (void)forced; }
 __attribute__((weak)) void sim_host_L(void) {}
-void lcd_refresh(void) { sim_lcd_out(0); }
+void lcd_refresh(void) { sim_lcd_out(0); WEB_LCD(); }
 void lcd_refresh_wait(void) {}
 void lcd_refresh_lines(int ln, int cnt) { (void)ln; (void)cnt; }
-void lcd_forced_refresh(void) { sim_lcd_out(1); }
+void lcd_forced_refresh(void) { sim_lcd_out(1); WEB_LCD(); }
 void lcd_set_buf_cleared(int v) { (void)v; }
 int  lcd_get_buf_cleared(void) { return 0; }
 void LCD_power_on(void) {}
@@ -100,6 +111,7 @@ void usb_turn_off(void) { if (acm) fclose(acm); acm = NULL; }
 void acm_puts(const char *s) { if (acm) { fputs(s, acm); fflush(acm); } }
 void qrcode_disp(QRCode *qr, int xo, int yo, int z) { (void)qr; (void)xo; (void)yo; (void)z; }
 
+#ifndef NAV47_WEB
 uint32_t sys_current_ms(void) { return fake_ms; }
 void rtc_read(tm_t *tm, dt_t *dt) {
   long mins = clk_h * 60 + clk_mi + (long)(fake_ms / 60000);
@@ -110,6 +122,7 @@ void rtc_read(tm_t *tm, dt_t *dt) {
 uint32_t get_rtc_ticks(void) { return 1; }
 void sys_delay(uint32_t ms) { fake_ms += ms; }
 void sys_timer_start(int ix, uint32_t ms) { (void)ix; (void)ms; }
+#endif
 void start_buzzer_freq(uint32_t f) { (void)f; }
 void stop_buzzer(void) {}
 int  switch_usb_powered_freq(void) { return 0; }
@@ -122,19 +135,40 @@ void sys_reset(void) { exit(3); }
 int  handle_menu(const smenu_t *m, int a, int l) { (void)m; (void)a; (void)l; return 0; }
 void wait_for_key_release(int t) { (void)t; }
 
-static void path(const char *p, char *o) { snprintf(o, 256, "simdisk%s", p); }
+static void path(const char *p, char *o) {
+#ifdef NAV47_WEB
+  if (!strncmp(p, "/NAV47/COAST_", 13)) { snprintf(o, 256, "/coast%s", p + 6); return; }   /* in the page */
+  snprintf(o, 256, "/simdisk%s", p);
+#else
+  snprintf(o, 256, "simdisk%s", p);
+#endif
+}
 int sys_disk_ok(void) { return 1; }
 int sys_disk_write_enable(int v) { (void)v; return 1; }
-int check_create_dir(const char *d) { char p[256], c[300]; path(d, p); snprintf(c, sizeof c, "mkdir -p '%s'", p); return system(c); }
+int check_create_dir(const char *d) {                /* mkdir -p */
+  char p[256];
+  path(d, p);
+  for (char *q = p + 1; *q; q++) if (*q == '/') { *q = 0; mkdir(p, 0755); *q = '/'; }
+  mkdir(p, 0755);
+  return 0;
+}
 int file_exists(const char *f) { char p[256]; path(f, p); FILE *x = fopen(p, "rb"); if (x) fclose(x); return x != NULL; }
 FRESULT f_open(FIL *fp, const TCHAR *p, BYTE mode) {
   char q[256]; path(p, q);
   FILE *f = fopen(q, (mode & FA_WRITE) ? "wb" : "rb");
   fp->obj.fs = (FATFS *)f;
+  fp->flag = mode;
   if (f && !(mode & FA_WRITE)) { fseek(f, 0, SEEK_END); fp->obj.objsize = (FSIZE_t)ftell(f); fseek(f, 0, SEEK_SET); }
   return f ? FR_OK : FR_NO_FILE;
 }
-FRESULT f_close(FIL *fp) { fclose((FILE *)fp->obj.fs); return FR_OK; }
+FRESULT f_close(FIL *fp) {
+  fclose((FILE *)fp->obj.fs);
+#ifdef NAV47_WEB
+  if (fp->flag & FA_WRITE) EM_ASM({ if (Module.nav47_saved) Module.nav47_saved(); });
+#endif
+  return FR_OK;
+}
+FRESULT f_lseek(FIL *fp, FSIZE_t ofs) { return fseek((FILE *)fp->obj.fs, (long)ofs, SEEK_SET) ? FR_INT_ERR : FR_OK; }
 FRESULT f_read(FIL *fp, void *b, UINT n, UINT *br) { *br = (UINT)fread(b, 1, n, (FILE *)fp->obj.fs); return FR_OK; }
 FRESULT f_write(FIL *fp, const void *b, UINT n, UINT *bw) { *bw = (UINT)fwrite(b, 1, n, (FILE *)fp->obj.fs); return FR_OK; }
 int file_selection_screen(const char *title, const char *base_dir, const char *ext, file_sel_fn_t sel_fn,
@@ -162,12 +196,39 @@ static int parse_key(const char *s) {
     {"F1",KEY_F1},{"F2",KEY_F2},{"F3",KEY_F3},{"F4",KEY_F4},{"F5",KEY_F5},{"F6",KEY_F6},
     {"0",KEY_0},{"1",KEY_1},{"2",KEY_2},{"3",KEY_3},{"4",KEY_4},{"5",KEY_5},{"6",KEY_6},{"7",KEY_7},{"8",KEY_8},{"9",KEY_9},
     {"ENTER",KEY_ENTER},{"EXIT",KEY_EXIT},{"BSP",KEY_BSP},{"UP",KEY_UP},{"DOWN",KEY_DOWN},{"SHIFT",KEY_SHIFT},
-    {"CHS",KEY_CHS},{"DOT",KEY_DOT},{"ADD",KEY_ADD},
+    {"CHS",KEY_CHS},{"DOT",KEY_DOT},{"ADD",KEY_ADD},{"RUN",KEY_RUN},
   };
   for (unsigned i = 0; i < sizeof map / sizeof *map; i++) if (!strcmp(map[i].n, s)) return map[i].k;
   fprintf(stderr, "unknown key %s\n", s);
   return -1;
 }
+#ifdef NAV47_WEB
+static int kq[64], kh, kt;                           /* the keys from the page */
+static double deadline;
+EMSCRIPTEN_KEEPALIVE void nav47_key(int k) { if ((kt + 1) % 64 != kh) { kq[kt] = k; kt = (kt + 1) % 64; } }
+int key_empty(void) { return kh == kt; }
+int key_pop(void) { if (kh == kt) return -1; int k = kq[kh]; kh = (kh + 1) % 64; return k; }
+static void yield(int ms) { emscripten_sleep((unsigned)ms); }
+void wait_for_key_press(void) { while (key_empty()) yield(20); key_pop(); }
+void sys_timer_start(int ix, uint32_t ms) { (void)ix; deadline = emscripten_get_now() + ms; }
+void sys_sleep(void) {                               /* until a key or the timer; always gives the browser a turn */
+  do yield(15); while (key_empty() && emscripten_get_now() < deadline);
+}
+uint32_t sys_current_ms(void) { return (uint32_t)emscripten_get_now(); }
+void sys_delay(uint32_t ms) { yield((int)ms); }
+EM_JS(void, web_clock, (int *v), {
+  var d = new Date();
+  var a = [d.getFullYear(), d.getMonth() + 1, d.getDate(), d.getHours(), d.getMinutes(), d.getSeconds()];
+  for (var i = 0; i < 6; i++) HEAP32[(v >> 2) + i] = a[i];
+});
+void rtc_read(tm_t *tm, dt_t *dt) {                  /* the browser's local time, as the calculator's clock */
+  int v[6];
+  web_clock(v);
+  memset(tm, 0, sizeof *tm);
+  tm->hour = (uint8_t)v[3]; tm->min = (uint8_t)v[4]; tm->sec = (uint8_t)v[5];
+  dt->year = (uint16_t)v[0]; dt->month = (uint8_t)v[1]; dt->day = (uint8_t)v[2];
+}
+#else
 static void fill(void) {
   if (idle) return;
   while (pending < 0 && spos < nscript) {
@@ -182,16 +243,21 @@ int key_empty(void) { fill(); return pending < 0; }
 int key_pop(void) { fill(); int k = pending; pending = -1; return k; }
 void wait_for_key_press(void) { if (key_empty()) exit(0); key_pop(); }
 void sys_sleep(void) { if (idle) { idle = 0; return; } if (key_empty()) { fprintf(stderr, "script done\n"); exit(0); } }
+#endif
 
 void program_main(void);
 int main(int argc, char **argv) {
   ds20.lnfill = ds24.lnfill = 1;
   ds20.f = ds24.f = dsReg.f = &simf;
   sim_sdb.pds_t20 = &ds20; sim_sdb.pds_t24 = &ds24; sim_sdb.pds_fReg = &dsReg;
+#ifndef NAV47_WEB
   const char *c = getenv("NAV47_CLOCK");
   if (c) sscanf(c, "%d-%d-%d %d:%d", &clk_y, &clk_m, &clk_d, &clk_h, &clk_mi);
   script = argv + 1;
   nscript = argc - 1;
+#else
+  (void)argc; (void)argv;
+#endif
   program_main();
   return 0;
 }

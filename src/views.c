@@ -439,6 +439,89 @@ void view_allsky(Al *al) {
   nt_c(200, 192, daylight(hs));
 }
 
+/* ---------------------------------------------------------------- SKY2: the dome (Almanac 47 web, Sky: Dome)
+ * The sky from the position: the zenith in the centre, the horizon round the edge, north up, rings at 30 and 60 deg;
+ * the stars by brightness (the 12 brightest numbered), the planets, the Moon, the Sun. */
+#define DCX 200
+#define DCY 104                                       /* the LCD row of the zenith */
+#define DR  78
+
+static void dome_xy(double hc, double zn, int *x, int *y) {   /* -> C47 x, y */
+  double r = DR * (90 - hc) / 90;
+  *x = DCX + (int)lround(r * dsin(zn));
+  *y = CY(DCY - (int)lround(r * dcos(zn)));
+}
+
+static void star_now(const Al *al, int n, double *gha, double *dec) {   /* as ALL SKY: the precessed position */
+  double ty = (al->j - 2451545.0) / 365.25 / 3600.0;
+  double ra = ST[n - 1][0], d = ST[n - 1][1];
+  *dec = dcos(ra) * 20.0431 * ty + d;
+  double ra2 = (dsin(ra) * dtan(d) * 20.0431 + 46.1244) * ty + ra;
+  *gha = pmod(al->sun.aries - ra2, 360.0);
+}
+
+void view_sky2(Al *al) {
+  c47_clear();
+  int x, y;
+  for (int z = 0; z < 360; z += 2) { dome_xy(0, z, &x, &y); c47_pixel(y, x); }          /* the horizon */
+  for (int a = 30; a <= 60; a += 30)
+    for (int z = 0; z < 360; z += 6) { dome_xy(a, z, &x, &y); c47_pixel(y, x); }       /* 30 and 60 deg */
+  for (int z = 0; z < 360; z += 30)
+    for (int h = 6; h < 90; h += 6) { dome_xy(h, z, &x, &y); c47_pixel(y, x); }        /* the azimuths */
+  static const char *const NESW[4] = { "N", "E", "S", "W" };
+  for (int k = 0; k < 4; k++) {
+    double r = DR + 9;
+    int lx = DCX + (int)lround(r * dsin(90 * k)) - 2, ly = DCY - (int)lround(r * dcos(90 * k));
+    c47_text(CY(ly) - 3, lx, NESW[k], &TINY21);
+  }
+  double hc, zn, g, d;
+  int nup = 0, best[6], nb = 0;
+  for (int r = 57; r >= 0; r--) {                     /* the faint first: the bright ones on top */
+    int n = BRIGHT[r];
+    star_now(al, n, &g, &d);
+    hczs(al->lat, al->lon, d, g, &hc, &zn);
+    if (hc <= 0) continue;
+    dome_xy(hc, zn, &x, &y);
+    if (r < 10) { c47_hline(y + 1, x - 1, 3); c47_hline(y, x - 2, 5); c47_hline(y - 1, x - 1, 3); c47_pixel(y + 2, x); c47_pixel(y - 2, x); }
+    else if (r < 25) { c47_hline(y + 1, x - 1, 3); c47_hline(y, x - 1, 3); c47_hline(y - 1, x - 1, 3); }
+    else { c47_hline(y, x, 2); c47_hline(y - 1, x, 2); }
+    if (r < 12) { int lx = x + 4; if (lx > DCX + DR - 6 && x > DCX) lx = x - 14; c47_tiny_num(y - 2, lx, n); }
+  }
+  for (int r = 0; r < 58 && nb < 6; r++) {            /* the brightest above 10 deg, for the list */
+    star_now(al, BRIGHT[r], &g, &d);
+    hczs(al->lat, al->lon, d, g, &hc, &zn);
+    if (hc > 10) best[nb++] = BRIGHT[r];
+  }
+  for (int n = 1; n <= 58; n++) { star_now(al, n, &g, &d); hczs(al->lat, al->lon, d, g, &hc, &zn); nup += hc > 10; }
+  for (int p = 1; p <= 4; p++) {
+    hczs(al->lat, al->lon, al->planets[p][1], al->planets[p][0], &hc, &zn);
+    if (hc > 0) { dome_xy(hc, zn, &x, &y); c47_glyph(&SYMS, "<>=?"[p - 1], y - 3, x - 3); }
+  }
+  hczs(al->lat, al->lon, al->moon[1], al->moon[0], &hc, &zn);
+  if (hc > 0) { dome_xy(hc, zn, &x, &y); c47_glyph(&SYMS, '(', y - 3, x - 3); }
+  double hs, zs;
+  hczs(al->lat, al->lon, al->sun.dec, al->sun.gha, &hs, &zs);
+  if (hs > -1) { dome_xy(hs > 0 ? hs : 0, zs, &x, &y); c47_glyph(&SYMS, '@', y - 3, x - 3); }
+  c47_show();
+  header(al, al->j, "SKY2");
+  char s[32], t[16];
+  nt(1, 20, daylight(hs));
+  nt(1, 44, "SUN");
+  f_dm(t, fabs(hs)); sprintf(s, "Hc %s%s", hs < 0 ? "-" : "", t); nt(1, 60, s);
+  f_zn(t, zs); sprintf(s, "Zn %s", t); nt(1, 76, s);
+  sprintf(s, "%d stars", nup); nt(1, 112, s);
+  nt(1, 128, "above 10" NT_DEG);
+  nt_r(399, 20, "No  Hc  Zn");
+  for (int i = 0; i < nb; i++) {
+    star_now(al, best[i], &g, &d);
+    hczs(al->lat, al->lon, d, g, &hc, &zn);
+    sprintf(s, "%2d %3.0f %03.0f", best[i], hc, pmod(zn, 360.0));
+    nt_r(399, 36 + R * i, s);
+  }
+  nt(1, 160, "N up, the");
+  nt(1, 176, "zenith centre");
+}
+
 /* ---------------------------------------------------------------- MOON47 (python/moon47.py page, moon47_screen) */
 static const char *const PHSHORT[4] = { "NEW", "1ST QTR", "FULL", "LAST QTR" };
 
