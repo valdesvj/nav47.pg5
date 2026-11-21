@@ -1376,6 +1376,12 @@ const APP = {
     $("tabs").innerHTML = TABS.map(([k, t]) => `<button class="tab" data-tab="${k}">${t}</button>`).join("");
     document.querySelectorAll(".tab").forEach(b => b.onclick = () => showTab(b.dataset.tab));
     TFILES.init();
+    if (Module._api_private()) {                              /* a private build: never to be published */
+      const b = document.createElement("div");
+      b.textContent = "PRIVATE BUILD (your private tide data compiled in): for this computer only, do not publish";
+      b.style.cssText = "background:#c0392b;color:#fff;font-weight:700;padding:6px 16px;text-align:center";
+      document.body.prepend(b);
+    }
     header();
     routeTab();
     const h = location.hash.match(/tab=(\w+)/);

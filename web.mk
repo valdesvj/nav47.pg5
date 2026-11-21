@@ -39,3 +39,17 @@ build/ticon/ne_places.geojson: ; mkdir -p build/ticon && curl -sfL -o $@ $(NE_PL
 ticon: build/ticon/TICON_3.txt build/ticon/ne_places.geojson
 	$(PYTHON) -I tools/ticon_stations.py $(or $(TIDE47),$(TIDE47_TEST),$(HOME)/opt/tide47) build/ticon/TICON_3.txt build/ticon/ne_places.geojson build/ticon
 .PHONY: ticon
+
+# web-private: the same page with YOUR private tide data compiled in (as make TIDE47=... for the .pg5), for this
+# computer only: build/web-private/ (git-ignored), never web/. Open build/web-private/index.html.
+#   make web-private TIDE47=~/opt/tide47
+WEBP = build/web-private
+web-private: $(filter-out %tidedata_priv.c,$(SIM_SRC)) web/api.c $(BUILD_DIR)/gen/simfont.h build/coast/COAST_C.BIN build/coast/COAST_L.BIN web.mk
+	@test -n "$(TIDE47)" || { echo "make web-private: give TIDE47=~/opt/tide47 (your Tide 47 with its private data)"; exit 1; }
+	@test -n "$(WEB_NOAA)" || { echo "make web-private: no build/noaa/N*.TID - run make noaa first"; exit 1; }
+	@mkdir -p $(WEBP) build/emcache
+	$(PYTHON) tools/gen_tides.py private "$(TIDE47)" $(WEBP)/tidedata_priv.c
+	EM_CACHE=$(CURDIR)/build/emcache $(EMCC) $(WEB_FLAGS) -o $(WEBP)/nav47.js $(filter-out build/web/tidedata_priv.c,$(WEB_SRC)) $(WEBP)/tidedata_priv.c
+	cp web/index.html web/app.js web/calc.js web/tabs.js web/weather.js $(WEBP)/
+	@echo "private page: $(WEBP)/index.html (this computer only: do not publish, do not commit)"
+.PHONY: web-private

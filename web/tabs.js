@@ -135,7 +135,7 @@ const TABS2 = (() => {
       <div><table><tr><th></th><th class="num">Time</th><th class="num">${stream ? "Rate" : "Height"}</th>${stream ? '<th class="num">Set</th>' : ""}</tr>
       ${ev.map(e => `<tr><td>${stream ? (e.kind > 0 ? "Flood max" : e.kind < 0 ? "Ebb max" : "Slack") : (e.kind > 0 ? "HW" : "LW")}</td><td class="num mono">${F().hm(e.t)}</td>
         <td class="num mono">${e.v.toFixed(2)} ${unit}</td>${stream ? `<td class="num mono">${Math.round(e.set)}°</td>` : ""}</tr>`).join("")}</table>
-      <div class="meta">The calculator's own tide engine (Tide 47, the Schureman harmonic method); ${st.src === 2 ? "a station of your file" : st.src === 1 ? (/TICON/.test(st.region) ? "a TICON-3 gauge (CC BY 4.0), named after the nearest place; zone time by the longitude" : "NOAA's current stations (public domain)") : "the public stations (NOAA, TICON-3)"}.
+      <div class="meta">The calculator's own tide engine (Tide 47, the Schureman harmonic method); ${st.src === 3 ? "a private station (compiled in: a private build)" : st.src === 2 ? "a station of your file" : st.src === 1 ? (/TICON/.test(st.region) ? "a TICON-3 gauge (CC BY 4.0), named after the nearest place; zone time by the longitude" : "NOAA's current stations (public domain)") : "the public stations (NOAA, TICON-3)"}.
         ${stream ? "Rates in knots." : "Heights above the chart datum, metres."} Not for navigation: check against the official tide tables.</div></div></div></div>
       ${APP.tfiles.card()}`;
     APP.tfiles.bind(el, () => { tideSt = null; tide(); });
@@ -311,7 +311,7 @@ const TABS2 = (() => {
       .sort((a, b) => a.d.s - b.d.s).slice(0, 14);
     h += `<div class="card"><h2>Stream stations near the DR</h2><table><tr><th>Station</th><th></th><th class="num">Distance</th><th class="num">Bearing</th><th class="num">Now</th><th></th></tr>
       ${near.map(({ s, d }) => { const q = APP.streams.now(s.i, J) || { kn: 0, set: 0 };
-        return `<tr class="click" data-st="${s.i}"><td>${esc(s.name)}</td><td class="meta">${s.src === 2 ? "yours" : s.src === 1 ? "NOAA" : "NOAA (Tide 47)"}${s.kind === 2 ? ", rotary" : ""}</td>
+        return `<tr class="click" data-st="${s.i}"><td>${esc(s.name)}</td><td class="meta">${s.src === 3 ? "private" : s.src === 2 ? "yours" : s.src === 1 ? "NOAA" : "NOAA (Tide 47)"}${s.kind === 2 ? ", rotary" : ""}</td>
         <td class="num mono">${(d.s / 1852).toFixed(0)} NM</td><td class="num mono">${String(Math.round(((d.a1 % 360) + 360) % 360)).padStart(3, "0")}°</td>
         <td class="num mono">${String(Math.round(((q.set % 360) + 360) % 360)).padStart(3, "0")}° ${Math.abs(q.kn).toFixed(2)} kn</td>
         <td>${s.kind === 1 ? (q.kn >= 0 ? "flood" : "ebb") : ""}</td></tr>`; }).join("")}</table>
