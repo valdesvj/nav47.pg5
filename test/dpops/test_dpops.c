@@ -73,29 +73,39 @@ int main(void) {
   CHECK(same == n1, "held as dp_held: %d of %d", same, n1);
   printf("1. weather together, no lee, no limits: %d of %d cases as DPCAP47's dp_held\n", same, n1);
 
-  /* 2. the standoff */
-  float worst = 1e9f, best = 0;
-  for (int s = 0; s < DPS_N; s++) for (int f = 0; f < 4; f++) for (int dh = -40; dh <= 40; dh += 10) {
+  /* 2. the working point (the side's middle, the stern, the bow) on the face's centre line, STANDOFF m off or more; no
+        corner closer than MINCLEAR; one of the two exactly (moved out no further than needed); square: no part closer */
+  float mfar = 0;
+  for (int sd = 0; sd < DPS_N; sd++) for (int f = 0; f < 4; f++) for (int dh = -30; dh <= 30; dh += 5) {
     DpPlat t = p;
-    t.side = s;
+    t.side = sd;
     static const float add[4] = { 0, 90, -90, 180 };
-    float hdg = dpo_face_normal(&t, f) + add[s] + (float)dh, px, py, hull[7][2];
+    float hdg = dpo_face_normal(&t, f) + add[sd] + (float)dh, px, py, hull[7][2];
     dpo_place(&v, &t, f, hdg, &px, &py);
     dpo_hull(&v, &t, hdg, px, py, hull);
-    float c = clearance(&t, hull);
-    if (c < worst) worst = c;
-    if (c > best) best = c;
-    CHECK(c >= t.standoff - 0.05f, "side %s face %d hdg %+d: %.2f m off", DPO_SIDE[s], f, dh, c);
+    float L = dpo_loa(&v, &t), wx = sd == DPS_STERN ? -L / 2 : sd == DPS_BOW ? L / 2 : 0, wy = sd == DPS_STBD ? v.b / 2 : sd == DPS_PORT ? -v.b / 2 : 0;
+    float h = hdg * 0.017453292f, ax = px + wx * sinf(h) + wy * cosf(h), ay = py + wx * cosf(h) - wy * sinf(h);
+    float nb = dpo_face_normal(&t, f) * 0.017453292f, along = ax * cosf(nb) - ay * sinf(nb);
+    float mid = dpo_mid(&v, &t, f, hdg, px, py), cl = dpo_clear(&v, &t, f, hdg, px, py), c = clearance(&t, hull);
+    CHECK(fabsf(along) < 0.01f, "side %s face %d %+d: %.2f m along the face", DPO_SIDE[sd], f, dh, along);
+    CHECK(mid >= t.standoff - 0.01f && cl >= t.mincl - 0.01f && (fabsf(mid - t.standoff) < 0.01f || fabsf(cl - t.mincl) < 0.01f),
+          "side %s face %d %+d: the working point %.2f m, the nearest corner %.2f m", DPO_SIDE[sd], f, dh, mid, cl);
+    CHECK(c >= fminf(t.mincl, t.standoff) - 0.05f, "side %s face %d %+d: the hull %.2f m off the platform", DPO_SIDE[sd], f, dh, c);
+    if (dh == 0) CHECK(fabsf(cl - t.standoff) < 0.05f, "side %s face %d square: the nearest %.2f m", DPO_SIDE[sd], f, cl);
+    if (sd == DPS_STBD && dh == 30 && mid > mfar) mfar = mid;
   }
-  printf("2. the hull off the platform: %.2f m at the least (STANDOFF %.0f m), %.1f m at the most\n", worst, p.standoff, best);
+  printf("2. the working point on the face's centre line, %.0f m off or more, no corner within %.0f m, every side, face and\n"
+         "   heading; starboard side to turned 30 degrees: moved out to %.1f m (the corner at %.0f m)\n", p.standoff, p.mincl, mfar, p.mincl);
 
   /* 3. the lee: stern-to face 0 (to 030), the vessel on the platform's 030 side; the wind from 210 crosses it first */
   DpWx w = { 210, 30, 0, 0, 210, 0, 0 };
   DpRes r;
-  dpo_eval(&v, &p, &w, 0, 30, &r);
+  DpPlat ps = p;
+  ps.side = DPS_STERN;
+  dpo_eval(&v, &ps, &w, 0, 30, &r);
   float lee_in = r.wleft;
   w.wfrom = 30; w.vfrom = 30;
-  dpo_eval(&v, &p, &w, 0, 30, &r);
+  dpo_eval(&v, &ps, &w, 0, 30, &r);
   CHECK(lee_in < 0.8f && r.wleft == 1, "the lee: from the platform %.2f, from the open sea %.2f", lee_in, r.wleft);
   printf("3. stern-to, the wind across the platform: %.0f %% of its force; from the open sea: %.0f %%\n", lee_in * 100, r.wleft * 100);
 
@@ -114,8 +124,8 @@ int main(void) {
            b.fail_grp, b.fail_wuse[i] * 100);
     if (b.held_lim) CHECK(b.use[i] <= p.lim[i] * 1.02f, "%s %.2f over its limit %.2f", v.thr[i].name, b.use[i], p.lim[i]);
   }
-  { float sx = 0, sy = 0, sn = 0;                        /* the thrusters' forces balance the weather's (x 1.25) */
-    for (int i = 0; i < v.nthr; i++) { sx += b.f[i][0]; sy += b.f[i][1]; sn += v.thr[i].x * b.f[i][1] - v.thr[i].y * b.f[i][0]; }
+  { float sx = 0, sy = 0;                        /* the thrusters' forces balance the weather's (x 1.25) */
+    for (int i = 0; i < v.nthr; i++) { sx += b.f[i][0]; sy += b.f[i][1]; }
     CHECK(fabsf(sx + b.env[0]) < 0.02f * b.fmag + 0.5f && fabsf(sy + b.env[1]) < 0.02f * b.fmag + 0.5f,
           "the thrust %.1f %.1f against the weather %.1f %.1f", sx, sy, b.env[0], b.env[1]);
     printf("   the thrusters: %.1f t ahead, %.1f t to starboard; the weather %.1f t to %03.0f\n", sx / 9.80665f, sy / 9.80665f, b.fmag / 9.80665f, b.fto); }

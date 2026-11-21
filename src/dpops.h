@@ -5,8 +5,9 @@
  *   - the platform: a square or a rectangle, taller than the vessel (the default rule), so on some headings its lee
  *     takes the wind off part of the hull: the wind left rises from SHELTER's minimum at the platform to all of it at
  *     SHELTER's length (platform heights) downwind; a SOLID platform (a gravity base) shelters the waves the same way
- *   - the vessel placed STANDOFF m off a face (no part of the hull closer), stern-, starboard-, port- or bow-to,
- *     within TOL degrees of square to it; the heading with the most margin found
+ *   - the vessel placed with its working point (the middle of the starboard or port side, the stern, the bow) STANDOFF m
+ *     off a face, on its centre line; parallel to the face (side to, the usual set-up) or turned within TOL degrees, then
+ *     moved out along the centre line until no corner is closer than MINCLEAR; the heading with the most margin found
  *   - working limits: a thruster's thrust capped (LIM TUN 30) in the intact case; after a failure, full thrust
  * Static, as DNV's level 1 (x 1.25): not the vessel's own DP consequence analysis; planning, not operations.
  * Plain C, no DMCP: the calculator, the simulator, the web page (WebAssembly) and the PC tests share it.
@@ -28,7 +29,8 @@ typedef struct {
   int   solid;                          /* 1: shelters the waves too (a gravity base); 0: a jacket, the waves go through */
   int   face;                           /* the working face 0..3 (normals ORIENT + 90 k), -1 AUTO: the best */
   int   side;                           /* DPS_ */
-  float standoff;                       /* m, the hull's nearest point off the face */
+  float standoff;                       /* m, the working point (a side's middle, the stern, the bow) off the face */
+  float mincl;                          /* m, the least a corner may come to the face when the heading is turned (5) */
   float tol;                            /* degrees either side of square to the face */
   int   par;                            /* starboard or port side to: parallel to the face (the usual set-up; TOL not used) */
   float smin, slen;                     /* shelter: the wind left close in the lee (0.3), the lee's length (5 heights) */
@@ -47,7 +49,9 @@ typedef struct {
 } DpWx;
 
 typedef struct {
-  int   geo;                            /* 1: the hull is placed (0: the face or the heading cannot be used) */
+  int   geo;                            /* 1: the hull is placed (0: a corner within 1 m of the face: not usable) */
+  float clear;                          /* the hull's nearest point to the face, m (a turned heading: a corner, >= MINCLEAR) */
+  float mid;                            /* the working point's distance off the face, m (>= STANDOFF) */
   float hdg;                            /* the heading tried, degrees true */
   int   face;
   float px, py;                         /* the vessel's midships, m from the platform's centre */
@@ -79,6 +83,8 @@ float dpo_tol(const DpPlat *p);                                      /* the tole
 void dpo_waves_auto(DpWx *w);                                        /* Hs, Tp from DNV's Table 2-1 at the wind */
 float dpo_face_normal(const DpPlat *p, int face);
 int  dpo_place(const Vessel *v, const DpPlat *p, int face, float hdg, float *px, float *py);
+float dpo_mid(const Vessel *v, const DpPlat *p, int face, float hdg, float px, float py);
+float dpo_clear(const Vessel *v, const DpPlat *p, int face, float hdg, float px, float py);
 void dpo_hull(const Vessel *v, const DpPlat *p, float hdg, float px, float py, float xy[7][2]);   /* the outline, world m */
 void dpo_eval(Vessel *v, const DpPlat *p, const DpWx *w, int face, float hdg, DpRes *r);
 int  dpo_best(Vessel *v, const DpPlat *p, const DpWx *w, float step, DpRes *best, void (*progress)(int, int));

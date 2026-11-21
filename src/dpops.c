@@ -54,7 +54,7 @@ int dpo_parse(const char *text, DpPlat *p, char *err, int errn) {
   int ln = 0, have = 0;
   float keep_loa = p->loa;
   memset(p, 0, sizeof *p);
-  p->len = 40; p->wid = 30; p->height = 45; p->face = -1; p->standoff = 10; p->tol = 30; p->par = 1; p->smin = 0.3f; p->slen = 5;
+  p->len = 40; p->wid = 30; p->height = 45; p->face = -1; p->standoff = 10; p->mincl = 5; p->tol = 30; p->par = 1; p->smin = 0.3f; p->slen = 5;
   p->loa = keep_loa;
   strcpy(p->name, "PLATFORM");
   err[0] = 0;
@@ -81,7 +81,7 @@ int dpo_parse(const char *text, DpPlat *p, char *err, int errn) {
       char *a = strchr(s, ','), *b = a ? strchr(a + 1, ',') : NULL;
       if (!a || !b) { snprintf(err, (size_t)errn, "line %d: PLATFORM name,lat,lon", ln); return -1; }
       *a = 0;
-      snprintf(p->name, sizeof p->name, "%s", s);
+      snprintf(p->name, sizeof p->name, "%.23s", s);
       p->lat = atof(a + 1); p->lon = atof(b + 1);
     } else if (ieq(key, "SIZE")) {
       if (sscanf(s, "%f %f", &p->len, &p->wid) == 1) p->wid = p->len;   /* SIZE 40: a square */
@@ -93,11 +93,12 @@ int dpo_parse(const char *text, DpPlat *p, char *err, int errn) {
       p->side = DPS_STERN;
       for (int i = 0; i < DPS_N; i++) if (ieq(s, DPO_SIDE[i])) p->side = i;
     } else if (ieq(key, "STANDOFF")) p->standoff = (float)atof(s);
+    else if (ieq(key, "MINCLEAR")) p->mincl = (float)atof(s);
     else if (ieq(key, "TOL")) p->tol = (float)atof(s);
     else if (ieq(key, "PARALLEL")) p->par = atoi(s) != 0;
     else if (ieq(key, "SHELTER")) sscanf(s, "%f %f", &p->smin, &p->slen);
     else if (ieq(key, "LOA")) p->loa = (float)atof(s);
-    else if (ieq(key, "VESSEL")) snprintf(p->vessel, sizeof p->vessel, "%s", s);
+    else if (ieq(key, "VESSEL")) snprintf(p->vessel, sizeof p->vessel, "%.39s", s);
     else if (ieq(key, "LIM")) {
       if (p->nlim >= MAX_THR) continue;
       char nm[8] = { 0 };
@@ -123,8 +124,8 @@ int dpo_write(const DpPlat *p, char *buf, int n) {
     p->name, p->lat, p->lon, p->len, p->wid, p->orient, p->height, p->solid);
   if (p->face < 0) k += snprintf(buf + k, (size_t)(n - k), "FACE AUTO\n");
   else k += snprintf(buf + k, (size_t)(n - k), "FACE %d\n", p->face);
-  k += snprintf(buf + k, (size_t)(n - k), "SIDE %s\nPARALLEL %d\nSTANDOFF %.1f\nTOL %.0f\nSHELTER %.2f %.1f\n",
-                DPO_SIDE[p->side], p->par, p->standoff, p->tol, p->smin, p->slen);
+  k += snprintf(buf + k, (size_t)(n - k), "SIDE %s\nPARALLEL %d\nSTANDOFF %.1f\nMINCLEAR %.1f\nTOL %.0f\nSHELTER %.2f %.1f\n",
+                DPO_SIDE[p->side], p->par, p->standoff, p->mincl, p->tol, p->smin, p->slen);
   if (p->loa > 0) k += snprintf(buf + k, (size_t)(n - k), "LOA %.1f\n", p->loa);
   if (p->vessel[0]) k += snprintf(buf + k, (size_t)(n - k), "VESSEL %s\n", p->vessel);
   for (int i = 0; i < p->nlim; i++) k += snprintf(buf + k, (size_t)(n - k), "LIM %s %.0f\n", p->limname[i], p->limpct[i]);
@@ -197,17 +198,40 @@ int dpo_place(const Vessel *v, const DpPlat *p, int face, float hdg, float *px, 
   }
   float wx, wy;
   to_world(hdg, 0, 0, wpx, wpy, &wx, &wy);
-  float along = wx * ny - wy * nx;            /* the working point's offset along the face: put it on the centre line */
-  float x0 = -along * ny, y0 = along * nx, dmin = 1e9f;
+  /* the working point STANDOFF m off the face, on its centre line; a turned heading: moved out along the centre line
+     until no corner is closer than MINCLEAR (the working point then a little further than STANDOFF) */
+  float along = wx * ny - wy * nx, out = wx * nx + wy * ny;
+  *px = -along * ny + (hd + p->standoff - out) * nx;
+  *py = along * nx + (hd + p->standoff - out) * ny;
+  float c = dpo_clear(v, p, face, hdg, *px, *py);
+  if (c < p->mincl) { *px += (p->mincl - c) * nx; *py += (p->mincl - c) * ny; }
+  return 1;
+}
+
+/* the working point's distance off the face, m */
+float dpo_mid(const Vessel *v, const DpPlat *p, int face, float hdg, float px, float py) {
+  float nb = dpo_face_normal(p, face) * D2R, nx = sinf(nb), ny = cosf(nb), L = dpo_loa(v, p), x = 0, y = 0, wx, wy;
+  switch (p->side) {
+    case DPS_STERN: x = -L / 2; break;
+    case DPS_BOW: x = L / 2; break;
+    case DPS_STBD: y = v->b / 2; break;
+    default: y = -v->b / 2; break;
+  }
+  to_world(hdg, px, py, x, y, &wx, &wy);
+  return wx * nx + wy * ny - face_depth(p, face);
+}
+
+/* the hull's nearest point to the face's line, m (STANDOFF when square to it; less when a corner swings in) */
+float dpo_clear(const Vessel *v, const DpPlat *p, int face, float hdg, float px, float py) {
+  float nb = dpo_face_normal(p, face) * D2R, nx = sinf(nb), ny = cosf(nb), hd = face_depth(p, face), o[7][2], m = 1e9f;
+  outline(v, p, o);
   for (int i = 0; i < 7; i++) {
     float ax, ay;
-    to_world(hdg, x0, y0, o[i][0], o[i][1], &ax, &ay);
+    to_world(hdg, px, py, o[i][0], o[i][1], &ax, &ay);
     float d = ax * nx + ay * ny - hd;
-    if (d < dmin) dmin = d;
+    if (d < m) m = d;
   }
-  float push = p->standoff - dmin;
-  *px = x0 + push * nx; *py = y0 + push * ny;
-  return 1;
+  return m;
 }
 
 void dpo_hull(const Vessel *v, const DpPlat *p, float hdg, float px, float py, float xy[7][2]) {
@@ -265,6 +289,8 @@ void dpo_eval(Vessel *v, const DpPlat *p, const DpWx *w, int face, float hdg, Dp
   memset(r, 0, sizeof *r);
   r->hdg = wrap(hdg); r->face = face;
   r->geo = dpo_place(v, p, face, r->hdg, &r->px, &r->py);
+  r->clear = dpo_clear(v, p, face, r->hdg, r->px, r->py);
+  r->mid = dpo_mid(v, p, face, r->hdg, r->px, r->py);
   float ow[9], oc[9], ov[9];
   Env ew = { w->wkn * KN, 0, 0, 0 }, ec = { 0, 0, 0, w->ckn * KN }, ev = { 0, w->hs, w->tp, 0 };
   float rw = wrap(w->wfrom - r->hdg), rc = wrap(w->cset + 180 - r->hdg), rv = wrap(w->vfrom - r->hdg);
@@ -331,7 +357,11 @@ void dpo_eval(Vessel *v, const DpPlat *p, const DpWx *w, int face, float hdg, Dp
   r->rank = r->held_lim ? (r->fail_held ? 3 : 2) : r->held_full ? 1 : 0;
 }
 
-static float score(const DpRes *r) { return (float)r->rank * 10 - r->worst - (r->rank < 3 ? r->fail_use : 0) * 0.1f + (r->blow > 0 ? 0.02f : 0); }
+static float score(const DpRes *r, const DpPlat *p) {
+  float s = (float)r->rank * 10 - r->worst - (r->rank < 3 ? r->fail_use : 0) * 0.1f + (r->blow > 0 ? 0.02f : 0);
+  if (r->mid > p->standoff) s -= (r->mid - p->standoff) * 0.02f;     /* moved out for a corner: a little less good */
+  return r->geo ? s : s - 1000;
+}
 
 int dpo_best(Vessel *v, const DpPlat *p, const DpWx *w, float step, DpRes *best, void (*progress)(int, int)) {
   int f0 = p->face < 0 ? 0 : p->face, f1 = p->face < 0 ? 3 : p->face, n = 0, tot;
@@ -346,7 +376,7 @@ int dpo_best(Vessel *v, const DpPlat *p, const DpWx *w, float step, DpRes *best,
     for (int k = 0; k < nh; k++) {
       float h = nominal(p, f) - tol + step * (float)k;
       dpo_eval(v, p, w, f, h, &r);
-      float sc = score(&r) - fabsf(step * (float)k - tol) * 1e-4f;   /* ties: nearest square to the face */
+      float sc = score(&r, p) - fabsf(step * (float)k - tol) * 1e-4f;   /* ties: nearest square to the face */
       if (sc > bs) { bs = sc; *best = r; }
       n++;
       if (progress) progress(n, tot);
