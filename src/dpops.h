@@ -6,8 +6,8 @@
  *     takes the wind off part of the hull: the wind left rises from SHELTER's minimum at the platform to all of it at
  *     SHELTER's length (platform heights) downwind; a SOLID platform (a gravity base) shelters the waves the same way
  *   - the vessel placed with its working point (the middle of the starboard or port side, the stern, the bow) STANDOFF m
- *     off a face, on its centre line; parallel to the face (side to, the usual set-up) or turned about that point within
- *     TOL degrees (a corner coming closer is reported); the heading with the most margin found
+ *     off a face, on its centre line; parallel to the face (side to, the usual set-up) or turned within TOL degrees, then
+ *     moved out along the centre line until no corner is closer than MINCLEAR; the heading with the most margin found
  *   - working limits: a thruster's thrust capped (LIM TUN 30) in the intact case; after a failure, full thrust
  * Static, as DNV's level 1 (x 1.25): not the vessel's own DP consequence analysis; planning, not operations.
  * Plain C, no DMCP: the calculator, the simulator, the web page (WebAssembly) and the PC tests share it.
@@ -50,7 +50,8 @@ typedef struct {
 
 typedef struct {
   int   geo;                            /* 1: the hull is placed (0: a corner within 1 m of the face: not usable) */
-  float clear;                          /* the hull's nearest point to the face, m (a turned heading: a corner) */
+  float clear;                          /* the hull's nearest point to the face, m (a turned heading: a corner, >= MINCLEAR) */
+  float mid;                            /* the working point's distance off the face, m (>= STANDOFF) */
   float hdg;                            /* the heading tried, degrees true */
   int   face;
   float px, py;                         /* the vessel's midships, m from the platform's centre */
@@ -82,6 +83,7 @@ float dpo_tol(const DpPlat *p);                                      /* the tole
 void dpo_waves_auto(DpWx *w);                                        /* Hs, Tp from DNV's Table 2-1 at the wind */
 float dpo_face_normal(const DpPlat *p, int face);
 int  dpo_place(const Vessel *v, const DpPlat *p, int face, float hdg, float *px, float *py);
+float dpo_mid(const Vessel *v, const DpPlat *p, int face, float hdg, float px, float py);
 float dpo_clear(const Vessel *v, const DpPlat *p, int face, float hdg, float px, float py);
 void dpo_hull(const Vessel *v, const DpPlat *p, float hdg, float px, float py, float xy[7][2]);   /* the outline, world m */
 void dpo_eval(Vessel *v, const DpPlat *p, const DpWx *w, int face, float hdg, DpRes *r);

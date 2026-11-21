@@ -62,7 +62,7 @@ so, at which heading, inside the thrusters' working limits (a bow tunnel at 30 %
     lets them through;
   - the vessel placed with its **working point STANDOFF m off a face**, on the face's centre line: the middle of the
     starboard or port side (parallel to the face, the usual set-up), or the stern or the bow. A heading turned within
-    ± TOL turns her about that point; no corner may come closer than MINCLEAR (5 m), and a closer one is shown;
+    ± TOL moves her out along the centre line until no corner is closer than MINCLEAR (5 m): both settings kept;
   - **working limits** (`LIM TUN 30`), held in the intact case. After a redundancy group is lost, the remaining
     thrusters may use full thrust.
 - **BEST** (ENTER) tries every heading every 5°, on every face with FACE AUTO. It keeps the one with the most
@@ -94,7 +94,7 @@ FACE AUTO           # or 0..3
 SIDE STBD           # STERN STBD PORT BOW
 PARALLEL 1          # starboard or port side to: along the face (the usual set-up); 0: within TOL
 STANDOFF 10         # m: the working point (the middle of the side, the stern, the bow) off the face
-MINCLEAR 5          # m: a turned heading may bring no corner closer than this
+MINCLEAR 5          # m: a turned heading moves her out until no corner is closer than this
 TOL 30              # degrees either side of square
 SHELTER 0.30 5.0    # the wind left close in, the lee's length (platform heights)
 LOA 95

@@ -53,7 +53,7 @@ const DPTAB = (() => {
   function read() {
     const o = Array.from(N().o().subarray(0, 130));
     const r = { hdg: o[0], face: o[1], px: o[2], py: o[3], wleft: o[4], vleft: o[5], fmag: o[6], fto: o[7], blow: o[8],
-                held: !!o[9], full: !!o[10], worst: o[11], wthr: o[12], fheld: !!o[13], fgrp: o[14], fuse: o[15], rank: o[16], normal: o[17], clear: o[18], geo: !!o[19],
+                held: !!o[9], full: !!o[10], worst: o[11], wthr: o[12], fheld: !!o[13], fgrp: o[14], fuse: o[15], rank: o[16], normal: o[17], clear: o[18], geo: !!o[19], mid: o[37],
                 hull: Array.from({ length: 7 }, (_, i) => [o[20 + 2 * i], o[21 + 2 * i]]), use: o.slice(40, 52), fuse_t: o.slice(60, 72),
                 f: Array.from({ length: 12 }, (_, i) => [o[80 + 2 * i], o[81 + 2 * i]]), ff: Array.from({ length: 12 }, (_, i) => [o[104 + 2 * i], o[105 + 2 * i]]) };
     return r;
@@ -230,8 +230,8 @@ const DPTAB = (() => {
       ${res ? `<div class="pill ${st[0]}" style="margin:8px 0;padding:6px 10px;border-radius:8px;font-weight:600;background:${st[0] === "ok" ? "#dff3e6" : st[0] === "warn" ? "#fdf0d5" : "#f8dcd8"}">${st[1]}</div>
       <div style="display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;margin:4px 2px 0;font-size:14px">
        <span class="meta">Heading</span><span><b class="mono">${String(Math.round(res.hdg)).padStart(3, "0")}°</b> ${P.hdg === null ? "the best" : "yours"}</span>
-       <span class="meta">Set-up</span><span>off the face looking to <span class="mono">${String(Math.round(res.normal)).padStart(3, "0")}°</span>${P.face < 0 ? " (AUTO: the best face)" : ""}, ${setupName()}, ${P.standoff} m off</span>
-       ${res.clear < P.standoff - 0.05 ? `<span class="meta">Corner</span><span style="${res.geo ? "" : "color:#b0281e;font-weight:600"}">${res.geo ? "" : "TOO CLOSE: "}the nearest corner ${res.clear.toFixed(1)} m off the face (the heading turned; corners ≥ ${P.mincl} m)</span>` : ""}
+       <span class="meta">Set-up</span><span>off the face looking to <span class="mono">${String(Math.round(res.normal)).padStart(3, "0")}°</span>${P.face < 0 ? " (AUTO: the best face)" : ""}, ${setupName()}, ${res.mid.toFixed(1)} m off</span>
+       ${res.mid > +P.standoff + 0.05 ? `<span class="meta">Moved out</span><span>the heading turned: the ${P.side === 0 ? "stern" : P.side === 3 ? "bow" : "middle of the side"} <b>${res.mid.toFixed(1)} m</b> off, the nearest corner ${res.clear.toFixed(1)} m (corners ≥ ${P.mincl} m)</span>` : ""}
        <span class="meta">Wind in the lee</span><span>${res.wleft < 0.999 ? `${Math.round(res.wleft * 100)} % of it reaches her` : "none: all of the wind"}</span>
        <span class="meta">Weather's push</span><span><span class="mono">${(res.fmag / 9.80665).toFixed(1)} t</span> towards ${String(Math.round(res.fto)).padStart(3, "0")}°: ${res.blow >= 0 ? "blow-off" : "<b>blow-on</b>"} ${(Math.abs(res.blow) / 9.80665).toFixed(1)} t</span>
        <span class="meta">Wind limit</span><span><b class="mono">${limw >= 64 ? "> 64" : limw.toFixed(0)} kn</b> <span class="meta">from ${Math.round(P.wfrom)}°, with its sea (DNV Table 2-1), inside the limits, at this heading</span></span>

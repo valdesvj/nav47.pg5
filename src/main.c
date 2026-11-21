@@ -2112,13 +2112,10 @@ static void dp_picture(void) {
     gfx_rect(lx - 1, ly - 1, 7, 9, 0);
     draw_text(&TINY, lx, ly, wx[k].l, 0);
   }
-  if (r->clear < d->p.standoff - 0.05f) {                     /* a turned heading: a corner closer than the standoff */
+  if (r->mid > d->p.standoff + 0.05f || r->clear < d->p.standoff - 0.05f) {   /* turned: moved out for a corner */
     char s[32];
-    if (r->geo) { sprintf(s, "CORNER %.1fm", r->clear); gfx_rect(0, 198, 70, 9, 0); draw_text(&TINY, 1, 199, s, 0); }
-    else {                                                    /* closer than MINCLEAR (or into the platform): inverse */
-      sprintf(s, "TOO CLOSE: CORNER %.1fm", r->clear);
-      gfx_rect(0, 197, 128, 11, 1); draw_text(&TINY, 2, 199, s, 1);
-    }
+    sprintf(s, "MID %.1fm CORNER %.1fm", r->mid, r->clear);
+    gfx_rect(0, 198, 120, 9, 0); draw_text(&TINY, 1, 199, s, 0);
   }
   gfx_rect(0, 17, 22, 24, 0);
   arrow(8, 36, 0, 14); draw_text(&TINY, 12, 20, "N", 0);
@@ -2136,7 +2133,7 @@ static void draw_dp(void) {
   sprintf(s, "FACE %03.0f%s %s%s", dpo_face_normal(&d->p, d->face), d->p.face < 0 ? "*" : "", DPO_SIDE[d->p.side],
           dpo_tol(&d->p) == 0 && d->p.side != DPS_STERN && d->p.side != DPS_BOW ? " PAR" : "");
   nt(X, 18, s);
-  sprintf(s, "HDG %03.0f%s  %.0fm OFF", r->hdg, d->manual ? " SET" : " BEST", d->p.standoff);
+  sprintf(s, "HDG %03.0f%s  %.0fm OFF", r->hdg, d->manual ? " SET" : " BEST", r->mid);
   nt(X, 34, s);
   sprintf(s, "WIND %03.0f %.0fkn", d->w.wfrom, d->w.wkn);
   nt(X, 50, s);

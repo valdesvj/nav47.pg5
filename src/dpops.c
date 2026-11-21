@@ -198,11 +198,27 @@ int dpo_place(const Vessel *v, const DpPlat *p, int face, float hdg, float *px, 
   }
   float wx, wy;
   to_world(hdg, 0, 0, wpx, wpy, &wx, &wy);
-  /* the working point exactly STANDOFF m off the face, on its centre line; a turned heading turns the vessel about it */
+  /* the working point STANDOFF m off the face, on its centre line; a turned heading: moved out along the centre line
+     until no corner is closer than MINCLEAR (the working point then a little further than STANDOFF) */
   float along = wx * ny - wy * nx, out = wx * nx + wy * ny;
   *px = -along * ny + (hd + p->standoff - out) * nx;
   *py = along * nx + (hd + p->standoff - out) * ny;
+  float c = dpo_clear(v, p, face, hdg, *px, *py);
+  if (c < p->mincl) { *px += (p->mincl - c) * nx; *py += (p->mincl - c) * ny; }
   return 1;
+}
+
+/* the working point's distance off the face, m */
+float dpo_mid(const Vessel *v, const DpPlat *p, int face, float hdg, float px, float py) {
+  float nb = dpo_face_normal(p, face) * D2R, nx = sinf(nb), ny = cosf(nb), L = dpo_loa(v, p), x = 0, y = 0, wx, wy;
+  switch (p->side) {
+    case DPS_STERN: x = -L / 2; break;
+    case DPS_BOW: x = L / 2; break;
+    case DPS_STBD: y = v->b / 2; break;
+    default: y = -v->b / 2; break;
+  }
+  to_world(hdg, px, py, x, y, &wx, &wy);
+  return wx * nx + wy * ny - face_depth(p, face);
 }
 
 /* the hull's nearest point to the face's line, m (STANDOFF when square to it; less when a corner swings in) */
@@ -274,7 +290,7 @@ void dpo_eval(Vessel *v, const DpPlat *p, const DpWx *w, int face, float hdg, Dp
   r->hdg = wrap(hdg); r->face = face;
   r->geo = dpo_place(v, p, face, r->hdg, &r->px, &r->py);
   r->clear = dpo_clear(v, p, face, r->hdg, r->px, r->py);
-  if (r->clear < fminf(p->mincl, p->standoff) - 0.01f) r->geo = 0;   /* a corner swung in closer than MINCLEAR: not used */
+  r->mid = dpo_mid(v, p, face, r->hdg, r->px, r->py);
   float ow[9], oc[9], ov[9];
   Env ew = { w->wkn * KN, 0, 0, 0 }, ec = { 0, 0, 0, w->ckn * KN }, ev = { 0, w->hs, w->tp, 0 };
   float rw = wrap(w->wfrom - r->hdg), rc = wrap(w->cset + 180 - r->hdg), rv = wrap(w->vfrom - r->hdg);
@@ -343,7 +359,7 @@ void dpo_eval(Vessel *v, const DpPlat *p, const DpWx *w, int face, float hdg, Dp
 
 static float score(const DpRes *r, const DpPlat *p) {
   float s = (float)r->rank * 10 - r->worst - (r->rank < 3 ? r->fail_use : 0) * 0.1f + (r->blow > 0 ? 0.02f : 0);
-  if (r->clear < p->standoff) s -= (p->standoff - r->clear) * 0.05f;   /* a corner swung in: less good */
+  if (r->mid > p->standoff) s -= (r->mid - p->standoff) * 0.02f;     /* moved out for a corner: a little less good */
   return r->geo ? s : s - 1000;
 }
 

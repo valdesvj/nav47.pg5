@@ -73,10 +73,10 @@ int main(void) {
   CHECK(same == n1, "held as dp_held: %d of %d", same, n1);
   printf("1. weather together, no lee, no limits: %d of %d cases as DPCAP47's dp_held\n", same, n1);
 
-  /* 2. the working point (the side's middle, the stern, the bow) exactly STANDOFF m off, on the face's centre line;
-        square to the face, no part closer; turned, the nearest corner reported */
-  float wmin = 1e9f;
-  for (int sd = 0; sd < DPS_N; sd++) for (int f = 0; f < 4; f++) for (int dh = -30; dh <= 30; dh += 10) {
+  /* 2. the working point (the side's middle, the stern, the bow) on the face's centre line, STANDOFF m off or more; no
+        corner closer than MINCLEAR; one of the two exactly (moved out no further than needed); square: no part closer */
+  float mfar = 0;
+  for (int sd = 0; sd < DPS_N; sd++) for (int f = 0; f < 4; f++) for (int dh = -30; dh <= 30; dh += 5) {
     DpPlat t = p;
     t.side = sd;
     static const float add[4] = { 0, 90, -90, 180 };
@@ -85,21 +85,17 @@ int main(void) {
     dpo_hull(&v, &t, hdg, px, py, hull);
     float L = dpo_loa(&v, &t), wx = sd == DPS_STERN ? -L / 2 : sd == DPS_BOW ? L / 2 : 0, wy = sd == DPS_STBD ? v.b / 2 : sd == DPS_PORT ? -v.b / 2 : 0;
     float h = hdg * 0.017453292f, ax = px + wx * sinf(h) + wy * cosf(h), ay = py + wx * cosf(h) - wy * sinf(h);
-    float nb = dpo_face_normal(&t, f) * 0.017453292f, out = ax * sinf(nb) + ay * cosf(nb) - ((f & 1) ? t.wid : t.len) / 2;
-    float along = ax * cosf(nb) - ay * sinf(nb);
-    CHECK(fabsf(out - t.standoff) < 0.01f && fabsf(along) < 0.01f, "side %s face %d %+d: the working point %.2f m off, %.2f along", DPO_SIDE[sd], f, dh, out, along);
-    float c = clearance(&t, hull), cl = dpo_clear(&v, &t, f, hdg, px, py);
-    if (dh == 0) CHECK(c >= t.standoff - 0.05f && fabsf(cl - t.standoff) < 0.05f, "side %s face %d square: %.2f m off", DPO_SIDE[sd], f, c);
-    CHECK(c >= cl - 0.05f, "side %s face %d %+d: the hull %.2f m, reported %.2f", DPO_SIDE[sd], f, dh, c, cl);
-    if (cl < wmin) wmin = cl;
+    float nb = dpo_face_normal(&t, f) * 0.017453292f, along = ax * cosf(nb) - ay * sinf(nb);
+    float mid = dpo_mid(&v, &t, f, hdg, px, py), cl = dpo_clear(&v, &t, f, hdg, px, py), c = clearance(&t, hull);
+    CHECK(fabsf(along) < 0.01f, "side %s face %d %+d: %.2f m along the face", DPO_SIDE[sd], f, dh, along);
+    CHECK(mid >= t.standoff - 0.01f && cl >= t.mincl - 0.01f && (fabsf(mid - t.standoff) < 0.01f || fabsf(cl - t.mincl) < 0.01f),
+          "side %s face %d %+d: the working point %.2f m, the nearest corner %.2f m", DPO_SIDE[sd], f, dh, mid, cl);
+    CHECK(c >= fminf(t.mincl, t.standoff) - 0.05f, "side %s face %d %+d: the hull %.2f m off the platform", DPO_SIDE[sd], f, dh, c);
+    if (dh == 0) CHECK(fabsf(cl - t.standoff) < 0.05f, "side %s face %d square: the nearest %.2f m", DPO_SIDE[sd], f, cl);
+    if (sd == DPS_STBD && dh == 30 && mid > mfar) mfar = mid;
   }
-  { DpPlat t = p; DpWx w0 = { 0, 20, 0, 0, 0, 0, 0 }; DpRes q;
-    t.side = DPS_STBD; t.par = 0; t.face = 1;              /* side to, within 30 degrees: no corner closer than MINCLEAR */
-    dpo_best(&v, &t, &w0, 1, &q, NULL);
-    CHECK(q.geo && q.clear >= t.mincl - 0.05f, "side to, turned: a corner %.2f m (MINCLEAR %.0f)", q.clear, t.mincl);
-    printf("   starboard side to, turned within 30 degrees: heading %03.0f, the nearest corner %.1f m (MINCLEAR %.0f m)\n", q.hdg, q.clear, t.mincl); }
-  printf("2. the working point %.0f m off on the face's centre line, every side, face, heading; square: no part closer;\n"
-         "   turned 30 degrees about it, unchecked: a corner %.1f m (headings closer than MINCLEAR are not used)\n", p.standoff, wmin);
+  printf("2. the working point on the face's centre line, %.0f m off or more, no corner within %.0f m, every side, face and\n"
+         "   heading; starboard side to turned 30 degrees: moved out to %.1f m (the corner at %.0f m)\n", p.standoff, p.mincl, mfar, p.mincl);
 
   /* 3. the lee: stern-to face 0 (to 030), the vessel on the platform's 030 side; the wind from 210 crosses it first */
   DpWx w = { 210, 30, 0, 0, 210, 0, 0 };
