@@ -952,6 +952,8 @@ static void route_load(void) {
   while (l) {
     double a, b, v;
     int m;
+    size_t ln = strlen(l);
+    while (ln && (l[ln - 1] == '\r' || l[ln - 1] == ' ' || l[ln - 1] == '\t')) l[--ln] = 0;   /* CR LF files too */
     if (!strcmp(l, "GC")) N->cfg.gc = 1;
     else if (!strcmp(l, "RL")) N->cfg.gc = 0;
     else if (!strcmp(l, "CS")) N->cfg.gc = 2;
