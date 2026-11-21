@@ -41,7 +41,10 @@ sent anywhere and never go into this repository.**
 
 ## Tide and flow files
 
-The page has NOAA's tidal current stations (public domain, `make noaa`: NOAA CO-OPS's harmonic current stations, their
+The page has TICON-3's tide gauges worldwide (CC BY 4.0, `make ticon`: 2343 coastal and harbour gauges of GESLA-3,
+converted as Tide 47 converts its TICON-3 ports, datum LAT; named after the nearest place of Natural Earth's populated
+places, e.g. "Manama BH" for Mina Salman; the nautical zone of the longitude for local time; files `build/ticon/T*.TID`
+by area, ~200 stations each, embedded by `make web`; copy an area to `/NAV47/TIDES/` for the calculator) and NOAA's tidal current stations (public domain, `make noaa`: NOAA CO-OPS's harmonic current stations, their
 constants of the default depth, as `.TID` files in `build/noaa/`, embedded by `make web`; copy them to `/NAV47/TIDES/`
 for the calculator). **Your own stations and FLOW atlas** (Aramco, Admiralty ...) come from your Tide 47 checkout:
 
@@ -65,6 +68,9 @@ predictions) except the 16 whose current truly turns (rotary).
   the observed rain of the last 2 hours (and its nowcast when given), every 10 minutes, and the infrared clouds.
   Radar exists over land and near the coasts. The radar is drawn on a dark map, opaque and crisp (RainViewer's free
   service gives one colour scheme, Universal Blue).
+- **Waves and currents:** [Open-Meteo Marine](https://open-meteo.com/en/docs/marine-weather-api) (free, CC BY 4.0):
+  significant wave height (shaded), the waves' direction, and the ocean current (speed in knots, where it sets; coarse:
+  0.1 km/h, directions in 45° steps), hourly, the same grid; fetched only with the Waves or Currents layer on.
 - **Lightning:** no free global feed may be used this way; the thunderstorm forecast (⚡) and high CAPE instead.
 - Only the view's grid points are sent (never your route, objects or files). The Weather chart is the web maps'
   spherical Mercator, so the radar tiles fit the coast.
@@ -100,6 +106,8 @@ runs: 79 routes, 15–80 objects each, no leg into a zone, departures and arriva
 
 ```bash
 make coast      # build/coast/COAST_C.BIN, COAST_L.BIN (Natural Earth, public domain)
+make noaa       # build/noaa/N*.TID: NOAA's current stations (fetched once, cached)
+make ticon      # build/ticon/T*.TID: TICON-3 worldwide (TICON_3.zip in ~/Downloads, or TICON_ZIP=...)
 make web        # web/nav47.js (needs emscripten): the calculator, web/api.c, the coastlines
 google-chrome web/index.html
 ```

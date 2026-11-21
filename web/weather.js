@@ -8,8 +8,9 @@
 "use strict";
 const WX = (() => {
   const D = Math.PI / 180;
-  const st = Object.assign({ online: false, layers: { wind: true, rain: true, cloud: true, storm: true, radar: false, sat: false },
+  const st = Object.assign({ online: false, layers: { wind: true, rain: true, cloud: true, storm: true, radar: false, sat: false, waves: false, curr: false },
                              mode: "fc", lat0: 25, lon0: 30, k: 230, scheme: 6 }, JSON.parse(localStorage.getItem("nav47web:wx") || "{}"));
+  st.layers = Object.assign({ waves: false, curr: false }, st.layers);
   const save = () => localStorage.setItem("nav47web:wx", JSON.stringify(st));
   let cv, g, W = 0, H = 0, dpr = 1, built = false;
   let fc = null, fcKey = "", fcBusy = false, fcErr = "", hour = 0, playing = false, timer = null;
@@ -62,7 +63,42 @@ const WX = (() => {
     fcBusy = false; info(); draw();
   }
   let fetchT = null;
-  const later = () => { clearTimeout(fetchT); fetchT = setTimeout(() => { fetchFc(); fetchRv(); }, 700); };
+  const later = () => { clearTimeout(fetchT); fetchT = setTimeout(() => { fetchFc(); fetchRv(); fetchMarine(); }, 700); };
+
+  /* ---------------------------------------------------------------- the sea (Open-Meteo Marine): waves, currents */
+  let mc = null, mcKey = "", mcBusy = false, mcErr = "";
+  async function fetchMarine() {
+    if (!st.online || mcBusy || !(st.layers.waves || st.layers.curr)) return;
+    const G = gridOf(), key = G.cell + ":" + G.pts.length + ":" + (G.pts[0] || []).join(",") + ":" + Math.floor(Date.now() / 36e5);
+    if (key === mcKey) return;
+    mcBusy = true; mcErr = ""; info();
+    try {
+      const out = [];
+      for (let i = 0; i < G.pts.length; i += 150) {
+        const b = G.pts.slice(i, i + 150);
+        const url = "https://marine-api.open-meteo.com/v1/marine?latitude=" + b.map(p => p[0]).join(",") + "&longitude=" + b.map(p => p[1]).join(",") +
+          "&hourly=wave_height,wave_direction,wave_period,ocean_current_velocity,ocean_current_direction&forecast_hours=72&timezone=GMT";
+        const r = await fetch(url);
+        if (r.status === 429) throw new Error("Open-Meteo's free limit is reached: wait a minute, or zoom in");
+        if (!r.ok) throw new Error("Open-Meteo Marine " + r.status);
+        let j = await r.json(); if (!Array.isArray(j)) j = [j];
+        j.forEach((d, k) => {
+          const h = d.hourly || {}, u = (d.hourly_units || {}).ocean_current_velocity || "km/h";
+          const f = u === "km/h" ? 1 / 1.852 : u === "m/s" ? 3600 / 1852 : 1;          /* to knots */
+          if (h.ocean_current_velocity) h.ocean_current_velocity = h.ocean_current_velocity.map(v => v === null ? null : v * f);
+          out.push({ lat: b[k][0], lon: b[k][1], h });
+        });
+      }
+      const lats = [...new Set(out.map(p => p.lat))].sort((a, b) => a - b);
+      const lon0 = Math.min(...out.map(p => near(p.lon, st.lon0)));
+      mc = { cell: G.cell, pts: out, la0: lats[0], lon0, grid: new Map(out.map(p => [p.lat + "," + Math.round((near(p.lon, st.lon0) - lon0) / G.cell), p])),
+             times: out.length && out[0].h.time ? out[0].h.time.map(t => Date.parse(t + "Z")) : [] };
+      mcKey = key;
+    } catch (e) { mcErr = String(e.message || e); }
+    mcBusy = false; info(); draw();
+  }
+  /* the marine hour matching the forecast's */
+  const mHour = () => { if (!mc) return -1; const t = fc && fc.times[hour] !== undefined ? fc.times[hour] : mc.times[hour]; const i = mc.times.indexOf(t); return i < 0 ? hour : i; };
 
   /* ---------------------------------------------------------------- radar and satellite (RainViewer) */
   async function fetchRv() {
@@ -118,9 +154,10 @@ const WX = (() => {
     if (v >= 5) { if (t === L) t -= 3.5; g.beginPath(); g.moveTo(x + ux * t, y + uy * t); g.lineTo(x + ux * (t + 1) + px * 4, y + uy * (t + 1) + py * 4); g.stroke(); }
   }
   /* the value of a field at (lat, lon): bilinear between the four grid points round it */
-  function at(field, la, lo) {
-    const c = fc.cell, fi = (la - fc.la0) / c, fj = (near(lo, st.lon0) - fc.lon0) / c, i = Math.floor(fi), j = Math.floor(fj);
-    const v = (a, b) => { const p = fc.grid.get(+(fc.la0 + a * c).toFixed(3) + "," + b); return p ? p.h[field][hour] : null; };
+  function at(field, la, lo, D, hr) {
+    D = D || fc; hr = hr === undefined ? hour : hr;
+    const c = D.cell, fi = (la - D.la0) / c, fj = (near(lo, st.lon0) - D.lon0) / c, i = Math.floor(fi), j = Math.floor(fj);
+    const v = (a, b) => { const p = D.grid.get(+(D.la0 + a * c).toFixed(3) + "," + b); return p && p.h[field] ? p.h[field][hr] : null; };
     const q = [v(i, j), v(i, j + 1), v(i + 1, j), v(i + 1, j + 1)];
     if (q.some(x => x === null || x === undefined)) { const k = q.find(x => x !== null && x !== undefined); return k === undefined ? null : k; }
     const a = fi - i, b = fj - j;
@@ -151,6 +188,49 @@ const WX = (() => {
     o.putImageData(im, 0, 0);
     g.imageSmoothingEnabled = true; g.imageSmoothingQuality = "high"; g.drawImage(off, 0, 0, w * s, h * s);
   }
+  /* the waves' height: smooth shading, blue to purple */
+  let offW = null;
+  function waveField() {
+    const s = 6, w = Math.ceil(W / s), h = Math.ceil(H / s), mh = mHour();
+    if (!offW || offW.width !== w || offW.height !== h) { offW = document.createElement("canvas"); offW.width = w; offW.height = h; }
+    const o = offW.getContext("2d"), im = o.createImageData(w, h), d = im.data;
+    const SC = [[0.5, [150, 200, 240, 0.25]], [1, [90, 160, 230, 0.35]], [2, [50, 110, 210, 0.45]], [3, [70, 60, 190, 0.5]], [4, [130, 50, 170, 0.55]], [6, [180, 30, 120, 0.6]], [99, [150, 0, 60, 0.65]]];
+    for (let y = 0; y < h; y++) {
+      const la = U(0, (y + 0.5) * s)[0];
+      for (let x = 0; x < w; x++) {
+        const hm = at("wave_height", la, U((x + 0.5) * s, 0)[1], mc, mh), k = 4 * (y * w + x);
+        if (hm === null || !(hm >= 0.1)) continue;
+        const c = (SC.find(z => hm < z[0]) || SC[SC.length - 1])[1];
+        d[k] = c[0]; d[k + 1] = c[1]; d[k + 2] = c[2]; d[k + 3] = Math.round(c[3] * 255);
+      }
+    }
+    o.putImageData(im, 0, 0);
+    g.imageSmoothingEnabled = true; g.drawImage(offW, 0, 0, w * s, h * s);
+  }
+  function arrowTo(x, y, dir, len, col, wd) {                   /* an arrow pointing to dir (deg true) */
+    const a = dir * D, ux = Math.sin(a), uy = -Math.cos(a);
+    g.strokeStyle = col; g.lineWidth = wd || 1.6;
+    g.beginPath(); g.moveTo(x - ux * len / 2, y - uy * len / 2); g.lineTo(x + ux * len / 2, y + uy * len / 2);
+    g.lineTo(x + ux * len / 2 - (ux * 5 - uy * 3.5), y + uy * len / 2 - (uy * 5 + ux * 3.5));
+    g.moveTo(x + ux * len / 2, y + uy * len / 2); g.lineTo(x + ux * len / 2 - (ux * 5 + uy * 3.5), y + uy * len / 2 - (uy * 5 - ux * 3.5)); g.stroke();
+  }
+  /* the waves' direction (where they go) and the currents (where they set), at the grid points */
+  function marineArrows() {
+    if (!mc) return;
+    const mh = mHour();
+    for (const p of mc.pts) {
+      const [x, y] = P(p.lat, p.lon), h = p.h;
+      if (x < -10 || y < -10 || x > W + 10 || y > H + 10) continue;
+      const gi = Math.round((p.lat - mc.la0) / mc.cell) + Math.round((near(p.lon, st.lon0) - mc.lon0) / mc.cell);
+      const sparse = Math.abs(P(0, mc.cell)[0] - P(0, 0)[0]) < 70;   /* dense grid: the wave arrows at every other point */
+      if (st.layers.waves && (!sparse || gi % 2 === 0) && h.wave_direction && h.wave_direction[mh] !== null && h.wave_height[mh] >= 0.1)
+        arrowTo(x + 9, y + 9, (h.wave_direction[mh] + 180) % 360, 12, "rgba(40,60,120,.75)", 1.3);
+      if (st.layers.curr && h.ocean_current_velocity && h.ocean_current_velocity[mh] !== null) {
+        const kn = h.ocean_current_velocity[mh];
+        if (kn >= 0.05) arrowTo(x - 9, y - 9, h.ocean_current_direction[mh], 8 + 8 * Math.min(kn, 3), kn < 0.5 ? "#4f8fc0" : kn < 1.5 ? "#2a9d6a" : kn < 3 ? "#d99a00" : "#c0392b", 2.2);
+      }
+    }
+  }
   function draw() {
     if (!g || document.getElementById("t-weather").hidden) return;
     g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -176,6 +256,7 @@ const WX = (() => {
     }
     /* the forecast at the hour */
     if (st.online && fc && st.mode === "fc") {
+      if (st.layers.waves && mc) waveField();
       if (st.layers.cloud || st.layers.rain) fields();
       g.font = "15px system-ui"; g.textAlign = "center";
       for (const p of fc.pts) {
@@ -190,6 +271,10 @@ const WX = (() => {
       }
       g.textAlign = "left";
     }
+    if (st.online && st.mode === "fc" && (st.layers.waves || st.layers.curr)) {
+      if (!fc && mc && st.layers.waves) waveField();
+      marineArrows();
+    }
     /* the route */
     const rows = (APP.route() || []);
     if (rows.length > 1) {
@@ -200,7 +285,7 @@ const WX = (() => {
     }
     { const [x, y] = P(APP.state.pos[0], APP.state.pos[1]); g.strokeStyle = css("--now"); g.lineWidth = 2; g.beginPath(); g.moveTo(x - 8, y); g.lineTo(x + 8, y); g.moveTo(x, y - 8); g.lineTo(x, y + 8); g.stroke(); }
     g.fillStyle = css("--soft"); g.font = "11px system-ui";
-    g.fillText("Weather: Open-Meteo.com (CC BY 4.0) · radar, satellite: RainViewer · coast: Natural Earth", 8, H - 8);
+    g.fillText("Weather, waves, currents: Open-Meteo.com (CC BY 4.0) · radar, satellite: RainViewer · coast: Natural Earth", 8, H - 8);
     label();
   }
   function label() {
@@ -225,6 +310,8 @@ const WX = (() => {
     if (fcErr) bits.push(`<span style="color:var(--now)">forecast: ${fcErr}</span>`);
     if (rvErr) bits.push(`<span style="color:var(--now)">radar: ${rvErr}</span>`);
     if (fc && st.online) bits.push(`forecast grid ${fc.cell}°, ${fc.pts.length} points`);
+    if (mcBusy) bits.push("loading the sea…");
+    if (mcErr) bits.push(`<span style="color:var(--now)">sea: ${mcErr}</span>`);
     el.innerHTML = bits.join(" · ");
   }
 
@@ -235,7 +322,7 @@ const WX = (() => {
       <div class="tools">
         <button id="wxon" class="${st.online ? "on" : ""}" title="load the weather from Open-Meteo and RainViewer">🌐 Online</button>
         <span style="display:inline-flex;gap:4px"><button class="small" data-wm="fc">Forecast</button><button class="small" data-wm="radar">Radar (2 h)</button></span>
-        ${[["wind", "Wind"], ["rain", "Rain"], ["cloud", "Clouds"], ["storm", "Thunderstorms"], ["radar", "Radar"], ["sat", "Satellite IR"]]
+        ${[["wind", "Wind"], ["rain", "Rain"], ["cloud", "Clouds"], ["storm", "Thunderstorms"], ["waves", "Waves"], ["curr", "Currents"], ["radar", "Radar"], ["sat", "Satellite IR"]]
           .map(([k, t]) => `<label><input type="checkbox" data-wl="${k}" ${st.layers[k] ? "checked" : ""}> ${t}</label>`).join(" ")}
         <span style="flex:1"></span><button id="wxfit">Route</button><button id="wxdr">DR</button><button id="wxworld">World</button>
       </div>
@@ -246,17 +333,19 @@ const WX = (() => {
         <span>Wind (barbs, kn): ${[0, 4, 11, 22, 34, 48, 64].map(v => `<span style="color:${windCol(v + 1)}">■</span> ${v}`).join(" ")}</span>
         <span>Rain mm/h: <span style="color:rgb(120,200,120)">■</span> 0.1 <span style="color:rgb(40,170,80)">■</span> 0.5 <span style="color:rgb(230,200,40)">■</span> 2
           <span style="color:rgb(240,130,30)">■</span> 5 <span style="color:rgb(210,40,40)">■</span> 10</span>
-        <span>Clouds: grey by cover</span><span>⚡ thunderstorm forecast · <span style="color:#7b2cbf">●</span> CAPE > 1500 J/kg</span></div>
+        <span>Clouds: grey by cover</span><span>Waves m: <span style="color:rgb(150,200,240)">■</span> 0.5 <span style="color:rgb(90,160,230)">■</span> 1
+          <span style="color:rgb(50,110,210)">■</span> 2 <span style="color:rgb(70,60,190)">■</span> 3 <span style="color:rgb(130,50,170)">■</span> 4 <span style="color:rgb(180,30,120)">■</span> 6, ↗ where they go</span>
+        <span>Currents (kn, where they set): <span style="color:#4f8fc0">➜</span> &lt;0.5 <span style="color:#2a9d6a">➜</span> 1.5 <span style="color:#d99a00">➜</span> 3 <span style="color:#c0392b">➜</span> more</span><span>⚡ thunderstorm forecast · <span style="color:#7b2cbf">●</span> CAPE > 1500 J/kg</span></div>
       <div class="meta" id="wxinfo"></div>
       <div class="meta">The forecast: hourly, 72 h, on a grid over the view (finer as you zoom in), from Open-Meteo (the national weather
         services' models; free for non-commercial use). The radar: observed rain of the last 2 hours and a 30-minute nowcast, every 10 minutes
         (where radars are: over land and near the coasts); the satellite: infrared clouds. Lightning: no free global feed; the thunderstorm
         forecast instead. Drag to move, the wheel to zoom. Not for navigation: use the official forecasts and warnings.</div></div>`;
     cv = document.getElementById("wxcv"); g = cv.getContext("2d");
-    document.getElementById("wxon").onclick = () => { st.online = !st.online; save(); document.getElementById("wxon").classList.toggle("on", st.online); info(); if (st.online) { fetchFc(); fetchRv(); } draw(); };
+    document.getElementById("wxon").onclick = () => { st.online = !st.online; save(); document.getElementById("wxon").classList.toggle("on", st.online); info(); if (st.online) { fetchFc(); fetchRv(); fetchMarine(); } draw(); };
     el.querySelectorAll("[data-wm]").forEach(b => { b.classList.toggle("on", b.dataset.wm === st.mode);
       b.onclick = () => { st.mode = b.dataset.wm; if (st.mode === "radar") st.layers.radar = true; save(); build(); fetchRv(); draw(); }; });
-    el.querySelectorAll("[data-wl]").forEach(i => i.onchange = () => { st.layers[i.dataset.wl] = i.checked; save(); fetchRv(); draw(); });
+    el.querySelectorAll("[data-wl]").forEach(i => i.onchange = () => { st.layers[i.dataset.wl] = i.checked; save(); fetchRv(); fetchMarine(); draw(); });
     document.getElementById("wxslide").oninput = e => { stop(); if (st.mode === "radar") frame = +e.target.value; else hour = +e.target.value; draw(); };
     document.getElementById("wxplay").onclick = () => playing ? stop() : play();
     const go = (la, lo, sp) => { st.lat0 = la; st.lon0 = lo; st.k = W / (sp * D); clamp(); save(); later(); draw(); };
@@ -294,10 +383,11 @@ const WX = (() => {
     cv.width = Math.round(W * dpr); cv.height = Math.round(H * dpr); clamp(); draw(); later();
   }
   function show() {
+    if (/wxsea=on/.test(location.hash)) { st.layers.waves = true; st.layers.curr = true; }   /* #wxsea=on (tests, demos) */
     if (/wx=on/.test(location.hash)) { st.online = true; save(); }   /* #wx=on (tests, demos) */
     const v = location.hash.match(/wxv=(-?[\d.]+),(-?[\d.]+),([\d.]+)/);   /* #wxv=lat,lon,span */
     if (v) { st.lat0 = +v[1]; st.lon0 = +v[2]; st.k = (document.body.clientWidth - 60) / (+v[3] * D); }
     const m = location.hash.match(/wxmode=(fc|radar)/); if (m) { st.mode = m[1]; if (m[1] === "radar") { st.layers.radar = true; st.layers.sat = true; } }
-    if (!built) build(); resize(); info(); if (st.online) { fetchFc(); fetchRv(); } }
+    if (!built) build(); resize(); info(); if (st.online) { fetchFc(); fetchRv(); fetchMarine(); } }
   return { show, draw };
 })();

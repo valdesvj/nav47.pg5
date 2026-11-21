@@ -122,8 +122,13 @@ const TFILES = {
   names() { return Object.keys(localStorage).filter(k => k.startsWith(TFILES.KEY)).map(k => k.slice(TFILES.KEY.length)).sort(); },
   noaa: [],
   init() {
-    try { TFILES.noaa = Module.FS.readdir("/noaa").filter(f => /\.TID$/i.test(f)).sort(); } catch (e) { TFILES.noaa = []; }
-    for (const f of TFILES.noaa) TFILES.call(Module._api_tid_load, Module.FS.readFile("/noaa/" + f, { encoding: "utf8" }), 1);
+    /* the page's own public files: NOAA's current stations, TICON-3's tide gauges worldwide */
+    TFILES.noaa = [];
+    for (const dir of ["/noaa", "/ticon"]) {
+      let fs = [];
+      try { fs = Module.FS.readdir(dir).filter(f => /\.TID$/i.test(f)).sort(); } catch (e) { /* none */ }
+      for (const f of fs) { TFILES.call(Module._api_tid_load, Module.FS.readFile(dir + "/" + f, { encoding: "utf8" }), 1); TFILES.noaa.push(f); }
+    }
     TFILES.reload();
   },
   reload() {                                                 /* your files, again from the start */
@@ -158,7 +163,7 @@ const TFILES = {
       <div class="meta">Your own stations and FLOW atlas (Aramco, Admiralty ...): <span class="mono">make tidefiles TIDE47=~/opt/tide47</span>
         writes them to <span class="mono">build/tidefiles/</span> (as for the calculator's /NAV47/TIDES/). They stay in this browser,
         never sent anywhere and never in the repository; the Calculator tab gets them too (its FILES, TIDE, T&amp;F pages).
-        The page itself has NOAA's ${TFILES.noaa.length ? "current stations (" + TFILES.noaa.join(", ") + ")" : "public stations"}.</div></div>`;
+        The page itself has NOAA's current stations and TICON-3's tide gauges worldwide (${TFILES.noaa.length} files).</div></div>`;
   },
   bind(el, redraw) {
     el.querySelectorAll(".tfload").forEach(i => i.onchange = e => TFILES.add(e.target.files, errs => { if (errs.length) alert(errs.join("\n")); redraw(); }));

@@ -135,7 +135,7 @@ const TABS2 = (() => {
       <div><table><tr><th></th><th class="num">Time</th><th class="num">${stream ? "Rate" : "Height"}</th>${stream ? '<th class="num">Set</th>' : ""}</tr>
       ${ev.map(e => `<tr><td>${stream ? (e.kind > 0 ? "Flood max" : e.kind < 0 ? "Ebb max" : "Slack") : (e.kind > 0 ? "HW" : "LW")}</td><td class="num mono">${F().hm(e.t)}</td>
         <td class="num mono">${e.v.toFixed(2)} ${unit}</td>${stream ? `<td class="num mono">${Math.round(e.set)}°</td>` : ""}</tr>`).join("")}</table>
-      <div class="meta">The calculator's own tide engine (Tide 47, the Schureman harmonic method); ${st.src === 2 ? "a station of your file" : st.src === 1 ? "NOAA's current stations (public domain)" : "the public stations (NOAA, TICON-3)"}.
+      <div class="meta">The calculator's own tide engine (Tide 47, the Schureman harmonic method); ${st.src === 2 ? "a station of your file" : st.src === 1 ? (/TICON/.test(st.region) ? "a TICON-3 gauge (CC BY 4.0), named after the nearest place; zone time by the longitude" : "NOAA's current stations (public domain)") : "the public stations (NOAA, TICON-3)"}.
         ${stream ? "Rates in knots." : "Heights above the chart datum, metres."} Not for navigation: check against the official tide tables.</div></div></div></div>
       ${APP.tfiles.card()}`;
     APP.tfiles.bind(el, () => { tideSt = null; tide(); });
