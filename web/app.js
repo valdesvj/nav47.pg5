@@ -1338,7 +1338,7 @@ function voyCard() {
 }
 
 /* ---------------------------------------------------------------- the page */
-const TABS = [["route", "Route"], ["weather", "Weather"], ["almanac", "Almanac"], ["sky", "Sky"], ["tide", "Tide"], ["flow", "Flow"], ["zones", "Zones"], ["calc", "Calculator"]];
+const TABS = [["route", "Route"], ["weather", "Weather"], ["almanac", "Almanac"], ["sky", "Sky"], ["tide", "Tide"], ["flow", "Flow"], ["zones", "Zones"], ["dp", "DP"], ["calc", "Calculator"]];
 function showTab(t) {
   S.tab = t; store.set("tab", t);
   document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.tab === t));

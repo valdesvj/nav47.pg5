@@ -7,6 +7,8 @@
 - The engines have Python twins in the other 47 repositories (reference only, never edited from here):
   src/astro.c = almanac47 python/native/c47astro.py, src/tide.c = tide47 python/tide47ref.py,
   src/zones.c = zones47 DST rules. A change to an engine: run make test against the twins.
+- src/dp/dpcap.c and dpcap.h are DPCAP47's engine, copied by make dpsync (src/dp/FROM.txt): never edit them here;
+  change ~/opt/dpcap47.pg5 and sync. make test-dp checks src/dpops.c against it. No real vessel's .DPV in the repo.
 - src/almdata.c, fonts.c, zonedata.c, tidecons.c, tidedata_pub.c are generated (make data); never edit them by hand.
 - DMCP5: 8 KB of static RAM. Big buffers go on the heap (struct Nav, tide.c work()); check .bss in arm-none-eabi-size.
 - Check every screen in the simulator (make sim; test/sim/render.py) before committing.

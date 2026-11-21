@@ -27,6 +27,7 @@
 #include "moon47.h"
 #include "geo_nav.h"
 #include "map47.h"
+#include "dpops.h"
 
 #define DIR       "/NAV47"
 #define TIDEDIR   "/NAV47/TIDES"
@@ -39,7 +40,7 @@
 /*  State (heap: a DMCP5 program has 8 KB of static RAM)              */
 /* ------------------------------------------------------------------ */
 enum { PG_VALM, PG_VSPLIT, PG_VSKY, PG_VALLSKY, PG_VMOON, PG_VANIM, PG_VSKY2,
-       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP, PG_CHART, PG_VOY, PG_ETA, PG_ETAT };
+       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP, PG_CHART, PG_VOY, PG_ETA, PG_ETAT, PG_DP, PG_DPIN };
 #define IS_VIEW(p) ((p) <= PG_VSKY2)
 
 typedef struct {
@@ -56,6 +57,8 @@ typedef struct {
   int    south;             /* MOON47: the view from the south */
   int    gc;                /* ROUTE: great circle instead of rhumb line */
   int    lt;                /* the screens' times: 1 local (the clock TZ; a tide station's own zone), 0 UT */
+  int    dcauto, dsauto;    /* DP OPS: the current from FLOW, the sea from the wind (DNV); else typed: */
+  double dcset, dckn, dsfrom, dhs, dtp;
 } Cfg;
 
 typedef struct { int src, reg, st; } Row;
@@ -822,6 +825,7 @@ static void cfg_save(void) {
   o += sprintf(o, "NAV47 CFG 1\nLAT %.9f\nLON %.9f\nTZ %.4f\nLIVE %d\nFIXED %.9f\nWIND %.1f %.1f\nTIDE %d %d %d\nTAUTO %d\nZONE %d %d\nSOUTH %d\nGC %d\nLT %d\n",
                c->lat, c->lon, c->tz, c->live, c->fixed_jd, c->wdir, c->wkn, c->tsrc, c->treg, c->tst, c->tauto, c->zone, c->city,
                c->south, c->gc, c->lt);
+  o += sprintf(o, "DPWX %d %d %.1f %.2f %.1f %.1f %.1f\n", c->dcauto, c->dsauto, c->dcset, c->dckn, c->dsfrom, c->dhs, c->dtp);
   for (int i = 0; i < c->nfiles; i++) o += sprintf(o, "FILE %s\n", c->files[i]);
   sys_disk_write_enable(1);
   check_create_dir(DIR);
@@ -835,7 +839,7 @@ static void cfg_save(void) {
 static void cfg_load(void) {
   Cfg *c = &N->cfg;
   c->lat = 26.5; c->lon = 50.1667; c->tz = 3; c->live = 1; c->fixed_jd = jd_ymd(2026, 11, 2, 12);
-  c->wdir = 0; c->wkn = 0; c->zone = -1; c->tauto = 1;
+  c->wdir = 0; c->wkn = 0; c->zone = -1; c->tauto = 1; c->dcauto = 1; c->dsauto = 1;
   char *t = read_text(CFGFILE);
   if (!t) return;
   char *l = strtok(t, "\n");
@@ -853,6 +857,7 @@ static void cfg_load(void) {
     else if (!strncmp(l, "SOUTH ", 6)) c->south = atoi(l + 6);
     else if (!strncmp(l, "GC ", 3)) c->gc = atoi(l + 3);
     else if (!strncmp(l, "LT ", 3)) c->lt = atoi(l + 3) != 0;
+    else if (!strncmp(l, "DPWX ", 5)) sscanf(l + 5, "%d %d %lf %lf %lf %lf %lf", &c->dcauto, &c->dsauto, &c->dcset, &c->dckn, &c->dsfrom, &c->dhs, &c->dtp);
     else if (!strncmp(l, "FILE ", 5) && c->nfiles < 4) { strncpy(c->files[c->nfiles], l + 5, 39); c->files[c->nfiles++][39] = 0; }
     l = strtok(NULL, "\n");
   }
@@ -923,6 +928,7 @@ static void draw_info(void) {
     "/NAV47/COAST_C.BIN and COAST_L.BIN. 8 2 4 6 pan or turn, 7 9 zoom, 5 fit; ROUTE 0 opens it.",
     "VOYAGE:   the plan sailed or flown on a globe that follows: the ship (from 100 kn a plane), the date and "
     "time on board, DEP ARR, run and to go. R/S play, 4 6 a step, 7 9 zoom, ENTER the speed (typed) or + - (steps), 1 3 the departure, 0 ETA.",
+    "DP OPS:   (DP, menu 3) can she keep station off a platform? The platform (a square or a rectangle, its faces, its height) in /NAV47/DPOPS.TXT, made on the web page's DP tab; the vessel a DPCAP47 .DPV (VESSEL line, or /NAV47/VESSEL.DPV; else a made-up 95 m DP2 with three bow tunnels and two azimuths). DPCAP47's engine (DNV-ST-0111 level 1's forces, x 1.25; its thrust allocation). The picture: each thruster's force an arrow, the weather's whole push a thick arrow in tonnes (PUSH: x 1.25, where it pushes, OFF or ON the platform) with the wind, the current and the sea from their own directions; the platform's lee lightens the wind (taller than the vessel: 30 % of it left close in, all of it 5 heights downwind). ENTER (BEST) tries every heading within the tolerance of square to the face (every face with FACE AUTO), stern, starboard, port or bow to it, the hull STANDOFF m off; inside the working limits (LIM: the bow tunnels 30 %); then each redundancy group lost at full thrust; then the wind she holds to with its sea. 4 6 the heading by hand, UP DOWN an hour (the current follows), 5 now, 0 the bars and the arrows after the worst failure, 3 the bars in tonnes or %, 1 starboard or port side to: parallel to the face (PAR, the usual set-up) or within the tolerance. FACE, SIDE, INPUT (the wind as SET; the current FLOW's or typed; the sea DNV's or typed; the standoff, the tolerance), LOAD reads the files again. Static, planning only: not the vessel's DP consequence analysis.",
     "ETA TABLE:   (TABLE on ETA) the ETAs at the set speed and three slower ones, 0.5 kn apart: 8 2 the speed, 4 6 the step (0.25 0.5 1 kn), 5 the set speed, ENTER (USE) this line's speed for the voyage.",
     "ETA:   the plan's distance with ETD, ETA and speed: set two, the third follows (ETA typed: the speed it needs). 8 2 the field, ENTER types it (dates YYYY.MMDD, times HH.MM, in UT or LT), 0 or KEEP: a new ETD keeps the speed or the ETA, NOW: the ETD now. Saved in ROUTE.TXT (SPEED, ETD).",
     "FONTS:   C47 standardFont and tinyFont (C43 / C47 authors, GPL v3).",
@@ -1836,10 +1842,418 @@ static void voy_tick(void) {
   if (voy_step >= VOY_STEPS) voy_play = 0;
 }
 
+static void step_time(double hours);
+static int imin(int a, int b) { return a < b ? a : b; }
+static int imax(int a, int b) { return a > b ? a : b; }
+/* ------------------------------------------------------------------ */
+/*  DP OPS: station keeping off a platform (src/dpops.c, DPCAP47's engine). The platform comes in /NAV47/DPOPS.TXT  */
+/*  (made on the web page), the vessel in a DPCAP47 .DPV (VESSEL line, or /NAV47/VESSEL.DPV; else the example). The */
+/*  wind is SET's (FLOW's own), the current the FLOW program's at the platform (or typed), the sea DNV's for the     */
+/*  wind (or typed).                                                                                                  */
+/* ------------------------------------------------------------------ */
+#define DPOPSFILE  "/NAV47/DPOPS.TXT"
+#define DPVESSEL   "/NAV47/VESSEL.DPV"
+typedef struct {
+  Vessel v;
+  DpPlat p;
+  DpWx w;
+  DpRes r;
+  int loaded, face, manual, showfail, tonnes, sel, edit;
+  float hdg, limw;
+  char msg[48], csrc[24], vsrc[24];
+} DpS;
+static DpS *DP;
+
+/* the current now at a position, as T&F: the FLOW atlas (springs scaled, the wind added), else a stream station
+   within 30 NM (AUTO); 0: none */
+static int stream_at(double lat, double lon, double ut, double *set, double *kn, char *src, int srcn) {
+  const FlowAtlas *fl = atlas();
+  int rs = 0, rr = 0;
+  const TStation *ref = fl ? find_station(fl->ref, &rs, &rr) : NULL;
+  double FU[13], FV[13], U[13], V[13], u, v;
+  long n0, on;
+  int om = 0;
+  double h0, t0, hh, rng, fac;
+  if (ref && flow_cell(fl, lat, lon, FU, FV)) {
+    st_local(ref, ut, &n0, &h0);
+    flow_pick(ref, n0, h0, &on, &om);
+    flow_cycle(ref, on, om, &t0, &hh, &rng, &fac);
+    flow_rows(FU, FV, fac, N->cfg.wdir, N->cfg.wkn, U, V);
+    flow_now(U, V, ((double)(n0 - on) * 24.0 + h0) - t0, &u, &v);
+    setkn(u, v, set, kn);
+    snprintf(src, (size_t)srcn, "FLOW atlas");
+    return 1;
+  }
+  double dn;
+  const TStation *st = nearest_station(lat, lon, 1, &dn, NULL, NULL, NULL);
+  if (st && dn <= 30 && st->kind != TK_TIDE) {
+    double val, dir;
+    st_local(st, ut, &n0, &h0);
+    stream_now(st, n0, h0, &val, &dir);
+    *kn = fabs(val); *set = dir;
+    snprintf(src, (size_t)srcn, "%.12s %.0fNM", st->name, dn);
+    return 1;
+  }
+  *set = 0; *kn = 0;
+  snprintf(src, (size_t)srcn, "no stream: type it");
+  return 0;
+}
+
+static void dp_weather(void) {
+  Cfg *c = &N->cfg;
+  DpWx *w = &DP->w;
+  w->wfrom = (float)c->wdir; w->wkn = (float)c->wkn;
+  double se = c->dcset, kn = c->dckn;
+  if (c->dcauto) {
+    double lat = DP->p.lat || DP->p.lon ? DP->p.lat : c->lat, lon = DP->p.lat || DP->p.lon ? DP->p.lon : c->lon;
+    stream_at(lat, lon, ut_now(), &se, &kn, DP->csrc, sizeof DP->csrc);
+  } else strcpy(DP->csrc, "typed");
+  w->cset = (float)se; w->ckn = (float)kn;
+  if (c->dsauto) { w->vfrom = w->wfrom; dpo_waves_auto(w); }
+  else { w->vfrom = (float)c->dsfrom; w->hs = (float)c->dhs; w->tp = (float)c->dtp; }
+}
+
+static void dp_load(void) {
+  if (!DP) { DP = (DpS *)calloc(1, sizeof *DP); if (!DP) return; }
+  char err[48];
+  char *t = read_text(DPOPSFILE);
+  DP->msg[0] = 0;
+  if (!t || dpo_parse(t, &DP->p, err, sizeof err)) {
+    if (t) snprintf(DP->msg, sizeof DP->msg, "DPOPS.TXT %.30s", err);
+    dpo_default(&DP->p);
+  }
+  free(t);
+  t = read_text(DP->p.vessel[0] ? DP->p.vessel : DPVESSEL);
+  memset(&DP->v, 0, sizeof DP->v);
+  if (!t || dp_parse(&DP->v, t, err, sizeof err)) {
+    if (t && !DP->msg[0]) snprintf(DP->msg, sizeof DP->msg, "vessel: %.30s", err);
+    memset(&DP->v, 0, sizeof DP->v);
+    dp_parse(&DP->v, DPO_EXAMPLE_VESSEL, err, sizeof err);
+    strcpy(DP->vsrc, "example");
+  } else strcpy(DP->vsrc, "file");
+  free(t);
+  dp_prepare(&DP->v);
+  dpo_limits(&DP->v, &DP->p);
+  DP->loaded = 1; DP->manual = 0; DP->limw = -1;
+  DP->face = DP->p.face < 0 ? 0 : DP->p.face;
+}
+
+static void dp_save_plat(void) {
+  if (!sys_disk_ok()) return;
+  char *b = (char *)malloc(1024);
+  if (!b) return;
+  dpo_write(&DP->p, b, 1024);
+  sys_disk_write_enable(1);
+  check_create_dir(DIR);
+  FIL f;
+  UINT bw;
+  if (f_open(&f, DPOPSFILE, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK) { f_write(&f, b, (UINT)strlen(b), &bw); f_close(&f); }
+  sys_disk_write_enable(0);
+  free(b);
+}
+
+static void dp_busy(int n, int tot) {
+  if (n % 8 && n != tot) return;
+  char s[32];
+  sprintf(s, "computing %d / %d", n, tot);
+  gfx_rect(206, 150, 194, 16, 0);
+  nt(206, 150, s);
+  lcd_refresh();
+}
+
+/* BEST: every heading the side and the tolerance allow (every face with FACE AUTO), then the wind she holds to */
+static void dp_best(void) {
+  dp_weather();
+  dp_abort = 0;
+  dpo_best(&DP->v, &DP->p, &DP->w, 5, &DP->r, dp_busy);
+  DP->face = DP->r.face; DP->hdg = DP->r.hdg; DP->manual = 0;
+  DP->limw = dpo_limit_wind(&DP->v, &DP->p, &DP->w, DP->face, DP->hdg);
+}
+
+static void dp_eval_here(void) {
+  dp_weather();
+  dpo_eval(&DP->v, &DP->p, &DP->w, DP->face, DP->hdg, &DP->r);
+  DP->limw = -1;
+}
+
+static void dp_enter(void) {
+  if (!DP || !DP->loaded) dp_load();
+  if (DP) dp_best();
+}
+
+/* the picture: north up, framed on the platform and the vessel; the platform hatched, its working face thick, the
+   standoff line dashed, the face's centre line dotted (the vessel centred on it); the vessel, its thrusters' forces
+   (arrows), the weather's whole push (a thick arrow, tonnes); the weather's directions bottom left */
+#define DP_T 9.80665f                                     /* kN a tonne-force */
+static void dp_arrow_w(int x, int y, float to, int len, int thick) {   /* an arrow towards true `to` */
+  for (int k = -thick; k <= thick; k++) {
+    int ox = (int)lroundf(k * cosf(to * (float)(M_PI / 180))), oy = (int)lroundf(k * sinf(to * (float)(M_PI / 180)));
+    gfx_line(x + ox, y + oy, x + ox + (int)lroundf(len * sinf(to * (float)(M_PI / 180))), y + oy - (int)lroundf(len * cosf(to * (float)(M_PI / 180))), 1);
+  }
+  arrow(x + (int)lroundf((len - 1) * sinf(to * (float)(M_PI / 180))), y - (int)lroundf((len - 1) * cosf(to * (float)(M_PI / 180))), to, 1 + thick);
+}
+
+static void dp_picture(void) {
+  DpS *d = DP;
+  DpRes *r = &d->r;
+  float hull[7][2], pc[4][2], o = d->p.orient * (float)(M_PI / 180);
+  float a0x = sinf(o), a0y = cosf(o), a1x = cosf(o), a1y = -sinf(o);
+  static const float sx[4] = { 1, 1, -1, -1 }, sy[4] = { 1, -1, -1, 1 };
+  for (int k = 0; k < 4; k++) {
+    pc[k][0] = sx[k] * d->p.len / 2 * a0x + sy[k] * d->p.wid / 2 * a1x;
+    pc[k][1] = sx[k] * d->p.len / 2 * a0y + sy[k] * d->p.wid / 2 * a1y;
+  }
+  dpo_hull(&d->v, &d->p, r->hdg, r->px, r->py, hull);
+  /* the frame: the box round the platform and the vessel, a margin for the arrows */
+  float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
+  for (int k = 0; k < 4; k++) { x0 = fminf(x0, pc[k][0]); x1 = fmaxf(x1, pc[k][0]); y0 = fminf(y0, pc[k][1]); y1 = fmaxf(y1, pc[k][1]); }
+  for (int k = 0; k < 7; k++) { x0 = fminf(x0, hull[k][0]); x1 = fmaxf(x1, hull[k][0]); y0 = fminf(y0, hull[k][1]); y1 = fmaxf(y1, hull[k][1]); }
+  float cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, sc = fminf(150 / fmaxf(1, x1 - x0), 140 / fmaxf(1, y1 - y0));
+  const int X0 = 100, Y0 = 106;
+#define PX(x) (X0 + (int)lroundf(((x) - cx) * sc))
+#define PY(y) (Y0 - (int)lroundf(((y) - cy) * sc))
+  /* the platform: hatched, its outline */
+  int bx0 = 999, bx1 = -999, by0 = 999, by1 = -999;
+  for (int k = 0; k < 4; k++) { bx0 = imin(bx0, PX(pc[k][0])); bx1 = imax(bx1, PX(pc[k][0])); by0 = imin(by0, PY(pc[k][1])); by1 = imax(by1, PY(pc[k][1])); }
+  for (int y = imax(by0, 17); y <= imin(by1, MENU_Y - 1); y++)
+    for (int x = imax(bx0, 0); x <= imin(bx1, 199); x++) {
+      if ((x + y) & 1) continue;
+      float wx = cx + (x - X0) / sc, wy = cy - (y - Y0) / sc;
+      if (fabsf(wx * a0x + wy * a0y) <= d->p.len / 2 && fabsf(wx * a1x + wy * a1y) <= d->p.wid / 2) gfx_pixel(x, y, 1);
+    }
+  for (int k = 0; k < 4; k++) gfx_line(PX(pc[k][0]), PY(pc[k][1]), PX(pc[(k + 1) % 4][0]), PY(pc[(k + 1) % 4][1]), 1);
+  static const int fk[4][2] = { { 0, 1 }, { 3, 0 }, { 2, 3 }, { 1, 2 } };   /* face 0 +a0 (corners 0 1), 1 +a1 (3 0), 2 -a0, 3 -a1 */
+  int f = d->face & 3;
+  float nb = dpo_face_normal(&d->p, f) * (float)(M_PI / 180), nx = sinf(nb), ny = cosf(nb);
+  for (int t = 1; t <= 3; t++) {                              /* the working face: 3 px, just outside */
+    int ox = (int)lroundf(t * nx), oy = -(int)lroundf(t * ny);
+    gfx_line(PX(pc[fk[f][0]][0]) + ox, PY(pc[fk[f][0]][1]) + oy, PX(pc[fk[f][1]][0]) + ox, PY(pc[fk[f][1]][1]) + oy, 1);
+  }
+  /* the standoff line (dashed, along the face) and the face's centre line (dotted, the vessel centred on it) */
+  float dd = ((f & 1) ? d->p.wid : d->p.len) / 2 + d->p.standoff, span = dpo_loa(&d->v, &d->p) * 0.6f;
+  for (float t = -span; t <= span; t += 2.5f / sc) {
+    if (((int)((t + span) * sc / 3)) & 1) continue;
+    int x = PX(nx * dd + ny * t), y = PY(ny * dd - nx * t);
+    if (x >= 0 && x < 200 && y > 17 && y < MENU_Y) gfx_pixel(x, y, 1);
+  }
+  float far = dd + dpo_loa(&d->v, &d->p) + d->v.b;
+  for (float t = ((f & 1) ? d->p.wid : d->p.len) / 2; t <= far; t += 4 / sc) {
+    int x = PX(nx * t), y = PY(ny * t);
+    if (x >= 0 && x < 200 && y > 17 && y < MENU_Y) gfx_pixel(x, y, 1);
+  }
+  /* the vessel: white, its outline, the helideck at the bow */
+  for (int y = 17; y < MENU_Y; y++)
+    for (int x = 0; x < 200; x++) {
+      float wx = cx + (x - X0) / sc, wy = cy - (y - Y0) / sc;
+      int in = 0;
+      for (int i = 0, j = 6; i < 7; j = i++)
+        if ((hull[i][1] > wy) != (hull[j][1] > wy) &&
+            wx < (hull[j][0] - hull[i][0]) * (wy - hull[i][1]) / (hull[j][1] - hull[i][1]) + hull[i][0]) in = !in;
+      if (in) gfx_pixel(x, y, 0);
+    }
+  for (int i = 0; i < 7; i++) gfx_line(PX(hull[i][0]), PY(hull[i][1]), PX(hull[(i + 1) % 7][0]), PY(hull[(i + 1) % 7][1]), 1);
+  float L = dpo_loa(&d->v, &d->p), h = r->hdg * (float)(M_PI / 180), fx = sinf(h), fy = cosf(h), sbx = cosf(h), sby = -sinf(h);
+  gfx_circle(PX(r->px + fx * L * 0.33f), PY(r->py + fy * L * 0.33f), imax(2, (int)lroundf(d->v.b * 0.32f * sc)), 1);
+  /* the thrusters' forces: an arrow each, from the thruster, the longest 26 px; the weather's push, thick, at midships */
+  float (*F)[2] = d->showfail ? r->ff : r->f, fmax = r->fmag;
+  for (int i = 0; i < d->v.nthr; i++) fmax = fmaxf(fmax, hypotf(F[i][0], F[i][1]));
+  for (int i = 0; i < d->v.nthr; i++) {
+    const Thruster *t = &d->v.thr[i];
+    float wx = r->px + t->x * fx + t->y * sbx, wy = r->py + t->x * fy + t->y * sby;
+    int tx = PX(wx), ty = PY(wy);
+    gfx_rect(tx - 1, ty - 1, 3, 3, 1);
+    float m = hypotf(F[i][0], F[i][1]);
+    if (m < 0.01f * fmax || m < 0.5f) continue;
+    float ex = F[i][0] * fx + F[i][1] * sbx, ey = F[i][0] * fy + F[i][1] * sby;      /* the thrust in the world */
+    float to = atan2f(ex, ey) * (float)(180 / M_PI);
+    dp_arrow_w(tx, ty, to, 4 + (int)lroundf(22 * m / fmax), 0);
+  }
+  if (r->fmag > 0.5f) {
+    int mx = PX(r->px), my = PY(r->py), len = 8 + (int)lroundf(26 * r->fmag / fmax);
+    dp_arrow_w(mx, my, r->fto, len, 1);
+    char s[16];
+    sprintf(s, "%.1ft", r->fmag / DP_T);
+    int lx = mx + (int)lroundf((len + 6) * sinf(r->fto * (float)(M_PI / 180))), ly = my - (int)lroundf((len + 6) * cosf(r->fto * (float)(M_PI / 180)));
+    lx = imax(2, imin(196 - 6 * (int)strlen(s), lx - 10)); ly = imax(20, imin(170, ly - 4));
+    gfx_rect(lx - 1, ly - 1, 6 * (int)strlen(s) + 2, 10, 0);
+    draw_text(&TINY, lx, ly, s, 0);
+  }
+#undef PX
+#undef PY
+  /* the weather: three small arrows in the bottom left corner (where it goes), a letter each, clear of the drawing */
+  struct { float to; const char *l; float v; } wx[3] = { { d->w.wfrom + 180, "W", d->w.wkn }, { d->w.cset, "C", d->w.ckn },
+                                                       { d->w.vfrom + 180, "S", d->w.hs } };
+  gfx_rect(0, 180, 78, 28, 0);
+  for (int k = 0; k < 3; k++) {
+    int ox = 12 + 24 * k, oy = 196;
+    draw_text(&TINY, ox - 10, oy - 14, wx[k].l, 0);
+    if (wx[k].v <= 0) { draw_text(&TINY, ox - 2, oy - 4, "-", 0); continue; }
+    arrow(ox - (int)lround(8 * dsin(wx[k].to)), oy + (int)lround(8 * dcos(wx[k].to)), wx[k].to, 16);
+  }
+  gfx_rect(0, 17, 22, 24, 0);
+  arrow(8, 36, 0, 14); draw_text(&TINY, 12, 20, "N", 0);
+  for (int y = 17; y < MENU_Y; y += 2) lcd_fill_rect(201, (uint32_t)y, 1, 1, 1);
+}
+
+static void draw_dp(void) {
+  header("DP OPS");
+  if (!DP) { nt(4, 40, "No memory for DP OPS."); return; }
+  DpS *d = DP;
+  DpRes *r = &d->r;
+  char s[64];
+  dp_picture();
+  const int X = 206;
+  sprintf(s, "FACE %03.0f%s %s%s", dpo_face_normal(&d->p, d->face), d->p.face < 0 ? "*" : "", DPO_SIDE[d->p.side],
+          dpo_tol(&d->p) == 0 && d->p.side != DPS_STERN && d->p.side != DPS_BOW ? " PAR" : "");
+  nt(X, 18, s);
+  sprintf(s, "HDG %03.0f%s  %.0fm OFF", r->hdg, d->manual ? " SET" : " BEST", d->p.standoff);
+  nt(X, 34, s);
+  sprintf(s, "WIND %03.0f %.0fkn", d->w.wfrom, d->w.wkn);
+  nt(X, 50, s);
+  if (r->wleft < 0.995f) { sprintf(s, "LEE %.0f%%", (1 - r->wleft) * 100); draw_text(&TINY, X + 138, 54, s, 0); }
+  sprintf(s, "CUR %03.0f %.1fkn", d->w.cset, d->w.ckn);
+  nt(X, 66, s);
+  draw_text(&TINY, X + 138, 70, N->cfg.dcauto ? "FLOW" : "TYPED", 0);
+  if (d->w.hs > 0) sprintf(s, "SEA %03.0f %.1fm %.0fs", d->w.vfrom, d->w.hs, d->w.tp); else strcpy(s, "SEA none");
+  nt(X, 82, s);
+  sprintf(s, "PUSH %.1ft >%03.0f %s", r->fmag / DP_T, r->fto, r->blow >= 0 ? "OFF" : "ON");   /* the weather's, x 1.25 */
+  nt(X, 98, s);
+  const char *st = r->held_lim ? "HOLDS IN LIMITS" : r->held_full ? "OVER THE LIMITS" : "NO HOLD";
+  gfx_rect(X - 2, 114, 196, 16, 1);
+  nt_inv(X, 114, st);
+  sprintf(s, "FAIL G%d %s", r->fail_grp, r->fail_held ? "HOLDS" : "NO HOLD");
+  nt(X, 130, s);
+  if (d->limw >= 0) sprintf(s, "WIND LIMIT %s%.0fkn", d->limw >= DPO_WIND_TOP ? ">" : "", d->limw);
+  else strcpy(s, "ENTER: BEST, LIMIT");
+  nt(X, 146, s);
+  /* the thrusters' bars: 100 % = 24 px, the limit a tick; intact or after the worst failure (0); % or tonnes (3) */
+  int n = d->v.nthr, cw = n ? 192 / n : 192, top = 172, H = 24;
+  if (d->showfail) sprintf(s, "GROUP %d LOST, %s", r->fail_grp, d->tonnes ? "TONNES" : "% OF FULL");
+  else sprintf(s, "INTACT, %s", d->tonnes ? "TONNES" : "% OF FULL (- THE LIMIT)");
+  draw_text(&TINY, X, 163, s, 0);
+  for (int i = 0; i < n; i++) {
+    float u = d->showfail ? r->fail_wuse[i] : r->use[i], lim = d->p.lim[i] > 0 ? d->p.lim[i] : 1;
+    float (*F)[2] = d->showfail ? r->ff : r->f;
+    int x = X + i * cw + 3, w = imin(cw - 8, 18), hgt = (int)lroundf(fminf(u, 1) * H);
+    gfx_frame(x, top, w, H + 1);
+    gfx_rect(x, top + H + 1 - hgt, w, hgt, 1);
+    if (lim < 1 && !d->showfail) { int ly = top + H - (int)lroundf(lim * H); gfx_rect(x - 2, ly, w + 4, 1, 1); gfx_rect(x - 2, ly, 1, 1, 0); }
+    if (d->tonnes) sprintf(s, "%.1f", hypotf(F[i][0], F[i][1]) / DP_T); else sprintf(s, "%.0f", u * 100);
+    draw_text(&TINY, x + w + 1, top + H - 6, s, 0);
+    draw_text(&TINY, x, top + H + 3, d->v.thr[i].name, 0);
+  }
+  if (d->msg[0]) draw_text(&TINY, 80, MENU_Y - LH, d->msg, 0);
+}
+
+static void dp_key(int key) {
+  DpS *d = DP;
+  if (!d) { if (key == KEY_EXIT) go(PG_VALM); return; }
+  if (key == KEY_ENTER) dp_best();
+  else if (key == KEY_4 || key == KEY_6) { d->hdg = fmodf(d->r.hdg + (key == KEY_4 ? 355 : 5), 360); d->manual = 1; dp_eval_here(); }
+  else if (key == KEY_UP || key == KEY_DOWN) { step_time(key == KEY_UP ? 1 : -1); d->manual ? dp_eval_here() : dp_best(); }
+  else if (key == KEY_5) { toff = 0; dp_best(); }
+  else if (key == KEY_0) d->showfail ^= 1;
+  else if (key == KEY_3) d->tonnes ^= 1;                       /* the bars: % of full thrust or tonnes */
+  else if (key == KEY_1) { d->p.par ^= 1; dp_save_plat(); dp_best(); }   /* side to: parallel to the face, or within TOL */
+  else if (key == KEY_EXIT) go(PG_VALM);
+}
+
+static void dp_soft(int fn) {
+  DpS *d = DP;
+  if (!d) { go(PG_VALM); return; }
+  if (fn == 0) dp_best();
+  else if (fn == 1) { d->p.face = d->p.face >= 3 ? -1 : d->p.face + 1; dp_save_plat(); if (d->p.face >= 0) d->face = d->p.face; dp_best(); }
+  else if (fn == 2) { d->p.side = (d->p.side + 1) % DPS_N; dp_save_plat(); dp_best(); }
+  else if (fn == 3) { go(PG_DPIN); d->sel = 0; d->edit = -1; }
+  else if (fn == 4) { dp_load(); dp_best(); if (!d->msg[0]) snprintf(d->msg, sizeof d->msg, "%.14s, %.20s (%.7s)", d->p.name, d->v.name, d->vsrc); }
+  else go(PG_VALM);
+}
+
+/* INPUT: the weather (the wind is SET's / FLOW's own), the current (FLOW or typed), the sea (DNV or typed),
+   the standoff and the tolerance (saved to DPOPS.TXT) */
+enum { DI_WDIR, DI_WKN, DI_CAUTO, DI_CSET, DI_CKN, DI_SAUTO, DI_SDIR, DI_HS, DI_TP, DI_OFF, DI_TOL, DI_N };
+static const char *const DI_NAME[DI_N] = { "WIND FROM", "WIND KN", "CURRENT", "CUR SET TO", "CUR KN", "SEA", "SEA FROM",
+                                           "HS m", "TP s", "STANDOFF m", "HEADING +/-" };
+
+static void draw_dpin(void) {
+  header("DP INPUT");
+  if (!DP) return;
+  dp_weather();
+  Cfg *c = &N->cfg;
+  DpWx *w = &DP->w;
+  char s[48];
+  for (int i = 0; i < DI_N; i++) {
+    int y = 18 + 16 * i;
+    switch (i) {
+    case DI_WDIR: sprintf(s, "%03.0f" NT_DEG, w->wfrom); break;
+    case DI_WKN: sprintf(s, "%.1f kn", w->wkn); break;
+    case DI_CAUTO: sprintf(s, "%s", c->dcauto ? "FLOW" : "TYPED"); break;
+    case DI_CSET: sprintf(s, "%03.0f" NT_DEG "%s", w->cset, c->dcauto ? "  (FLOW)" : ""); break;
+    case DI_CKN: sprintf(s, "%.2f kn%s", w->ckn, c->dcauto ? "  (FLOW)" : ""); break;
+    case DI_SAUTO: sprintf(s, "%s", c->dsauto ? "DNV, FROM THE WIND" : "TYPED"); break;
+    case DI_SDIR: sprintf(s, "%03.0f" NT_DEG, w->vfrom); break;
+    case DI_HS: sprintf(s, "%.1f", w->hs); break;
+    case DI_TP: sprintf(s, "%.1f", w->tp); break;
+    case DI_OFF: sprintf(s, "%.0f", DP->p.standoff); break;
+    default: sprintf(s, "%.0f" NT_DEG, DP->p.tol); break;
+    }
+    if (i == DP->sel) { gfx_rect(0, y - 1, 140, 16, 1); nt_inv(4, y, DI_NAME[i]); } else nt(4, y, DI_NAME[i]);
+    if (DP->edit == i) { char e[24]; sprintf(e, "%s_", ebuf); nt_inv(150, y, e); } else nt(150, y, s);
+  }
+  draw_text(&TINY, 260, 70, DP->csrc, 0);
+  draw_text(&TINY, 2, MENU_Y - LH, "8 2 field  ENTER type  0 FLOW / DNV or typed  EXIT DP OPS", 0);
+}
+
+static void dpin_commit(int f) {
+  if (!elen) return;
+  double v = atof(ebuf);
+  Cfg *c = &N->cfg;
+  switch (f) {
+  case DI_WDIR: if (v >= 0 && v <= 360) c->wdir = fmod(v, 360); break;
+  case DI_WKN: if (v >= 0 && v < 100) c->wkn = v; break;
+  case DI_CSET: if (v >= 0 && v <= 360) { c->dcset = fmod(v, 360); c->dcauto = 0; } break;
+  case DI_CKN: if (v >= 0 && v < 10) { c->dckn = v; c->dcauto = 0; } break;
+  case DI_SDIR: if (v >= 0 && v <= 360) { c->dsfrom = fmod(v, 360); c->dsauto = 0; } break;
+  case DI_HS: if (v >= 0 && v < 20) { c->dhs = v; c->dsauto = 0; } break;
+  case DI_TP: if (v >= 0 && v < 25) { c->dtp = v; c->dsauto = 0; } break;
+  case DI_OFF: if (v >= 1 && v <= 500) { DP->p.standoff = (float)v; dp_save_plat(); } break;
+  case DI_TOL: if (v >= 0 && v <= 90) { DP->p.tol = (float)v; dp_save_plat(); } break;
+  }
+  cfg_save();
+}
+
+static void dpin_key(int key) {
+  DpS *d = DP;
+  if (!d) return;
+  Cfg *c = &N->cfg;
+  if (d->edit >= 0) {
+    int dg = digit(key);
+    if (key == KEY_ENTER) { dpin_commit(d->edit); d->edit = -1; }
+    else if (key == KEY_EXIT) d->edit = -1;
+    else if (key == KEY_BSP) { if (elen) ebuf[--elen] = 0; }
+    else if (key == KEY_DOT && elen < 10 && !strchr(ebuf, '.')) { ebuf[elen++] = '.'; ebuf[elen] = 0; }
+    else if (dg >= 0 && elen < 10) { ebuf[elen++] = (char)('0' + dg); ebuf[elen] = 0; }
+    return;
+  }
+  if (key == KEY_8 || key == KEY_UP) d->sel = (d->sel + DI_N - 1) % DI_N;
+  else if (key == KEY_2 || key == KEY_DOWN) d->sel = (d->sel + 1) % DI_N;
+  else if (key == KEY_0 || (key == KEY_ENTER && (d->sel == DI_CAUTO || d->sel == DI_SAUTO))) {
+    if (d->sel >= DI_CAUTO && d->sel <= DI_CKN) {             /* typed: start from what FLOW gave */
+      if (c->dcauto) { c->dcset = d->w.cset; c->dckn = d->w.ckn; }
+      c->dcauto ^= 1;
+    } else if (d->sel >= DI_SAUTO && d->sel <= DI_TP) {
+      if (c->dsauto) { c->dsfrom = d->w.vfrom; c->dhs = d->w.hs; c->dtp = d->w.tp; }
+      c->dsauto ^= 1;
+    }
+    cfg_save();
+  } else if (key == KEY_ENTER) { d->edit = d->sel; elen = 0; ebuf[0] = 0; }
+  else if (key == KEY_EXIT) { go(PG_DP); dp_best(); }
+}
+
 static const char *MENUS[4][6] = {
   { "ALMAN", "SPLIT", "SKY", "ALLSK", "MOON", ">>" },
   { "ANIM", "T&F", "TIDE", "ROUTE", "ZONES", ">>" },
-  { "SET", "FILES", "INFO", "NOW", "USB", ">>" },
+  { "SET", "FILES", "INFO", "DP", "USB", ">>" },
   { "ADD", "EDIT", "DEL", "RL/GC", "HERE", ">>" },
 };
 static const char *FILE_MENU[6] = { "TID", "FLW", "CLEAR", "", "", "BACK" };
@@ -1850,6 +2264,8 @@ static const char *CHART_MENU[6] = { "ZOOM+", "ZOOM-", "FIT", "GLOBE", "PLAN", "
 static const char *VOY_MENU[6] = { "PLAY", "SLOWER", "FASTER", "ETA", "CHART", "BACK" };
 static const char *ETA_MENU[6] = { "NOW", "TABLE", "", "KEEP", "VOYAGE", "BACK" };
 static const char *ETAT_MENU[6] = { "SPEED+", "SPEED-", "SET", "USE", "ETA", "BACK" };
+static const char *DP_MENU[6] = { "BEST", "FACE", "SIDE", "INPUT", "LOAD", "BACK" };
+static const char *DPIN_MENU[6] = { "", "", "", "", "", "BACK" };
 
 #define ANIM_FRAMES 24
 #define ANIM_STEP   0.5
@@ -1889,6 +2305,8 @@ static void redraw(void) {
     case PG_VOY: draw_voy(); break;
     case PG_ETA: draw_eta(); break;
     case PG_ETAT: draw_etat(); break;
+    case PG_DP: draw_dp(); break;
+    case PG_DPIN: draw_dpin(); break;
     case PG_ZONES: draw_zones(); break;
     case PG_SET: draw_set(); break;
     case PG_FILES: draw_files(); break;
@@ -1900,8 +2318,8 @@ static void redraw(void) {
   MENUS[0][2] = page == PG_VSKY ? "SKY2" : "SKY";
   CHART_MENU[3] = chart_globe ? "MERC" : "GLOBE";
   VOY_MENU[0] = voy_play ? "PAUSE" : "PLAY";
-  lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0) ? EDIT_MENU :
-                     page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : page == PG_VOY ? VOY_MENU : page == PG_ETA ? ETA_MENU : page == PG_ETAT ? ETAT_MENU : MENUS[menu_page]);
+  lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0 || (page == PG_DPIN && DP && DP->edit >= 0)) ? EDIT_MENU :
+                     page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : page == PG_VOY ? VOY_MENU : page == PG_ETA ? ETA_MENU : page == PG_ETAT ? ETAT_MENU : page == PG_DP ? DP_MENU : page == PG_DPIN ? DPIN_MENU : MENUS[menu_page]);
   lcd_refresh();
   lcd_refresh_wait();        /* the LCD goes out by DMA: done before the next frame clears the buffer (no flicker) */
   usbview_send();
@@ -1957,6 +2375,8 @@ static void softkey(int fn) {
     else cmp_key(k[fn]);
     return;
   }
+  if (page == PG_DP) { dp_soft(fn); return; }
+  if (page == PG_DPIN) { if (fn == 5) dpin_key(KEY_EXIT); return; }
   if (page == PG_ETAT) {
     static const int k[6] = { KEY_8, KEY_2, KEY_5, KEY_ENTER, KEY_EXIT, KEY_EXIT };
     if (fn == 5) { go(PG_VOY); voy_etd = etd_now(); } else etat_key(k[fn]);
@@ -1999,7 +2419,7 @@ static void softkey(int fn) {
   case 12: go(PG_SET); sel_field = 0; break;
   case 13: go(PG_FILES); N->msg[0] = 0; break;
   case 14: go(PG_INFO); break;
-  case 15: toff = 0; flow_hw_step = flow_day_step = 0; N->valid = 0; break;
+  case 15: go(PG_DP); dp_enter(); break;                              /* DP OPS */
   case 16: if (usbview_is_on()) usbview_off(); else usbview_on(); go(PG_INFO); break;   /* INFO shows the state */
   case 18: route_insert(N->nwp ? N->wlat[wp_cur] : N->cfg.lat, N->nwp ? N->wlon[wp_cur] : N->cfg.lon); wp_start_edit(); wp_new = 1; break;
   case 19: wp_new = 0; wp_start_edit(); break;
@@ -2125,6 +2545,12 @@ static void handle_key(int key) {
     return;
   case PG_ETAT:
     etat_key(key);
+    return;
+  case PG_DP:
+    dp_key(key);
+    return;
+  case PG_DPIN:
+    dpin_key(key);
     return;
   case PG_SET:
     if (key == KEY_8 || key == KEY_UP) { do sel_field = (sel_field + F_COUNT - 1) % F_COUNT; while (N->cfg.live && (sel_field == F_DATE || sel_field == F_TIME)); }

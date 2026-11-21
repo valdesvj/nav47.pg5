@@ -102,6 +102,25 @@ with *keep out of the zones* on:
 `index.html#tab=route&test=avoid` (or `&dense`) plans 40 random fields and lists the results; in this repository's
 runs: 79 routes, 15–80 objects each, no leg into a zone, departures and arrivals at 550 m, at most 71 ms.
 
+## DP: the platform for the calculator's DP OPS
+
+The **DP** tab runs the same C as the calculator's DP OPS (`src/dpops.c`).
+- **The platform**: a square or a rectangle, the bearing its face 0 looks to, its height, solid or a jacket. Its
+  position can be typed, the DR, or a platform object from the Route tab.
+- **The working face and side**: AUTO, or a face; the vessel stern-, starboard-, port- or bow-to; the standoff; the
+  heading tolerance.
+- **The vessel**: a DPCAP47 `.DPV` (the example, or load yours; it stays in this browser), and the working limits.
+- **The weather**: the wind; the current from the flow program (your FLOW atlas, else a stream station within
+  30 NM) or typed; the sea from DNV's table or typed.
+- **Four buttons** compare the set-ups at a glance: starboard side to (parallel), port side to (parallel), stern to
+  and bow to, each with its best heading and result. A click takes that set-up.
+- **The answer**: each thruster's force as an arrow in tonnes (close ones share a label), the weather's whole push
+  as a red arrow in tonnes, the picture with the lee shaded, the best heading, and each thruster's load against its limit,
+  intact and after the worst failure. A ring shows every heading of the bow on that face: green holds, and after a
+  failure; yellow holds; orange only beyond the limits; red no hold.
+- **Sending it on**: *Send to the Calculator tab*, or *Save DPOPS.TXT* and *Save VESSEL.DPV* for `/NAV47/` on the
+  DM42n.
+
 ## Build
 
 ```bash

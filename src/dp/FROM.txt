@@ -1,0 +1,1 @@
+3222869 DPCAP47 0.7: PRINT writes a table (CSV) and a report (RTF), or the plot as a picture; IR is option 3

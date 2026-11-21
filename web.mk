@@ -15,7 +15,7 @@ WEB_FLAGS = -O2 -std=gnu11 -w -ffp-contract=off '-D__packed=__attribute__((__pac
             $(foreach f,$(WEB_NOAA),--embed-file $(f)@/noaa/$(notdir $(f))) $(foreach f,$(WEB_TICON),--embed-file $(f)@/ticon/$(notdir $(f)))
 
 web: $(WEB_OUT)
-$(WEB_OUT): web/api.c $(wildcard src/*.h src/geo47/*.h) $(filter-out %tidedata_priv.c,$(SIM_SRC)) $(BUILD_DIR)/gen/simfont.h build/coast/COAST_C.BIN build/coast/COAST_L.BIN $(WEB_NOAA) $(WEB_TICON) web.mk
+$(WEB_OUT): web/api.c $(wildcard src/*.h src/geo47/*.h src/dp/*.h) $(filter-out %tidedata_priv.c,$(SIM_SRC)) $(BUILD_DIR)/gen/simfont.h build/coast/COAST_C.BIN build/coast/COAST_L.BIN $(WEB_NOAA) $(WEB_TICON) web.mk
 	@test -n "$(WEB_NOAA)" || { echo "make web: no build/noaa/N*.TID - run make noaa first (NOAA's current stations)"; exit 1; }
 	@mkdir -p build/web build/emcache
 	$(PYTHON) tools/gen_tides.py private - build/web/tidedata_priv.c >/dev/null
@@ -50,6 +50,6 @@ web-private: $(filter-out %tidedata_priv.c,$(SIM_SRC)) web/api.c $(BUILD_DIR)/ge
 	@mkdir -p $(WEBP) build/emcache
 	$(PYTHON) tools/gen_tides.py private "$(TIDE47)" $(WEBP)/tidedata_priv.c
 	EM_CACHE=$(CURDIR)/build/emcache $(EMCC) $(WEB_FLAGS) -o $(WEBP)/nav47.js $(filter-out build/web/tidedata_priv.c,$(WEB_SRC)) $(WEBP)/tidedata_priv.c
-	cp web/index.html web/app.js web/calc.js web/tabs.js web/weather.js $(WEBP)/
+	cp web/index.html web/app.js web/calc.js web/tabs.js web/dp.js web/weather.js $(WEBP)/
 	@echo "private page: $(WEBP)/index.html (this computer only: do not publish, do not commit)"
 .PHONY: web-private
