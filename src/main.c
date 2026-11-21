@@ -39,7 +39,7 @@
 /*  State (heap: a DMCP5 program has 8 KB of static RAM)              */
 /* ------------------------------------------------------------------ */
 enum { PG_VALM, PG_VSPLIT, PG_VSKY, PG_VALLSKY, PG_VMOON, PG_VANIM, PG_VSKY2,
-       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP, PG_CHART, PG_VOY };
+       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP, PG_CHART, PG_VOY, PG_ETA };
 #define IS_VIEW(p) ((p) <= PG_VSKY2)
 
 typedef struct {
@@ -86,7 +86,8 @@ static int split_first, st_day_off, pick_back;   /* SPLIT scroll; TIDE (station)
 static int cmp_edit = -1;                 /* COMPARE: editing CUSTOM 0 a, 1 1/f */
 static double cmp_a;
 static char cmp_msg[32];
-static double voy_kn = 12;                /* VOYAGE: the speed, knots (ROUTE.TXT SPEED) */
+static double voy_kn = 12;
+static double voy_etd0;                   /* VOYAGE: the departure kept, UT JD (ROUTE.TXT ETD); 0 = now */                /* VOYAGE: the speed, knots (ROUTE.TXT SPEED) */
 static int wp_cur, wp_edit = -1, wp_new;   /* wp_new: the edit is of a waypoint just added (EXIT removes it) */          /* ROUTE: the cursor; editing 0 lat, 1 lon */
 static double wp_lat;
 static char ebuf[16];
@@ -887,7 +888,8 @@ static void draw_info(void) {
     "CHART:   Mercator or GLOBE (F4) over the coastline, Natural Earth 110 m and 50 m (public domain), "
     "/NAV47/COAST_C.BIN and COAST_L.BIN. 8 2 4 6 pan or turn, 7 9 zoom, 5 fit; ROUTE 0 opens it.",
     "VOYAGE:   the plan sailed or flown on a globe that follows: the ship (from 100 kn a plane), the date and "
-    "time on board, DEP ARR, run and to go. R/S play, 4 6 a step, 7 9 zoom, ENTER the speed (typed) or + - (steps), 1 3 the departure.",
+    "time on board, DEP ARR, run and to go. R/S play, 4 6 a step, 7 9 zoom, ENTER the speed (typed) or + - (steps), 1 3 the departure, 0 ETA.",
+    "ETA:   the plan's distance with ETD, ETA and speed: set two, the third follows (ETA typed: the speed it needs). 8 2 the field, ENTER types it (dates YYYY.MMDD, times HH.MM, in UT or LT), 0 or KEEP: a new ETD keeps the speed or the ETA, NOW: the ETD now. Saved in ROUTE.TXT (SPEED, ETD).",
     "FONTS:   C47 standardFont and tinyFont (C43 / C47 authors, GPL v3).",
     "",
     "DOES NOT REPLACE THE NAUTICAL ALMANAC, OFFICIAL CHARTS OR TIDE TABLES. Not for use as the primary "
@@ -932,8 +934,8 @@ static void route_save(void) {
   char *b = (char *)malloc(128 + 48 * MAXWP);
   if (!b) return;
   char *o = b;
-  o += sprintf(o, "NAV47 ROUTE 1\n%s\nLIM %.1f\nSPLIT %d %.3f\nELLC %.4f %.9f\nELL %d\nSPEED %.1f\n", SAIL_NAME[N->cfg.gc % 3], cs_lim,
-               plan_split, plan_val, ellipsoids[ELL_CUSTOM].a, ellipsoids[ELL_CUSTOM].rf, geo_ell_index, voy_kn);
+  o += sprintf(o, "NAV47 ROUTE 1\n%s\nLIM %.1f\nSPLIT %d %.3f\nELLC %.4f %.9f\nELL %d\nSPEED %.4f\nETD %.6f\n", SAIL_NAME[N->cfg.gc % 3], cs_lim,
+               plan_split, plan_val, ellipsoids[ELL_CUSTOM].a, ellipsoids[ELL_CUSTOM].rf, geo_ell_index, voy_kn, voy_etd0);
   for (int i = 0; i < N->nwp; i++) o += sprintf(o, "%.7f %.7f\n", N->wlat[i], N->wlon[i]);
   sys_disk_write_enable(1);
   check_create_dir(DIR);
@@ -965,6 +967,7 @@ static void route_load(void) {
     }
     else if (sscanf(l, "ELL %d", &m) == 1) geo_set_ellipsoid(m);
     else if (sscanf(l, "SPEED %lf", &v) == 1) { if (v >= 1 && v <= 1000) voy_kn = v; }
+    else if (sscanf(l, "ETD %lf", &v) == 1) { voy_etd0 = v > 2400000 ? v : 0; }
     else if (sscanf(l, "%lf %lf", &a, &b) == 2 && N->nwp < MAXWP && fabs(a) <= 90 && fabs(b) <= 180) {
       N->wlat[N->nwp] = a; N->wlon[N->nwp] = b; N->nwp++;
     }
@@ -1501,7 +1504,7 @@ static double voy_etd;                                 /* the departure, UT (JD)
 static const double VOY_KN[] = { 4, 6, 8, 10, 12, 14, 16, 18, 20, 25, 30, 40, 250, 300, 400, 450, 480, 500, 550 };
 
 static void voy_open(int back) {
-  voy_back = back; voy_step = 0; voy_play = 0; voy_etd = ut_now();
+  voy_back = back; voy_step = 0; voy_play = 0; voy_etd = voy_etd0 > 0 ? voy_etd0 : ut_now();
   map_init(&voy_m, 0, CHART_Y0, VOY_W, CHART_H, &geo_ell);
   voy_m.globe = 1;
   voy_m.k = (VOY_W / 2.0f) / sinf(25 * (float)M_PI / 180);   /* about 50 deg across */
@@ -1588,14 +1591,14 @@ static void draw_voy(void) {
   fmt_dur(t, hours - el); nt(X, y, "TO GO"); nt_r(XR, y, t); y += 16;
   sprintf(t, "%.1f", sd / NM); nt(X, y, "RUN NM"); nt_r(XR, y, t); y += 16;
   sprintf(t, "%.1f", (tot - sd) / NM); nt(X, y, "DTG NM"); nt_r(XR, y, t); y += 16;
-  sprintf(t, "%03.0f" NT_DEG "  %g kn", crs, voy_kn); nt(X, y, "CRS"); nt_r(XR, y, t); y += 16;
+  sprintf(t, "%03.0f" NT_DEG "  %.4g kn", crs, voy_kn); nt(X, y, "CRS"); nt_r(XR, y, t); y += 16;
   fmt_dmn(t, lat, 2, lat < 0 ? 'S' : 'N'); nt_r(XR, y, t); y += 16;
   double lo = fmod(lon + 540.0, 360.0) - 180;
   fmt_dmn(t, lo, 3, lo < 0 ? 'W' : 'E'); nt_r(XR, y, t); y += 16;
   int pw = XR - X, px = (int)((double)pw * voy_step / VOY_STEPS);            /* the progress */
   gfx_frame(X, y + 2, pw, 8); gfx_rect(X, y + 2, px, 8, 1);
   if (voy_step >= VOY_STEPS) strcpy(s, plane ? "LANDED  R/S again" : "ARRIVED  R/S again");
-  else sprintf(s, "%s 4 6 step ENT/+- kn 1 3 ETD", voy_play ? "R/S pause" : "R/S play");
+  else sprintf(s, "%s 4 6 step ENT kn 0 ETA", voy_play ? "R/S pause" : "R/S play");
   if (voy_edit) { sprintf(s, "SPEED kn: %s_  ENTER ok  EXIT", ebuf); nt_inv(2, 192, s); return; }
   nt(2, 192, s);
 }
@@ -1636,10 +1639,111 @@ static void voy_key(int key) {
   else if (key == KEY_7) map_zoom(&voy_m, 1 / 1.5f);
   else if (key == KEY_ADD) voy_speed(1);
   else if (key == KEY_SUB) voy_speed(-1);
-  else if (key == KEY_1) voy_etd -= 1.0 / 24;
-  else if (key == KEY_3) voy_etd += 1.0 / 24;
+  else if (key == KEY_1 || key == KEY_3) { voy_etd += (key == KEY_3 ? 1.0 : -1.0) / 24; voy_etd0 = voy_etd; route_save(); }
+  else if (key == KEY_0) go(PG_ETA);
   else if (key == KEY_5) { voy_step = 0; voy_play = 0; }
   else if (key == KEY_EXIT) { voy_play = 0; go(voy_back); if (voy_back == PG_ROUTE) menu_page = 3; }
+}
+
+/* ------------------------------------------------------------------ */
+/*  ETA: ETD, ETA and speed for the plan's distance: set two, the third follows */
+/* ------------------------------------------------------------------ */
+enum { E_ETD_D, E_ETD_T, E_ETA_D, E_ETA_T, E_SPEED, E_COUNT };
+static int eta_sel = E_ETA_D, eta_edit = -1, eta_keep_eta;   /* keep_eta: a new ETD keeps the ETA (the speed follows) */
+static char eta_msg[40];
+
+static double plan_nm(void) {
+  if (!geo_route_alloc()) return 0;
+  if (plan_dirty || legs_dirty) plan_build();
+  return geo_route.n >= 2 ? geo_route.w[geo_route.n - 1].cum_m / NM : 0;
+}
+static double etd_now(void) { return voy_etd0 > 0 ? voy_etd0 : ut_now(); }
+
+static void eta_line(int y, int f, const char *label, const char *val, const char *hint) {
+  nt(4, y, label);
+  if (eta_edit == f) { char s[40]; sprintf(s, "%s_", ebuf); nt_inv(150, y, s); nt(300, y, hint); }
+  else if (eta_sel == f) nt_inv(150, y, val); else nt(150, y, val);
+}
+
+static void draw_eta(void) {
+  char s[64], a[24];
+  header("ETA");
+  double nm = plan_nm();
+  if (nm <= 0) { nt(4, 48, "Needs a plan: ROUTE, 2 waypoints, R/S."); return; }
+  double etd = etd_now(), hrs = nm / voy_kn, eta = etd + hrs / 24, tz = show_tz();
+  int y, m, d;
+  double h;
+  sprintf(s, "%.1f NM  (%s %s)", nm, SAIL_NAME[N->cfg.gc % 3], N->cfg.lt ? "times LT" : "times UT");
+  nt(4, 20, "DISTANCE"); nt(150, 20, s);
+  jd_to_ymd(etd + tz / 24 + 0.5 / 1440, &y, &m, &d, &h);
+  sprintf(a, "%04d-%02d-%02d", y, m, d); eta_line(44, E_ETD_D, "ETD date", a, "YYYY.MMDD");
+  sprintf(a, "%02d:%02d%s", (int)h, (int)((h - (int)h) * 60), voy_etd0 > 0 ? "" : "  (now)"); eta_line(60, E_ETD_T, "ETD time", a, "HH.MM");
+  jd_to_ymd(eta + tz / 24 + 0.5 / 1440, &y, &m, &d, &h);
+  sprintf(a, "%04d-%02d-%02d", y, m, d); eta_line(84, E_ETA_D, "ETA date", a, "YYYY.MMDD");
+  sprintf(a, "%02d:%02d", (int)h, (int)((h - (int)h) * 60)); eta_line(100, E_ETA_T, "ETA time", a, "HH.MM");
+  sprintf(a, "%.2f kn", voy_kn); eta_line(124, E_SPEED, "SPEED", a, "1..1000");
+  fmt_dur(a, hrs); nt(4, 148, "TIME"); nt(150, 148, a);
+  sprintf(s, "a new ETD keeps the %s", eta_keep_eta ? "ETA (the speed follows)" : "SPEED (the ETA follows)");
+  nt(4, 168, s);
+  if (eta_msg[0]) nt_inv(2, 192, eta_msg);
+  else nt(2, 192, "8 2 field ENTER type 0 keep EXIT");
+}
+
+/* the typed value into its field */
+static void eta_commit(int f) {
+  double v = atof(ebuf), nm = plan_nm(), etd = etd_now(), eta = etd + nm / voy_kn / 24, tz = show_tz();
+  int y, m, d;
+  double h;
+  eta_msg[0] = 0;
+  if (!elen) return;
+  if (f == E_SPEED) {
+    if (v >= 1 && v <= 1000) voy_kn = v; else strcpy(eta_msg, "speed: 1 to 1000 kn");
+  } else {
+    double old = f <= E_ETD_T ? etd : eta, jd = old;
+    jd_to_ymd(old + tz / 24, &y, &m, &d, &h);
+    if (f == E_ETD_D || f == E_ETA_D) {                       /* YYYY.MMDD, the time kept */
+      int yy = (int)v, mm = (int)floor((v - yy) * 100 + 1e-6), dd = (int)lround(((v - yy) * 100 - mm) * 100);
+      if (yy > 1900 && mm >= 1 && mm <= 12 && dd >= 1 && dd <= 31) jd = jd_ymd(yy, mm, dd, h) - tz / 24;
+      else { strcpy(eta_msg, "date: YYYY.MMDD"); return; }
+    } else {                                                  /* HH.MM, the date kept */
+      double hh = flow_dm(v);
+      if (hh >= 0 && hh < 24) jd = jd_ymd(y, m, d, hh) - tz / 24;
+      else { strcpy(eta_msg, "time: HH.MM"); return; }
+    }
+    if (f <= E_ETD_T) {                                       /* a new departure */
+      if (eta_keep_eta) {
+        double hrs = (eta - jd) * 24;
+        if (hrs <= 0 || nm / hrs > 1000 || nm / hrs < 1) { strcpy(eta_msg, "ETD after the ETA, or 1..1000 kn"); return; }
+        voy_kn = nm / hrs;
+      }
+      voy_etd0 = jd;
+    } else {                                                  /* a new arrival: the speed it needs */
+      double hrs = (jd - etd) * 24;
+      if (hrs <= 0) { strcpy(eta_msg, "ETA before the ETD"); return; }
+      if (nm / hrs > 1000 || nm / hrs < 1) { strcpy(eta_msg, "needs < 1 or > 1000 kn"); return; }
+      voy_kn = nm / hrs;
+      if (voy_etd0 <= 0) voy_etd0 = etd;                      /* the ETD is now fixed too */
+    }
+  }
+  route_save();
+}
+
+static void eta_edit_key(int key) {
+  int d = digit(key);
+  if (key == KEY_ENTER) { eta_commit(eta_edit); eta_edit = -1; return; }
+  if (key == KEY_EXIT) { eta_edit = -1; return; }
+  if (key == KEY_BSP) { if (elen) ebuf[--elen] = 0; return; }
+  if (key == KEY_DOT && elen < 10 && !strchr(ebuf, '.')) { ebuf[elen++] = '.'; ebuf[elen] = 0; return; }
+  if (d >= 0 && elen < 10) { ebuf[elen++] = (char)('0' + d); ebuf[elen] = 0; }
+}
+
+static void eta_key(int key) {
+  eta_msg[0] = 0;
+  if (key == KEY_8 || key == KEY_UP) eta_sel = (eta_sel + E_COUNT - 1) % E_COUNT;
+  else if (key == KEY_2 || key == KEY_DOWN) eta_sel = (eta_sel + 1) % E_COUNT;
+  else if (key == KEY_ENTER) { eta_edit = eta_sel; elen = 0; ebuf[0] = 0; }
+  else if (key == KEY_0) eta_keep_eta ^= 1;
+  else if (key == KEY_EXIT) { go(PG_VOY); voy_etd = etd_now(); }
 }
 
 /* the animation: a step every 250 ms while playing */
@@ -1659,7 +1763,8 @@ static const char *EDIT_MENU[6] = { "", "", "", "", "", "CANCEL" };
 static const char *PLAN_MENU[6] = { "CSV", "NMEA", "SPLIT", "CMP", "CHART", "BACK" };
 static const char *CMP_MENU[6] = { "ELL-", "ELL+", "EDIT", "PLAN", "CHART", "BACK" };
 static const char *CHART_MENU[6] = { "ZOOM+", "ZOOM-", "FIT", "GLOBE", "PLAN", "BACK" };
-static const char *VOY_MENU[6] = { "PLAY", "SLOWER", "FASTER", "START", "CHART", "BACK" };
+static const char *VOY_MENU[6] = { "PLAY", "SLOWER", "FASTER", "ETA", "CHART", "BACK" };
+static const char *ETA_MENU[6] = { "NOW", "", "", "KEEP", "VOYAGE", "BACK" };
 
 #define ANIM_FRAMES 24
 #define ANIM_STEP   0.5
@@ -1697,6 +1802,7 @@ static void redraw(void) {
     case PG_CMP: draw_cmp(); break;
     case PG_CHART: draw_chart(); break;
     case PG_VOY: draw_voy(); break;
+    case PG_ETA: draw_eta(); break;
     case PG_ZONES: draw_zones(); break;
     case PG_SET: draw_set(); break;
     case PG_FILES: draw_files(); break;
@@ -1708,8 +1814,8 @@ static void redraw(void) {
   MENUS[0][2] = page == PG_VSKY ? "SKY2" : "SKY";
   CHART_MENU[3] = chart_globe ? "MERC" : "GLOBE";
   VOY_MENU[0] = voy_play ? "PAUSE" : "PLAY";
-  lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit) ? EDIT_MENU :
-                     page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : page == PG_VOY ? VOY_MENU : MENUS[menu_page]);
+  lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0) ? EDIT_MENU :
+                     page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : page == PG_VOY ? VOY_MENU : page == PG_ETA ? ETA_MENU : MENUS[menu_page]);
   lcd_refresh();
   lcd_refresh_wait();        /* the LCD goes out by DMA: done before the next frame clears the buffer (no flicker) */
   usbview_send();
@@ -1765,8 +1871,14 @@ static void softkey(int fn) {
     else cmp_key(k[fn]);
     return;
   }
+  if (page == PG_ETA) {
+    if (fn == 0) { voy_etd0 = 0; route_save(); }
+    else if (fn == 3) eta_keep_eta ^= 1;
+    else if (fn == 4 || fn == 5) { go(PG_VOY); voy_etd = etd_now(); }
+    return;
+  }
   if (page == PG_VOY) {
-    static const int k[6] = { KEY_RUN, KEY_SUB, KEY_ADD, KEY_5, 0, KEY_EXIT };
+    static const int k[6] = { KEY_RUN, KEY_SUB, KEY_ADD, KEY_0, 0, KEY_EXIT };
     if (fn == 4) { voy_play = 0; chart_open(PG_PLAN); }
     else voy_key(k[fn]);
     return;
@@ -1823,11 +1935,12 @@ static void handle_key(int key) {
       return;
     }
   }
-  if ((edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit) && key == KEY_F6) key = KEY_EXIT;
+  if ((edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0) && key == KEY_F6) key = KEY_EXIT;
   if (edit_field >= 0) { key_edit(key); return; }
   if (wp_edit >= 0) { key_wp(key); return; }
   if (cmp_edit >= 0) { cmp_edit_key(key); return; }
   if (voy_edit) { voy_edit_key(key); return; }
+  if (eta_edit >= 0) { eta_edit_key(key); return; }
   if (key >= KEY_F1 && key <= KEY_F6) { softkey(key - KEY_F1); vframe = 0; return; }
   if (key == KEY_CHS) { N->cfg.lt ^= 1; N->valid = 0; cfg_save(); return; }   /* +/-: the times in UT or LT, every page */
   if (IS_VIEW(page)) {
@@ -1911,6 +2024,9 @@ static void handle_key(int key) {
     return;
   case PG_VOY:
     voy_key(key);
+    return;
+  case PG_ETA:
+    eta_key(key);
     return;
   case PG_SET:
     if (key == KEY_8 || key == KEY_UP) { do sel_field = (sel_field + F_COUNT - 1) % F_COUNT; while (N->cfg.live && (sel_field == F_DATE || sel_field == F_TIME)); }
