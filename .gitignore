@@ -9,3 +9,4 @@ __pycache__/
 *.FLW
 # TinyUSB's own header (not private data)
 !third_party/tinyusb/src/common/tusb_private.h
+*.bak
