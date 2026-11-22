@@ -26,7 +26,7 @@ GPS_SRC = src/nmea.c src/navfix.c src/passage.c src/gpsui.c src/objects.c src/wp
 C_INCLUDES += -Idmcp -Isrc -Isrc/usb -Ithird_party/tinyusb/src
 C_SOURCES  += dmcp/sys/pgm_syscalls.c
 ASM_SOURCES = dmcp/startup_pgm.s
-C_SOURCES += src/main.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
+C_SOURCES += src/main.c src/tide_ui.c src/route_ui.c src/dp_ui.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
              src/c47scr.c src/views.c src/fonts21.c src/ntext.c src/moon47.c src/route.c \
              src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c \
              $(GPS_SRC)
@@ -138,7 +138,7 @@ test:
 SIM_USB = $(if $(filter sercon,$(USB)),src/sercon.c test/sim/sercon_sim.c,\
                 src/sercon.c src/usb/usbcon.c test/sim/tport_sim.c)
 SIM_DEFS = $(if $(filter sercon,$(USB)),,-DSERCON_TINYUSB)
-SIM_SRC = test/sim/sim.c src/main.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
+SIM_SRC = test/sim/sim.c src/main.c src/tide_ui.c src/route_ui.c src/dp_ui.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
           src/c47scr.c src/views.c src/fonts21.c src/ntext.c src/moon47.c src/route.c $(SIM_USB) \
           src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c \
           $(GEO47_SRC) src/geo_nav.c src/map47.c $(DPOPS_SRC) $(GPS_SRC)
