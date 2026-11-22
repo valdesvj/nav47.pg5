@@ -129,6 +129,30 @@ The web page (`web/index.html`) can be the bridge with no Python: Chrome or Edge
 2. **Connect the DM42n**: choose the calculator's port. The page sends the sentences, paced like the bridge.
 3. On the calculator: GPSSET → NMEA INPUT ON.
 
+### An NMEA stream from a web site
+
+Some ship systems publish the NMEA on a web page (a gateway, a SignalK server, a VDR or a multiplexer's web view).
+The bridge reads serial, UDP, TCP and gpsd, not web pages, so:
+
+1. **Look for a raw port first.** The same box almost always serves the NMEA on TCP too (SignalK, OpenCPN, Kplex,
+   YachtDevices, Actisense: port **10110**). Then `python3 tools/nmea_bridge.py --tcp <its address>:10110 --print`.
+2. **Else find what the page streams.** In Chrome: F12 → **Network**, reload. A **WS** entry (`ws://…`, `wss://…`) is
+   a WebSocket; a request that never ends and keeps growing is an HTTP stream. Note its address and look at a few
+   lines: plain `$GPRMC,…` is best; a prefix (`data: `) or JSON needs one more step.
+3. **Relay it to the bridge's UDP input**, the bridge in one terminal, the relay in another:
+
+   ```
+   python3 tools/nmea_bridge.py --udp 10110 --print
+
+   websocat -t wss://<site>/<path>  | socat -u - UDP-SENDTO:127.0.0.1:10110      # a WebSocket
+   curl -sN http://<site>/<path>    | socat -u - UDP-SENDTO:127.0.0.1:10110      # an HTTP stream
+   curl -sN http://<site>/<path> | sed -u 's/^data: //' | socat -u - UDP-SENDTO:127.0.0.1:10110   # with a prefix
+   ```
+
+   A login: copy the cookie or token from the request in F12 (`curl -H 'Cookie: …'`, `websocat -H 'Cookie: …'`).
+4. `--print` shows what the bridge keeps. Drop it, plug in the DM42n, GPSSET → NMEA INPUT ON; FIX's `in` counter
+   climbs, `bad` stays near 0.
+
 ---
 
 ## The GPS pages
@@ -201,7 +225,8 @@ Without a route NAV shows the position, the motion and the nearest objects.
 
 ![BOW](img/gps_bow.png)
 
-The view from the helideck over the bow. The route is a lane to the horizon, its edges your XTE limits. The
+The view from the helideck over the bow. The route is a lane to the horizon, its edges your XTE limits, unbroken
+through the turns (the corners mitred). The
 waypoints have flags. Your platforms stand on jackets with their deck modules, at their outline, seen from 20 m;
 they grow as the vessel closes and slide out of the view as she passes. Their zones are dotted on the sea. The Sun
 and the Moon stand at their bearings. The sea moves at her speed. **TURN AHEAD 096°** shows near a waypoint. The
@@ -214,7 +239,8 @@ boxes beside the bow give XTE, CTS, SOG, HDG and her latitude (left) and longitu
 From NAV (**0**): the vessel (to scale when the chart is close enough, else a 40-pixel symbol) with her wake, her
 track (a point every 10 s), the COG vector (6 minutes), the active leg's XTE limits (dotted), the next point
 ringed, your platforms and their zones. The box: the next waypoint's bearing, distance, ETA, XTE and the final
-distance. **1** FOLLOW (she stays in the middle), **7 9** zoom (down to 0.6 nm across), **0** the globe.
+distance. **1** FOLLOW (she stays in the middle), **7 9** zoom (down to 0.6 nm across), **0** the globe. The strip
+at the bottom gives her position to 0.001′, or the MOB's bearing and distance while one is marked.
 
 ### GPSSET
 
@@ -233,7 +259,7 @@ distance. **1** FOLLOW (she stays in the middle), **7 9** zoom (down to 0.6 nm a
 | NEXT LEG | AUTO or by hand |
 | ANCHOR R | m, the anchor watch's radius |
 | ALARMS | the beeps on or off |
-| MOB | ENTER clears the MOB |
+| MOB | the MOB's position (`-` none); ENTER clears it. While a MOB is marked the help line shows its bearing and distance |
 
 ---
 
@@ -333,4 +359,6 @@ The log has GPS, GLONASS, Galileo and BeiDou satellites, a DGPS fix, a gyro and 
 | FIX: "lost" climbs | too much for the calculator's buffer: do not use `--all`; one bridge only |
 | HDG "---" | no gyro sentence (HDT, THS, or HDG with variation) in the NMEA |
 | SET "---" | the current needs the gyro and the log (or a DR SPEED typed) |
+| the top bar says **SET** while the GPS runs | on a GPS page: no fix yet; elsewhere: GPSSET → SET FOLLOWS is off, the page computes for SET's position |
+| no tag in the top bar | the GPS is off (NMEA INPUT OFF), or POSITION OFF |
 | NAV: OFF TRACK hundreds of miles | the route on the calculator is another one: send yours (web: *To the calculator*) |

@@ -293,7 +293,7 @@ static void fmt_kn(char *s, double v) { if (isnan(v)) strcpy(s, "--.-"); else sp
 static int mob_text(char *s) {                       /* s: 24 */
   if (!P->mob) return 0;
   double b, d = nm_brg(P->f.lat, P->f.lon, P->mob_lat, P->mob_lon, &b);
-  sprintf(s, "MOB %03.0f" NT_DEG " %.2f nm", b, d);
+  sprintf(s, d < 10 ? "MOB %03.0f" NT_DEG " %.2f nm" : "MOB %03.0f" NT_DEG " %.1f nm", b, d);
   return 1;
 }
 int gps_mob_line(char *s) { return P && mob_text(s); }
@@ -419,6 +419,7 @@ static void draw_fix(void) {
   nt(4, y, s);
   y += 16;
   /* the anchor, the DR's error, the gyro error */
+  int row_used = 1;
   if (P->anc) {
     double b, d = nm_brg(P->anc_lat, P->anc_lon, f->lat, f->lon, &b);
     sprintf(s, "ANCHOR %.0f m of %.0f m, %03.0f" NT_DEG, d * 1852, P->anc_r, b);
@@ -426,17 +427,18 @@ static void draw_fix(void) {
   } else if (!isnan(f->dr_err_nm) && now - f->dr_err_ms < 600000) {
     sprintf(s, "the DR was %.2f nm %03.0f" NT_DEG " off", f->dr_err_nm, f->dr_err_brg);
     nt(4, y, s);
-  }
+  } else row_used = 0;
   VBody bd[8];
   int nb = nav_bodies(bd);
   double szn = NAN, shc = NAN;
   for (int i = 0; i < nb; i++) if (bd[i].id == 0) { szn = bd[i].zn; shc = bd[i].hc; }
-  if (P->mob && !P->gyro_edit) {                       /* MOB: where, and how far */
+  if (P->mob) {                                        /* MOB: where, and how far; its own row */
     char m[24], a[20], b[20];
     mob_text(m); fmt_pos(a, P->mob_lat, 1); fmt_pos(b, P->mob_lon, 0);
     snprintf(s, sizeof s, "%s  %s %s", m, a, b);
-    nt_inv(4, y + 16, s);
-  } else if (P->gyro_edit) { sprintf(s, "SUN BRG by gyro: %s_", P->ebuf); nt_inv(4, y + 16, s); }
+    nt_inv(4, row_used ? y + 32 : y, s);               /* the free row: above the Sun's, else under it */
+  }
+  if (P->gyro_edit) { sprintf(s, "SUN BRG by gyro: %s_", P->ebuf); nt_inv(4, y + 16, s); }
   else if (P->gyro_have && !isnan(szn)) {
     double e = fmod(szn - P->gyro_obs + 540.0, 360.0) - 180.0;
     sprintf(s, "SUN Zn %05.1f" NT_DEG " gyro %05.1f" NT_DEG ": ERR %.1f" NT_DEG " %s", szn, P->gyro_obs, fabs(e), e > 0 ? "LOW" : "HIGH");
@@ -653,8 +655,7 @@ static void draw_nav(void) {
   y = TOP + 3;
   src_tag(X, y);
   if (P->mob) {                                         /* MOB: on the top row, always in sight */
-    double b, d = nm_brg(f->lat, f->lon, P->mob_lat, P->mob_lon, &b);
-    sprintf(s, "MOB %03.0f" NT_DEG " %.2f", b, d);
+    mob_text(s);
     nt_inv(XR - nt_w(s), y, s);
   } else if (f->src == SRC_GPS) { sprintf(s, "%d sats", P->g.nused); tiny_r(XR, y + 4, s); }
   y += 18;
@@ -709,13 +710,42 @@ static void draw_nav(void) {
 #define FOC   210.0                                /* column = 200 + FOC * right / forward */
 
 /* a world point to the screen: 0 behind or too near */
-static int bow_proj(double lat, double lon, double hdg, float *x, float *y) {
+#define NEAR  0.06                                 /* nm: nothing nearer is drawn (the bow hides it) */
+/* a point in the vessel's frame: forward and to starboard, nm */
+static void bow_local(double lat, double lon, double hdg, float *fw, float *rt) {
   double dl = fmod(lon - P->f.lon + 540.0, 360.0) - 180.0;
   double e = dl * cos(P->f.lat * D2R) * 60, n = (lat - P->f.lat) * 60;
-  double fw = e * sin(hdg * D2R) + n * cos(hdg * D2R), rt = e * cos(hdg * D2R) - n * sin(hdg * D2R);
-  if (fw < 0.06) return 0;
-  *x = (float)(200 + FOC * rt / fw);
-  *y = (float)(HOR + KPER / fw);
+  *fw = (float)(e * sin(hdg * D2R) + n * cos(hdg * D2R));
+  *rt = (float)(e * cos(hdg * D2R) - n * sin(hdg * D2R));
+}
+static void bow_xy(float fw, float rt, float *x, float *y) { *x = (float)(200 + FOC * rt / fw); *y = (float)(HOR + KPER / fw); }
+static int bow_proj(double lat, double lon, double hdg, float *x, float *y) {
+  float fw, rt;
+  bow_local(lat, lon, hdg, &fw, &rt);
+  if (fw < NEAR) return 0;
+  bow_xy(fw, rt, x, y);
+  return 1;
+}
+/* a line in the vessel's frame: cut at the near plane, projected, cut to the sea's part of the screen (Liang-Barsky),
+   drawn (thick: a second line beside it); 0 nothing in sight */
+static int bow_seg(float f0, float r0, float f1, float r1, int thick) {
+  if (f0 < NEAR && f1 < NEAR) return 0;
+  if (f0 < NEAR) { float t = (NEAR - f0) / (f1 - f0); r0 += t * (r1 - r0); f0 = NEAR; }
+  if (f1 < NEAR) { float t = (NEAR - f1) / (f0 - f1); r1 += t * (r0 - r1); f1 = NEAR; }
+  float x0, y0, x1, y1;
+  bow_xy(f0, r0, &x0, &y0); bow_xy(f1, r1, &x1, &y1);
+  float dx = x1 - x0, dy = y1 - y0, t0 = 0, t1 = 1;
+  float pq[4][2] = { { -dx, x0 + 2 }, { dx, LCD_X + 1 - x0 }, { -dy, y0 - HOR }, { dy, BOT - y0 } };
+  for (int k = 0; k < 4; k++) {
+    float pk = pq[k][0], qk = pq[k][1];
+    if (pk == 0) { if (qk < 0) return 0; continue; }
+    float r = qk / pk;
+    if (pk < 0) { if (r > t1) return 0; if (r > t0) t0 = r; }
+    else { if (r < t0) return 0; if (r < t1) t1 = r; }
+  }
+  int ax = (int)lroundf(x0 + t0 * dx), ay = (int)lroundf(y0 + t0 * dy), bx = (int)lroundf(x0 + t1 * dx), by = (int)lroundf(y0 + t1 * dy);
+  gfx_line(ax, ay, bx, by, 1);
+  if (thick) gfx_line(ax + 1, ay, bx + 1, by, 1);
   return 1;
 }
 
@@ -810,34 +840,68 @@ static void draw_bow(uint32_t frame) {
     int step = 20 + (int)(z * 60), off = (r * 37) % step, w = 2 + (int)(z * 10);
     for (int x = -off; x < LCD_X; x += step) gfx_rect(x, y, w, 1, 1);
   }
-  /* the lane: the plan ahead +- the XTE limit, 8 nm */
+  /* the lane: the plan ahead +- the XTE limit, 8 nm. The waypoints are points of it, their corners mitred (the edges
+     offset along the bisector), so both edges run on through the turn; lines are cut at the bow, not dropped */
   if (R && p->active && !p->done) {
-    double s0 = R->w[p->leg - 1].cum_m + p->atd * 1852, end = R->w[R->n - 1].cum_m;
-    float lx[2][64], ly[2][64], cx[64], cy[64];
-    int n = 0, ok[64];
-    for (int k = 0; k < 64 && n < 64; k++) {
-      double d = 0.05 * pow(1.075, k) * 1852;          /* denser near */
-      double sm = s0 + d;
-      if (sm > end) sm = end;
-      double la, lo, crs, l2, o2, z;
-      plan_at(R, sm, &la, &lo, &crs);
-      ok[n] = bow_proj(la, lo, hdg, &cx[n], &cy[n]);
-      for (int side = 0; side < 2; side++) {
-        geod_direct(nav_ell(), la, lo, crs + (side ? 90 : -90), p->xte_lim * 1852, &l2, &o2, &z);
-        if (!bow_proj(l2, o2, hdg, &lx[side][n], &ly[side][n])) ok[n] = 0;
+    double s0 = R->w[p->leg - 1].cum_m + p->atd * 1852, end = R->w[R->n - 1].cum_m, far = s0 + 8 * 1852;
+    if (far > end) far = end;
+    enum { NS = 80 };
+    float cf[NS], cr[NS], ef[2][NS], er[2][NS];
+    unsigned char use[2][NS];
+    double sd[NS];
+    int n = 0, j = p->leg;
+    for (int k = 0; n < NS - 1; k++) {                   /* denser near; the waypoints between, in order */
+      double sm = s0 + 0.05 * pow(1.075, k) * 1852;
+      if (sm > far) sm = far;
+      while (j < R->n - 1 && R->w[j].cum_m <= sm && n < NS - 1) {
+        if (R->w[j].cum_m > s0 && (n == 0 || R->w[j].cum_m > sd[n - 1] + 1)) sd[n++] = R->w[j].cum_m;
+        j++;
       }
-      n++;
-      if (sm >= end || d > 8 * 1852) break;
+      if (n == 0 || sm > sd[n - 1] + 1) sd[n++] = sm;
+      if (sm >= far) break;
     }
-    for (int i = 0; i + 1 < n; i++) {
-      if (!ok[i] || !ok[i + 1]) continue;
-      for (int side = 0; side < 2; side++)
-        if ((i + frame / 2) % 3 != 0 || ly[side][i] < 120) {
-          gfx_line((int)lx[side][i], (int)ly[side][i], (int)lx[side][i + 1], (int)ly[side][i + 1], 1);
-          if (ly[side][i] > 110) gfx_line((int)lx[side][i] + 1, (int)ly[side][i], (int)lx[side][i + 1] + 1, (int)ly[side][i + 1], 1);
+    for (int i = 0; i < n; i++) {
+      use[0][i] = use[1][i] = 1;
+      for (int w = p->leg; w < R->n - 1; w++) {         /* near a corner the inner edge would fold back: its mitre */
+        double dc = fabs(R->w[w].cum_m - sd[i]);       /* point stands for the points there */
+        if (dc < 0.5 || dc > 3 * p->xte_lim * 1852) continue;
+        double cin, cout, la2, lo2;
+        plan_at(R, R->w[w].cum_m - 1, &la2, &lo2, &cin);
+        plan_at(R, R->w[w].cum_m + 1, &la2, &lo2, &cout);
+        double h = (fmod(cout - cin + 540.0, 360.0) - 180.0) / 2;
+        if (dc < p->xte_lim * 1852 * fabs(tan(h * D2R)) * 1.05 + 1) use[h > 0][i] = 0;
+      }
+      double la, lo, crs, l2, o2, z, half = 0, lim = p->xte_lim * 1852;
+      plan_at(R, sd[i], &la, &lo, &crs);
+      for (int w = p->leg; w < R->n - 1; w++)            /* a corner: the courses in and out */
+        if (fabs(R->w[w].cum_m - sd[i]) < 0.5) {
+          double la2, lo2, cin, cout;
+          plan_at(R, sd[i] - 1, &la2, &lo2, &cin);
+          plan_at(R, sd[i] + 1, &la2, &lo2, &cout);
+          half = (fmod(cout - cin + 540.0, 360.0) - 180.0) / 2;
+          crs = cin + half;
+          double c = cos(half * D2R);
+          lim /= c < 0.35 ? 0.35 : c;
+          break;
         }
-      if (i % 2 == 0) gfx_pixel((int)cx[i], (int)cy[i], 1);
+      bow_local(la, lo, hdg, &cf[i], &cr[i]);
+      for (int side = 0; side < 2; side++) {
+        geod_direct(nav_ell(), la, lo, crs + (side ? 90 : -90), lim, &l2, &o2, &z);
+        bow_local(l2, o2, hdg, &ef[side][i], &er[side][i]);
+      }
     }
+    for (int side = 0; side < 2; side++)                /* each edge: from a point used to the next one used */
+      for (int i = 0, a = -1; i < n; i++) {
+        if (!use[side][i]) continue;
+        if (a >= 0) {
+          float yn = ef[side][a] >= NEAR ? (float)(HOR + KPER / ef[side][a]) : (float)BOT;   /* the near end's row */
+          if ((a + frame / 2) % 3 != 0 || yn < 120)      /* near: dashes running past */
+            bow_seg(ef[side][a], er[side][a], ef[side][i], er[side][i], yn > 110);
+        }
+        a = i;
+      }
+    for (int i = 0; i < n; i += 2)
+      if (cf[i] >= NEAR) { float x, y; bow_xy(cf[i], cr[i], &x, &y); gfx_pixel((int)x, (int)y, 1); }
     /* the waypoints' flags ahead */
     for (int i = p->leg; i < R->n; i++) {
       if (R->w[i].cum_m - s0 > 9 * 1852) break;
@@ -929,9 +993,9 @@ static void draw_set(void) {
   char h[64];
   snprintf(h, sizeof h, "%s: %s", SNAME[P->sel], SHELP[P->sel]);
   tiny(2, BOT - LHT + 1, h);
-  char m[32];
-  if (mob_text(m)) draw_text_r(&TINY, LCD_X - 2, BOT - LHT + 1, m, 1);   /* MOB: in sight on this page too */
-  else tiny_r(LCD_X - 2, BOT - LHT + 1, "8 2 field  ENTER switch / edit");
+  tiny_r(LCD_X - 2, BOT - LHT + 1, "8 2 field  ENTER switch / edit");
+  char m[24];
+  if (mob_text(m)) mob_box(LCD_X - 14 - nt_w(m), TOP + 1);   /* MOB: in sight here too, beside the short values */
 }
 
 static void set_commit(int f) {

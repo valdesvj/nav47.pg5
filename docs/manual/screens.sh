@@ -8,7 +8,7 @@ cd "$(dirname "$0")/../.."
 TOP=$PWD; IMG=${IMG:-$TOP/docs/manual/img}; W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 mkdir -p "$IMG" "$W/simdisk/NAV47"
 make -s sim >/dev/null
-python3 test/nmea/make_log.py "$W/log.nmea" --minutes 60 --legs 045:30,090:30 --lost 1500:90
+python3 test/nmea/make_log.py "$W/log.nmea" --minutes 60 --legs 045:30,090:30 --lost 1500:90 --rot 30
 # the route along the log's track, platforms near it, two waypoints in the list
 python3 - "$W" <<'PY'
 import sys
@@ -63,10 +63,10 @@ shot calc_dp        F6 F6 F4 WAIT:500
 shot calc_abs       F6 F6 F4 WAIT:500 DOT WAIT:300
 shot gps_fix        $G F1 $(w 25)
 shot gps_sats       $G F1 $(w 20) F2 0
-shot gps_nav        $G F3 $(w 1200)
-shot gps_bow        $G F3 $(w 1720) F4 WAIT:250
-shot gps_chart      $G F3 $(w 1735) 0 WAIT:250 7
-shot gps_dr         $G F1 $(w 1525)
+shot gps_nav        $G F3 $(w 1200) ENTER WAIT:300
+shot gps_bow        $G F3 $(w 1720) ENTER F4 WAIT:250
+shot gps_chart      $G F3 $(w 1735) ENTER 0 WAIT:250 7
+shot gps_dr         $G F1 $(w 1525) ENTER WAIT:300
 shot gps_set        $G F5
 shot gps_mob        $G F3 $(w 900) RUN $(w 3)
 M="$G F3 $(w 900) RUN $(w 3) ENTER"            # a MOB marked, the alarm acknowledged
