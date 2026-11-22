@@ -104,6 +104,7 @@
   <section id="t-flow" hidden></section>
   <section id="t-zones" hidden></section>
   <section id="t-dp" hidden></section>
+  <section id="t-gps" hidden></section>
   <section id="t-calc" hidden>
     <div class="calcwrap">
       <div class="calc">
@@ -160,6 +161,7 @@ setTimeout(() => { if (!window.NAV47_UP) nav47fail("still loading after 30 s: na
 <script src="tabs.js?v=1.0"></script>
 <script src="dp.js?v=1.0"></script>
 <script src="weather.js?v=1.0"></script>
+<script src="gps.js?v=1.0"></script>
 <script>
 window.Module = {
   nav47_lcd: fb => CALC.lcd(fb),

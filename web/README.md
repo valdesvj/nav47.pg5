@@ -12,6 +12,7 @@ engines, compiled to WebAssembly with the DM42n program itself in one file, `web
 | **Tide** | the public stations, NOAA's current stations and your own (.TID): the day's curve, HW / LW (or the streams), day by day; **Auto**: the station nearest the DR (as the calculator's AUTO) |
 | **Flow** | your FLOW atlas (.FLW) as the calculator's T&F: the stream at the DR from HW−6 to HW+6 of the reference port (springs scaled, the wind added), now, the atlas round the DR; the stream stations near the DR |
 | **Zones** | as ZONE47: the dot map in 24 columns of 15°, the stops (← →), each stop's places (↑ ↓) with their local time and summer time now, your zone ▲; all the zones in a list below |
+| **GPS** | a GPS (or the ship's NMEA through a USB adapter) read by Chrome's Web Serial, a log replayed, or a demo: the fix and its quality (DGPS), the satellites in the sky and their signals, SOG COG HDG STW, set and drift, the last sentences; *the DR follows the GPS*; to the Calculator tab's program (its FIX SATS NAV BOW pages) and, as the bridge, to the DM42n over USB |
 | **Calculator** | the DM42n program itself, every page, the keys clicked or typed; *To the calculator* on the Route tab sends the plan to it |
 
 The top: **Now** (the clock) or a fixed UT, the **DR**, the times in **UT** or **ZT** (the DR's zone).

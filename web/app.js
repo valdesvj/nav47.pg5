@@ -1395,7 +1395,7 @@ function voyCard() {
 }
 
 /* ---------------------------------------------------------------- the page */
-const TABS = [["route", "Route"], ["weather", "Weather"], ["almanac", "Almanac"], ["sky", "Sky"], ["tide", "Tide"], ["flow", "Flow"], ["zones", "Zones"], ["dp", "DP"], ["calc", "Calculator"]];
+const TABS = [["route", "Route"], ["weather", "Weather"], ["almanac", "Almanac"], ["sky", "Sky"], ["tide", "Tide"], ["flow", "Flow"], ["zones", "Zones"], ["dp", "DP"], ["gps", "GPS"], ["calc", "Calculator"]];
 function showTab(t) {
   S.tab = t; store.set("tab", t);
   document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
@@ -1403,6 +1403,7 @@ function showTab(t) {
   if (t === "route") resize();
   else if (t === "calc") CALC.start();
   else if (t === "weather") WX.show();
+  else if (t === "gps") GPS.show();
   else if (typeof TABS2 !== "undefined" && TABS2[t]) TABS2[t]();
 }
 function header() {

@@ -655,7 +655,20 @@ static void plan_at(const route_t *R, double s, double *lat, double *lon, double
   }
 }
 
+/* the photo (make BOW=photo.jpg, tools/gen_bow.py): the ship's pixels over the sea; none: the drawn bow */
+extern const int BOW_W, BOW_H, BOW_Y;
+extern const unsigned char BOW_INK[], BOW_MASK[];
+
 static void bow_ship(void) {
+  if (BOW_H > 0) {
+    int bpr = BOW_W / 8;
+    for (int y = 0; y < BOW_H && BOW_Y + y <= BOT; y++)
+      for (int x = 0; x < BOW_W; x++) {
+        int k = y * bpr + x / 8, b = 0x80 >> (x % 8);
+        if (BOW_MASK[k] & b) gfx_pixel(x, BOW_Y + y, (BOW_INK[k] & b) ? 1 : 0);
+      }
+    return;
+  }
   /* the Asiana's foredeck from the helideck: the raked bow, the bulwarks, the windlass, the bow-thruster hatch, the
      bridge front's windows at the bottom (until the photo) */
   float hx[5] = { 112, 172, 200, 228, 288 }, hy[5] = { 200, 144, 122, 144, 200 };

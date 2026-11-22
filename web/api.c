@@ -386,3 +386,39 @@ K int api_dp_current(double lat, double lon, double jd, double wdir, double wkn)
   snprintf(DCSRC, sizeof DCSRC, "%.28s, %.0f NM", station(best, NULL)->name, bd);
   return 1;
 }
+
+/* ---------------------------------------------------------------- GPS (web/gps.js): the same NMEA parser as the
+   calculator's (src/nmea.c), and the lines handed on to the Calculator tab's program (its USB channel 2) */
+#include "nmea.h"
+void sim_nmea_push(const char *line);             /* test/sim/sercon_sim.c */
+static GpsState WG;
+static int wg_ready;
+K void api_nmea_calc(const char *line) { sim_nmea_push(line); }
+K void api_gps_reset(void) { nmea_init(&WG); wg_ready = 1; }
+K int api_gps_feed(const char *line, double ms) { if (!wg_ready) api_gps_reset(); return nmea_feed(&WG, line, (uint32_t)ms); }
+K const char *api_gnss_name(int sys) { return gnss_name(sys); }
+K const char *api_qual_name(int q) { return nmea_qual_name(q); }
+/* OUT: 0 have_fix 1 lat 2 lon 3 qual 4 mode 5 fix_dim 6 nused 7 pdop 8 hdop 9 vdop 10 dgps_age 11 dgps_id
+   12 sig_lat 13 sig_lon 14 sog 15 cog 16 hdg 17 stw 18 jd (0 unknown) 19 n_ok 20 n_bad 21 fix age s (-1 never)
+   22 hdg age s 23 stw age s 24 alt 25 nsat; from 40, 6 a satellite: sys prn el az snr used */
+K int api_gps_state(double ms) {
+  if (!wg_ready) api_gps_reset();
+  uint32_t now = (uint32_t)ms;
+  GpsState *g = &WG;
+  double jd = 0;
+  nmea_jd(g, &jd);
+  double v[26] = { g->have_fix, g->lat, g->lon, nmea_qual(g), g->mode, g->fix_dim, g->nused, g->pdop, g->hdop, g->vdop,
+                   g->dgps_age, g->dgps_id, g->sig_lat, g->sig_lon, g->sog, g->cog, g->hdg, g->stw, jd, g->n_ok, g->n_bad,
+                   g->fix_ms ? (now - g->fix_ms) / 1000.0 : -1, g->hdg_ms ? (now - g->hdg_ms) / 1000.0 : -1,
+                   g->stw_ms ? (now - g->stw_ms) / 1000.0 : -1, g->alt, 0 };
+  int n = 0;
+  for (int i = 0; i < g->nsat; i++) {
+    NmeaSat *s = &g->sat[i];
+    if (now - s->ms > NMEA_SAT_TTL && !nmea_sat_used(g, s, now)) continue;
+    double *o = OUT + 40 + 6 * n++;
+    o[0] = s->sys; o[1] = s->prn; o[2] = s->el; o[3] = s->az; o[4] = s->snr; o[5] = nmea_sat_used(g, s, now);
+  }
+  v[25] = n;
+  memcpy(OUT, v, sizeof v);
+  return n;
+}
