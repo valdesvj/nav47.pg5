@@ -573,7 +573,7 @@ static void draw_nav(void) {
   NavFix *f = &P->f;
   double pk;
   const route_t *R = nav_route(&pk);
-  if (!R) { nav_header("NAV"); nt(6, 40, "No route: ROUTE, two waypoints or more."); nt(6, 60, "The vessel:"); }
+  if (!R) nav_header("NAV");
   else {
     sprintf(s, "NAV  LEG %d/%d", p->leg, R->n - 1);
     nav_header(s);
@@ -608,6 +608,14 @@ static void draw_nav(void) {
     snprintf(s, sizeof s, "TTG %s / %s at %.1f kn", a1, a2, p->kn);
     tiny(4, y, s);
   } else if (R) nt(6, y + 18, "5: start the passage");
+  else {                                               /* no route: where she is, and how to give her one */
+    char a[24];
+    nt_inv(6, y, "NO ROUTE");
+    fmt_pos(a, f->lat, 1); nt(4, y + 20, a);
+    fmt_pos(a, f->lon, 0); nt(4, y + 36, a);
+    tiny(4, y + 58, "ROUTE: two waypoints or more,");
+    tiny(4, y + 67, "or WPTS (1 on ROUTE)");
+  }
   /* right: the vessel */
   int X = 214, XR = LCD_X - 4;
   y = TOP + 3;
@@ -650,9 +658,11 @@ static void draw_nav(void) {
     sprintf(s, "limit %.2f", p->xte_lim); tiny(8, yb - 10, s);
     xte_bar(6, yb, LCD_X - 12, p->xte, p->xte_lim);
   }
-  tiny(2, BOT - LHT + 1, "4 6 leg  5 start  0 chart  ENTER ok  R/S MOB");
-  sprintf(s, "ADV %s  ARR %.2f", p->auto_adv ? "AUTO" : "MAN", p->arr_r);
-  tiny_r(LCD_X - 2, BOT - LHT + 1, s);
+  if (R) {
+    tiny(2, BOT - LHT + 1, "4 6 leg  5 start  0 chart  ENTER ok  R/S MOB");
+    sprintf(s, "ADV %s  ARR %.2f", p->auto_adv ? "AUTO" : "MAN", p->arr_r);
+    tiny_r(LCD_X - 2, BOT - LHT + 1, s);
+  } else tiny(2, BOT - LHT + 1, "0 chart  ENTER ok  R/S MOB");
   alarm_bar();
 }
 
@@ -817,7 +827,8 @@ static void draw_bow(uint32_t frame) {
   if (R && p->active && !p->done) {
     sprintf(s, "XTE %.2f%s", fabs(p->xte), p->xte >= 0 ? "R" : "L"); nt(6, BY + 1, s);
     fmt_deg(t, p->cts); sprintf(s, "CTS %s", t); nt(6, BY + 17, s);
-  } else { nt(6, BY + 1, "no route"); nt(6, BY + 17, "NAV 5 start"); }
+  } else if (R && !p->done) { nt(6, BY + 1, "the route:"); nt(6, BY + 17, "NAV 5 start"); }
+  else { nt(6, BY + 1, R ? "ARRIVED" : "no route"); fmt_kn(t, f->sog); fmt_deg(s, f->cog); sprintf(s + 20, "COG %s", s); nt(6, BY + 17, s + 20); }
   fmt_kn(t, f->sog); sprintf(s, "SOG %s", t); nt(LCD_X - 102, BY + 1, s);
   fmt_deg(t, hdg); sprintf(s, "%s %s", !isnan(f->hdg) ? "HDG" : "COG", t); nt(LCD_X - 102, BY + 17, s);
   if (R && p->active && !p->done && !isnan(p->next_crs) && p->dtg < 3 * p->arr_r + 0.5) {
