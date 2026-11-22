@@ -355,6 +355,9 @@ make TIDE47=~/opt/tide47   # + your private data
 make test ALMANAC47=~/almanac47 ZONES47=~/zones47 TIDE47_TEST=~/opt/tide47   # the C engines vs the Python twins
 make data  ...             # regenerate src/ data from the 47 repositories (same paths)
 make sim                   # PC simulator: build/sim, pictures with test/sim/render.py
+make check                 # the simulator with ASan/UBSan through every page, bad OBJECTS.CSV lines included
+make test-gps test-geo test-dp test-usb
+pip install -r requirements.txt   # the Python the tests and tools need (geographiclib, mpmath, Pillow, ...)
 ```
 
 ## Inside

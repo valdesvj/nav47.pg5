@@ -146,9 +146,14 @@ $(BUILD_DIR)/gen/simfont.h: test/sim/gen_simfont.py
 	@mkdir -p $(BUILD_DIR)/gen
 	$(PYTHON) test/sim/gen_simfont.py $@
 
+SIM_CFLAGS ?= -O2 -w
+SIM_OUT ?= $(BUILD_DIR)/sim
 sim: $(SIM_SRC) $(BUILD_DIR)/gen/simfont.h | $(BUILD_DIR)
-	gcc -std=gnu11 -O2 -w -ffp-contract=off '-D__packed=__attribute__((__packed__))' '-D__weak=__attribute__((weak))' \
-	    -DNAV47_SIM $(SIM_DEFS) -Itest/sim -Isrc -I$(GEO47_DIR) -Isrc/usb -I$(BUILD_DIR)/gen -o $(BUILD_DIR)/sim $(SIM_SRC) -lm
+	gcc -std=gnu11 $(SIM_CFLAGS) -ffp-contract=off '-D__packed=__attribute__((__packed__))' '-D__weak=__attribute__((weak))' \
+	    -DNAV47_SIM $(SIM_DEFS) -Itest/sim -Isrc -I$(GEO47_DIR) -Isrc/usb -I$(BUILD_DIR)/gen -o $(SIM_OUT) $(SIM_SRC) -lm
+
+# check: the simulator with ASan and UBSan, walked through every page (test/sim/check.sh)
+check: ; bash test/sim/check.sh
 
 # both .pg5 at once: build/<NAME>.pg5 (DMCP5 3.58's console) and build/tinyusb/<NAME>.pg5 (any DMCP5)
 both:
@@ -165,5 +170,5 @@ clean:
 # the manuals as PDFs: build/manual/ (docs/manual/*.md; the pictures: bash docs/manual/screens.sh)
 manual: ; $(PYTHON) tools/make_manual.py build/manual
 
-.PHONY: both clean all test test-usb data sim manual FORCE
+.PHONY: both clean all test test-usb data sim check manual FORCE
 include web.mk
