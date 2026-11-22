@@ -5,7 +5,7 @@
 #   bash docs/manual/screens.sh            (from the repository's top; needs python3 Pillow geographiclib, Chrome)
 set -e
 cd "$(dirname "$0")/../.."
-TOP=$PWD; IMG=$TOP/docs/manual/img; W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
+TOP=$PWD; IMG=${IMG:-$TOP/docs/manual/img}; W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
 mkdir -p "$IMG" "$W/simdisk/NAV47"
 make -s sim >/dev/null
 python3 test/nmea/make_log.py "$W/log.nmea" --minutes 60 --legs 045:30,090:30 --lost 1500:90
@@ -69,6 +69,10 @@ shot gps_chart      $G F3 $(w 1735) 0 WAIT:250 7
 shot gps_dr         $G F1 $(w 1525)
 shot gps_set        $G F5
 shot gps_mob        $G F3 $(w 900) RUN $(w 3)
+M="$G F3 $(w 900) RUN $(w 3) ENTER"            # a MOB marked, the alarm acknowledged
+shot gps_mob_fix    $M F1 $(w 2)
+shot gps_mob_bow    $M F4 $(w 2)
+[ -n "$CALC_ONLY" ] && exit 0
 # the web page
 CH=$(command -v google-chrome-stable || command -v chromium || command -v google-chrome)
 web() {   # web NAME WIDTHxHEIGHT SECONDS HASH

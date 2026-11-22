@@ -136,6 +136,16 @@ The web page (`web/index.html`) can be the bridge with no Python: Chrome or Edge
 The fourth menu row: **FIX · SATS · NAV · BOW · GPSSET**. On every GPS page **R/S** marks a man overboard and
 **ENTER** acknowledges an alarm.
 
+**The position in the top bar.** While the GPS runs (NMEA INPUT on, or POSITION DR ONLY) a small tag before the
+position in the top bar says where it comes from:
+
+| Page | Position | Tag |
+|---|---|---|
+| the GPS pages and the live CHART | the vessel's, every second | **GPS**, **DGPS**, **RTK**… or **DR**; **SET** until the first fix |
+| every other page (Almanac, Tide, Zones, ROUTE…) | SET's: what the page computes with | the GPS's source when SET FOLLOWS is on (SET is at most a minute old), **SET** when it is off |
+
+With the GPS off there is no tag and the bar is as before.
+
 ### FIX
 
 ![FIX](img/gps_fix.png)
@@ -174,7 +184,7 @@ On the route of ROUTE (PLAN's points):
 | **CTS · NEXT** | the leg's course at the vessel, and the next leg's course |
 | next waypoint · **FINAL** | distance along the plan, and **ETA** |
 | **TTG** | the times to go, at SOG (at the plan's speed when stopped) |
-| **SOG**, COG, HDG, **SET** | the vessel's motion, and the current (set and drift) |
+| **SOG**, COG, HDG, **SET** | the vessel's motion, and the current (set and drift); her position, small, under SOG |
 | the objects | your three nearest objects: bearing, distance, **CPA** and in how long; inverse when the CPA is inside its zone |
 | **XTE** | the cross-track error and its bar, the limits marked, "STEER PORT / STBD" |
 
@@ -194,7 +204,8 @@ Without a route NAV shows the position, the motion and the nearest objects.
 The view from the helideck over the bow. The route is a lane to the horizon, its edges your XTE limits. The
 waypoints have flags. Your platforms stand on jackets with their deck modules, at their outline, seen from 20 m;
 they grow as the vessel closes and slide out of the view as she passes. Their zones are dotted on the sea. The Sun
-and the Moon stand at their bearings. The sea moves at her speed. **TURN AHEAD 096°** shows near a waypoint.
+and the Moon stand at their bearings. The sea moves at her speed. **TURN AHEAD 096°** shows near a waypoint. The
+boxes beside the bow give XTE, CTS, SOG, HDG and her latitude (left) and longitude (right).
 
 ### The live CHART
 
@@ -256,8 +267,15 @@ An alarm beeps and shows over the top bar; **ENTER** acknowledges it. MOB, ancho
 
 ![MOB](img/gps_mob.png)
 
-**MOB**: **R/S** on any GPS page or the live chart marks the position. NAV shows its bearing and distance on the
-top row, the chart marks it. GPSSET → MOB clears it.
+**MOB**: **R/S** on any GPS page or the live chart marks the position. Once the alarm is acknowledged the MOB stays in
+sight, inverted, on every GPS page: its bearing and distance from the vessel (**MOB 232° 0.45 nm**), on FIX with its
+position too, on NAV on the top row, on SATS and BOW in the corner, on GPSSET in the help line, on the live chart in
+the bottom strip (else her position there, to 0.001′), where the chart also marks it. GPSSET's MOB row shows its
+position; **ENTER** there clears it.
+
+| | |
+|---|---|
+| ![MOB on FIX](img/gps_mob_fix.png) | ![MOB on BOW](img/gps_mob_bow.png) |
 
 **Anchor watch**: **7** on FIX drops the anchor at the position now; the radius is GPSSET's ANCHOR R.
 

@@ -120,6 +120,15 @@ int gps_live(double *lat, double *lon, double *hdg) {
   return 1;
 }
 
+int gps_bar(double *lat, double *lon, const char **tag) {
+  if (!P || (P->f.src != SRC_GPS && P->f.src != SRC_DR)) return 0;
+  if (!P->input && P->fc.mode != POS_DR) return 0;     /* the input off: the DR from SET's position is no source */
+  *lat = P->f.lat; *lon = P->f.lon; *tag = navfix_src_name(&P->f);
+  if (P->f.src == SRC_DR && !P->f.dr_from_fix && P->fc.mode == POS_AUTO) *tag = "SET";   /* no fix yet: SET's still */
+  return 1;
+}
+int gps_follows(void) { return P && P->follow; }
+
 static double nm_brg(double la1, double lo1, double la2, double lo2, double *brg) {
   double s, a1, a2;
   geod_inverse(nav_ell(), la1, lo1, la2, lo2, &s, &a1, &a2);
@@ -280,6 +289,23 @@ static void fmt_ttg(char *s, double h) {
 static void fmt_deg(char *s, double v) { if (isnan(v)) strcpy(s, "---"); else sprintf(s, "%03.0f" NT_DEG, fmod(v + 360.0, 360.0)); }
 static void fmt_kn(char *s, double v) { if (isnan(v)) strcpy(s, "--.-"); else sprintf(s, "%.1f", v); }
 
+/* MOB: its bearing and distance from the vessel, "MOB 232° 0.45 nm"; 0 no MOB */
+static int mob_text(char *s) {                       /* s: 24 */
+  if (!P->mob) return 0;
+  double b, d = nm_brg(P->f.lat, P->f.lon, P->mob_lat, P->mob_lon, &b);
+  sprintf(s, "MOB %03.0f" NT_DEG " %.2f nm", b, d);
+  return 1;
+}
+int gps_mob_line(char *s) { return P && mob_text(s); }
+/* MOB, inverted, with a white margin: on every GPS page */
+static void mob_box(int x, int y) {
+  char s[32];
+  if (!mob_text(s)) return;
+  int w = nt_w(s);
+  gfx_rect(x - 2, y - 1, w + 4, 18, 0);
+  nt_inv(x, y, s);
+}
+
 /* a filled polygon (scanlines, even-odd) */
 static void fill_poly(const float *x, const float *y, int n, int v) {
   float y0 = 1e9f, y1 = -1e9f;
@@ -326,7 +352,7 @@ static void src_tag(int x, int y) {
 
 /* ------------------------------------------------------------------ FIX */
 static void draw_fix(void) {
-  char s[64], t[32];
+  char s[80], t[32];
   nav_header("FIX");
   NavFix *f = &P->f;
   GpsState *g = &P->g;
@@ -405,7 +431,12 @@ static void draw_fix(void) {
   int nb = nav_bodies(bd);
   double szn = NAN, shc = NAN;
   for (int i = 0; i < nb; i++) if (bd[i].id == 0) { szn = bd[i].zn; shc = bd[i].hc; }
-  if (P->gyro_edit) { sprintf(s, "SUN BRG by gyro: %s_", P->ebuf); nt_inv(4, y + 16, s); }
+  if (P->mob && !P->gyro_edit) {                       /* MOB: where, and how far */
+    char m[24], a[20], b[20];
+    mob_text(m); fmt_pos(a, P->mob_lat, 1); fmt_pos(b, P->mob_lon, 0);
+    snprintf(s, sizeof s, "%s  %s %s", m, a, b);
+    nt_inv(4, y + 16, s);
+  } else if (P->gyro_edit) { sprintf(s, "SUN BRG by gyro: %s_", P->ebuf); nt_inv(4, y + 16, s); }
   else if (P->gyro_have && !isnan(szn)) {
     double e = fmod(szn - P->gyro_obs + 540.0, 360.0) - 180.0;
     sprintf(s, "SUN Zn %05.1f" NT_DEG " gyro %05.1f" NT_DEG ": ERR %.1f" NT_DEG " %s", szn, P->gyro_obs, fabs(e), e > 0 ? "LOW" : "HIGH");
@@ -540,6 +571,7 @@ static void draw_sats(void) {
     }
   }
   gfx_rect(bx, by, LCD_X - 4 - bx, 1, 1);
+  mob_box(212, 76);
   tiny(2, BOT - LHT + 1, P->stars ? "0 satellites only" : "0 + Sun Moon stars");
   tiny_r(LCD_X - 2, BOT - LHT + 1, "4 6 system  bars dB-Hz, filled: used");
   alarm_bar();
@@ -627,7 +659,12 @@ static void draw_nav(void) {
   } else if (f->src == SRC_GPS) { sprintf(s, "%d sats", P->g.nused); tiny_r(XR, y + 4, s); }
   y += 18;
   fmt_kn(t, f->sog); nt(X, y, "SOG"); big(XR - big_w(t, 2), y - 1, t, 2);
-  y += 30;
+  if (R) {                                              /* where she is, small, under SOG */
+    char a[20];
+    fmt_pos(a, f->lat, 1); tiny(X, y + 15, a);
+    fmt_pos(a, f->lon, 0); tiny(X, y + 24, a);
+  }
+  y += R ? 33 : 30;
   fmt_deg(t, f->cog); nt(X, y, "COG"); nt_r(XR, y, t); y += 16;
   fmt_deg(t, f->hdg); nt(X, y, "HDG"); nt_r(XR, y, t); y += 16;
   if (!isnan(f->set)) { sprintf(t, "%03.0f" NT_DEG " %.1f kn", f->set, f->drift); nt(X, y, "SET"); nt_r(XR, y, t); }
@@ -822,13 +859,16 @@ static void draw_bow(uint32_t frame) {
   bow_ship();
   /* the numbers, in boxes beside the bow (the horizon stays clear) */
   const int BY = 150;
-  gfx_rect(2, BY, 104, 34, 0); gfx_frame(2, BY, 104, 34);
-  gfx_rect(LCD_X - 106, BY, 104, 34, 0); gfx_frame(LCD_X - 106, BY, 104, 34);
+  gfx_rect(2, BY, 104, 43, 0); gfx_frame(2, BY, 104, 43);
+  gfx_rect(LCD_X - 106, BY, 104, 43, 0); gfx_frame(LCD_X - 106, BY, 104, 43);
+  { char a[20], b[20];                                  /* where she is: a line of each box */
+    fmt_pos(a, f->lat, 1); tiny(6, BY + 33, a);
+    fmt_pos(b, f->lon, 0); tiny(LCD_X - 102, BY + 33, b); }
   if (R && p->active && !p->done) {
     sprintf(s, "XTE %.2f%s", fabs(p->xte), p->xte >= 0 ? "R" : "L"); nt(6, BY + 1, s);
     fmt_deg(t, p->cts); sprintf(s, "CTS %s", t); nt(6, BY + 17, s);
   } else if (R && !p->done) { nt(6, BY + 1, "the route:"); nt(6, BY + 17, "NAV 5 start"); }
-  else { nt(6, BY + 1, R ? "ARRIVED" : "no route"); fmt_kn(t, f->sog); fmt_deg(s, f->cog); sprintf(s + 20, "COG %s", s); nt(6, BY + 17, s + 20); }
+  else { nt(6, BY + 1, R ? "ARRIVED" : "no route"); fmt_deg(t, f->cog); sprintf(s, "COG %s", t); nt(6, BY + 17, s); }
   fmt_kn(t, f->sog); sprintf(s, "SOG %s", t); nt(LCD_X - 102, BY + 1, s);
   fmt_deg(t, hdg); sprintf(s, "%s %s", !isnan(f->hdg) ? "HDG" : "COG", t); nt(LCD_X - 102, BY + 17, s);
   if (R && p->active && !p->done && !isnan(p->next_crs) && p->dtg < 3 * p->arr_r + 0.5) {
@@ -837,6 +877,7 @@ static void draw_bow(uint32_t frame) {
     gfx_rect(2, BY - 20, nt_w(s) + 8, 16, 0); gfx_frame(2, BY - 20, nt_w(s) + 8, 16);
     nt(6, BY - 20, s);
   }
+  mob_box(4, TOP + 2);
   alarm_bar();
 }
 
@@ -861,7 +902,10 @@ static void set_text(int f, char *s) {
   case S_ADV: strcpy(s, P->p.auto_adv ? "AUTO" : "BY HAND (6)"); break;
   case S_ANCR: sprintf(s, "%.0f m", P->anc_r); break;
   case S_ALARMS: strcpy(s, P->alarms ? "ON" : "OFF"); break;
-  case S_MOB: if (P->mob) strcpy(s, "SET"); else strcpy(s, "-"); break;
+  case S_MOB:
+    if (P->mob) { char a[20], b[20]; fmt_pos(a, P->mob_lat, 1); fmt_pos(b, P->mob_lon, 0); sprintf(s, "%s %s", a, b); }
+    else strcpy(s, "-");
+    break;
   }
 }
 
@@ -885,7 +929,9 @@ static void draw_set(void) {
   char h[64];
   snprintf(h, sizeof h, "%s: %s", SNAME[P->sel], SHELP[P->sel]);
   tiny(2, BOT - LHT + 1, h);
-  tiny_r(LCD_X - 2, BOT - LHT + 1, "8 2 field  ENTER switch / edit");
+  char m[32];
+  if (mob_text(m)) draw_text_r(&TINY, LCD_X - 2, BOT - LHT + 1, m, 1);   /* MOB: in sight on this page too */
+  else tiny_r(LCD_X - 2, BOT - LHT + 1, "8 2 field  ENTER switch / edit");
 }
 
 static void set_commit(int f) {

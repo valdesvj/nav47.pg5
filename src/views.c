@@ -12,6 +12,7 @@
 #include "views.h"
 #include "almdata.h"
 #include "c47scr.h"
+#include "gfx.h"
 #include "ntext.h"
 #include "moon47.h"
 
@@ -127,7 +128,9 @@ static void f_date(char *s, double j) {
 }
 
 /* the top bar of every NAV47 page: the date and time (UT or LT) on the left, the position on the right, the page's
-   name in the middle (inverted, centred in the space between); the line under it at row 15 */
+   name in the middle (inverted, centred in the space between); the line under it at row 15. top_tag: where the
+   position comes from (GPS, DGPS, DR, SET), small and inverted before it; NULL with the GPS off */
+const char *top_tag;
 void top_bar(double jl, int local, double lat, double lon, const char *name) {
   char s[80], a[24], b[24], t[8], dt[16];
   f_date(dt, jl);
@@ -139,10 +142,17 @@ void top_bar(double jl, int local, double lat, double lon, const char *name) {
   sprintf(s, "%s%s %s%s%s", lat < 0 ? "S" : "N", a, lon < 0 ? "W" : "E", fabs(lon) < 100 ? "0" : "", b);
   int xr = 399 - nt_w(s);
   nt(xr, 0, s);
+  if (top_tag && *top_tag) {
+    int tw = text_width(&TINY, top_tag) + 4;
+    xr -= tw + 4;
+    lcd_fill_rect(xr, 2, tw, 11, 1);
+    draw_text(&TINY, xr + 2, 3, top_tag, 1);
+  }
   if (name && *name) {
     int w = nt_w(name), x = (xl + xr) / 2 - w / 2;
     if (x < xl + 6) x = xl + 6;
-    if (x + w <= xr - 5) nt_inv(x, 0, name);
+    if (x + w > xr - 5 && xl + 3 + w <= xr - 3) x = xl + 3;   /* tight (the tag): closer to both sides */
+    if (x + w <= xr - 3) nt_inv(x, 0, name);
   }
   lcd_fill_rect(0, 15, LCD_X, 1, 1);
 }
