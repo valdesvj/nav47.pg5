@@ -44,7 +44,8 @@ const TABS2 = (() => {
     const solar = b.slice(0, 6), st = b.slice(6).filter(x => x.hc > 10).sort((p, q) => p.rank - q.rank);
     Module._api_moon(jd());
     const m = N().o(), names = ["Twilight (morning)", "Sunrise", "Meridian passage", "Sunset", "Twilight (evening)"];
-    const phase = N().str(Module._api_moon_name(m[4])), next = [0, 1, 2, 3].map(i => [m[5 + 2 * i], ["New Moon", "First quarter", "Full Moon", "Last quarter"][m[6 + 2 * i]]]);
+    const kinds = ["new", "first quarter", "full", "last quarter"], dt = m[5] - jd(),
+      phase = N().str(Module._api_moon_name(m[13])) + ` · ${kinds[m[6]]} in ${dt < 1 ? Math.round(dt * 24) + " h" : dt.toFixed(1) + " d"}`, next = [0, 1, 2, 3].map(i => [m[5 + 2 * i], ["New Moon", "First quarter", "Full Moon", "Last quarter"][m[6 + 2 * i]]]);
     el.innerHTML = `<div class="card">${headCard("Almanac", ` · GHA ♈ ${F().dm(A.aries, 3)}`)}
       <div class="chips"><span class="chip">${daylight(sun.hc)}</span><span class="chip">Sun SD ${A.sunSD.toFixed(1)}′</span>
       <span class="chip">Moon HP ${A.moonHP.toFixed(1)}′ SD ${A.moonSD.toFixed(1)}′</span><span class="chip">${st.length} stars above 10°</span></div>

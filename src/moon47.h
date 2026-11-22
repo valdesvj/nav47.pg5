@@ -14,6 +14,10 @@ typedef struct {
 void moon47_page(double jd, int south, Moon47 *p);
 /* the disc, column dx (-r..r): up to 2 runs (a, b) of |y| rows; returns the number of runs */
 int  moon47_disc_runs(int r, double age, int south, int dx, int runs[2][2]);
+/* the phase's name, an index into M47_NAMES: NEW, FIRST QUARTER, FULL, LAST QUARTER are instants, named within half a
+   day of them (the elongation within 6.1 deg of 0, 90, 180, 270); between them the crescent or gibbous. Not p->index
+   (the nearest eighth of the month, as moon47.py), which says FULL MOON two days before the full */
+int  moon47_name_index(const Moon47 *p);
 
 extern const char *const M47_NAMES[8];
 extern const char *const M47_PHASES[4];

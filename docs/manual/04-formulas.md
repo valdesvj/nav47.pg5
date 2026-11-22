@@ -107,7 +107,9 @@ HP = asin(6378.14 / Δ)        SD = 358473400″ / Δ
 ```
 
 Phase (PHAS): the illuminated fraction k = (1 + cos *i*) / 2, *i* the phase angle (Meeus ch. 48), and the age from
-the elongation.
+the elongation. The name: a principal phase while the elongation is within 6.1° of 0°, 90°, 180° or 270° (half a day
+at the mean 12.19° a day), else the crescent or gibbous of its quarter. (Almanac 47's index, the nearest eighth of
+the month, is kept and tested; it named FULL MOON two days early.)
 
 ### The planets (PLAN)
 
