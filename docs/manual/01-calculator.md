@@ -48,6 +48,11 @@ On ROUTE a fifth row edits the route: ADD, EDIT, DEL, RL/GC, HERE.
 | **SHIFT EXIT** | power off; the settings are saved in `/NAV47/NAV47.CFG` |
 | **SHIFT 0** | DMCP setup: time, date, beep, USB disk, system |
 
+**The top bar** on every page: the date and time (LT or UT) on the left, the page's name in the middle, the position
+on the right. The position is SET's, the one every page computes with. While the GPS runs a small tag goes before
+it: **GPS**, **DGPS**, **DR**… when SET follows the GPS (GPSSET → SET FOLLOWS), **SET** when it does not. On the GPS
+pages the bar shows the vessel's own position, every second ([2. The GPS](02-gps.md#the-gps-pages)).
+
 **Time.** LIVE takes the calculator clock minus CLOCK TZ. FIXED (SET → TIME) uses a date and UT you type, to plan or
 to check against the Nautical Almanac. With a GPS, GPSSET → UT FROM GPS takes UT from the GPS instead.
 
