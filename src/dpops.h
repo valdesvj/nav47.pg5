@@ -90,6 +90,8 @@ void dpo_eval(Vessel *v, const DpPlat *p, const DpWx *w, int face, float hdg, Dp
 int  dpo_best(Vessel *v, const DpPlat *p, const DpWx *w, float step, DpRes *best, void (*progress)(int, int));
 #define DPO_WIND_TOP 64.0f
 float dpo_limit_wind(Vessel *v, const DpPlat *p, const DpWx *w, int face, float hdg);   /* kn, in the limits, with its sea */
+/* ABS SKP (the ABS DPS Guide, Section 9): dp_abs with the vessel's copy on the heap; 0 no memory */
+int  dpo_abs(const Vessel *v, float cur_kn, float margin, AbsResult *r, void (*progress)(int, int));
 extern const char DPO_EXAMPLE_VESSEL[];
 extern const char DPO_EXAMPLE_PLAT[];
 #endif

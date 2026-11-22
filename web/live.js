@@ -123,7 +123,7 @@ const LIVE = (() => {
       const w = isFinite(stw) ? stw : cfg.drKn;
       if (w > 0) {
         const e = g.sog * Math.sin(g.cog * D2R) - w * Math.sin(hdg * D2R), n = g.sog * Math.cos(g.cog * D2R) - w * Math.cos(hdg * D2R);
-        if (!L.cur.ok) L.cur = { e, n, ok: true }; else { L.cur.e += 0.1 * (e - L.cur.e); L.cur.n += 0.1 * (n - L.cur.n); }
+        if (!L.cur.ok) L.cur = { e, n, ok: true }; else { const k = 1 - Math.exp(-(dt > 0 ? dt : 1) / 30); L.cur.e += k * (e - L.cur.e); L.cur.n += k * (n - L.cur.n);   /* 30 s, as the calculator */ }
         pos.set = (Math.atan2(L.cur.e, L.cur.n) / D2R + 360) % 360; pos.drift = Math.hypot(L.cur.e, L.cur.n);
       }
     }

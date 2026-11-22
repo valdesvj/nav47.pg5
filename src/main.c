@@ -45,7 +45,7 @@
 /*  State (heap: a DMCP5 program has 8 KB of static RAM)              */
 /* ------------------------------------------------------------------ */
 enum { PG_VALM, PG_VSPLIT, PG_VSKY, PG_VALLSKY, PG_VMOON, PG_VANIM, PG_VSKY2,
-       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP, PG_CHART, PG_VOY, PG_ETA, PG_ETAT, PG_DP, PG_DPIN,
+       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP, PG_CHART, PG_VOY, PG_ETA, PG_ETAT, PG_DP, PG_DPIN, PG_DPABS,
        PG_GFIX, PG_GSATS, PG_GNAV, PG_GBOW, PG_GSET, PG_WPDB };
 #define IS_GPS(p) ((p) >= PG_GFIX && (p) <= PG_GSET)
 #define IS_VIEW(p) ((p) <= PG_VSKY2)
@@ -2223,8 +2223,10 @@ static void draw_dp(void) {
     draw_text(&TINY, x, top + H + 3, d->v.thr[i].name, 0);
   }
   if (d->msg[0]) draw_text(&TINY, 80, MENU_Y - LH, d->msg, 0);
+  else draw_text(&TINY, 2, MENU_Y - LH, ". ABS SKP", 0);
 }
 
+static void abs_run(void);
 static void dp_key(int key) {
   DpS *d = DP;
   if (!d) { if (key == KEY_EXIT) go(PG_VALM); return; }
@@ -2246,6 +2248,7 @@ static void dp_key(int key) {
   else if (key == KEY_0) d->showfail ^= 1;
   else if (key == KEY_3) d->tonnes ^= 1;                       /* the bars: % of full thrust or tonnes */
   else if (key == KEY_1) { d->p.par ^= 1; dp_save_plat(); dp_best(); }   /* side to: parallel to the face, or within TOL */
+  else if (key == KEY_DOT) { abs_run(); go(PG_DPABS); }      /* ABS SKP: the vessel's capability, every direction */
   else if (key == KEY_EXIT) go(PG_VALM);
 }
 
@@ -2258,6 +2261,129 @@ static void dp_soft(int fn) {
   else if (fn == 3) { go(PG_DPIN); d->sel = 0; d->edit = -1; }
   else if (fn == 4) { dp_load(); dp_best(); if (!d->msg[0]) snprintf(d->msg, sizeof d->msg, "%.14s, %.20s (%.7s)", d->p.name, d->v.name, d->vsrc); }
   else go(PG_VALM);
+}
+
+/* ------------------------------------------------------------------ */
+/*  ABS SKP: the ABS Guide for Dynamic Positioning Systems, Section 9, station keeping performance (DPCAP47's engine, */
+/*  dp_abs: the North Sea wind-wave table, 1-min mean wind, a fixed current, a margin on the weather, the ABS bollard */
+/*  pull from the propellers' diameters). The vessel's capability in every direction, not today's set-up at the       */
+/*  platform: SKP(a, b, c, d, e, f) and the limiting wind a direction, intact and after the worst-case failure.       */
+/* ------------------------------------------------------------------ */
+#define ABS_D2R ((float)M_PI / 180)
+static AbsResult *ABS;
+static int abs_have, abs_cur10 = -1, abs_margin = 20;     /* the current: -1 today's (0.5 to 3 kn), else tenths of a knot */
+static float abs_cur;
+
+static float abs_current(void) {
+  if (abs_cur10 >= 0) return abs_cur10 / 10.0f;
+  float k = roundf(DP->w.ckn * 2) / 2;                    /* today's, to half a knot, inside the Guide's 0.5 .. 3 */
+  return k < 0.5f ? 0.5f : k > 3 ? 3 : k;
+}
+
+static void abs_busy(int n, int tot) {
+  if (n % 12 && n != tot) return;
+  char s[40];
+  sprintf(s, "ABS SKP: %d of %d", n, tot);
+  gfx_rect(0, 100, LCD_X, 18, 0);
+  nt_c(LCD_X / 2, 100, s);
+  lcd_refresh();
+}
+
+static void abs_run(void) {
+  if (!ABS && !(ABS = (AbsResult *)malloc(sizeof *ABS))) return;
+  dp_weather();
+  abs_cur = abs_current();
+  lcd_clear_buf();
+  header("ABS SKP");
+  nt_c(LCD_X / 2, 80, DP->v.name);
+  lcd_refresh();
+  dp_abort = 0;
+  abs_have = dpo_abs(&DP->v, abs_cur, abs_margin / 100.0f, ABS, abs_busy);   /* dp_abs's steps, the copy on the heap */
+}
+
+/* the limiting wind at a direction (degrees from the bow), between the 10-degree ones */
+static float abs_at(const float *w, float rel) {
+  rel = fmodf(rel + 360, 360);
+  int h = (int)(rel / 10) % NHEAD, k = (h + 1) % NHEAD;
+  float f = (rel - h * 10) / 10;
+  return w[h] + f * (w[k] - w[h]);
+}
+
+static void abs_curve(int cx, int cy, float R, const float *w, int dashed) {
+  for (int h = 0; h < NHEAD; h++)
+    for (int j = 0; j < 4; j++) {                         /* each 10 degrees in 4 pieces, every other one when dashed */
+      if (dashed && j % 2) continue;
+      float a0 = (h * 10 + j * 2.5f), a1 = a0 + 2.5f;
+      float r0 = abs_at(w, a0) / 40.0f * R, r1 = abs_at(w, a1) / 40.0f * R;
+      int x0 = cx + (int)lroundf(r0 * sinf(a0 * ABS_D2R)), y0 = cy - (int)lroundf(r0 * cosf(a0 * ABS_D2R));
+      int x1 = cx + (int)lroundf(r1 * sinf(a1 * ABS_D2R)), y1 = cy - (int)lroundf(r1 * cosf(a1 * ABS_D2R));
+      gfx_line(x0, y0, x1, y1, 1);
+      if (!dashed) gfx_line(x0 + 1, y0, x1 + 1, y1, 1);
+    }
+}
+
+static void skp_txt(char *s, float p) { if (p < 0 || p > 100.5f) strcpy(s, "-"); else sprintf(s, "%.0f", p); }
+
+static void draw_dpabs(void) {
+  char s[64], a[8], b[8], c[8], d[8];
+  header("ABS SKP");
+  if (!DP || !abs_have) { nt(6, 40, "ABS SKP: no result (no memory?)"); return; }
+  const AbsResult *r = ABS;
+  const Vessel *v = &DP->v;
+  /* the polar: 0 the bow, the limiting wind (1-min mean, m/s) from each direction; 10 20 30 40 m/s */
+  const int cx = 100, cy = 112;
+  const float R = 86;
+  for (int k = 1; k <= 4; k++) {
+    int rr = (int)(R * k / 4);
+    for (int t = 0; t < 360; t += k == 4 ? 3 : 6) gfx_pixel(cx + (int)lroundf(rr * sinf(t * ABS_D2R)), cy - (int)lroundf(rr * cosf(t * ABS_D2R)), 1);
+    sprintf(s, "%d", k * 10);
+    draw_text(&TINY, cx - (int)(rr * 0.7071f) - 10, cy + (int)(rr * 0.7071f) - 4, s, 0);
+  }
+  gfx_line(cx, cy - (int)R, cx, cy + (int)R, 1);
+  gfx_line(cx - (int)R, cy, cx + (int)R, cy, 1);
+  draw_text(&TINY, cx - 96, cy - (int)R + 2, "0 = BOW", 0);
+  draw_text(&TINY, cx + (int)R - 12, cy + 2, "90", 0);
+  gfx_rect(cx - 2, cy - 7, 5, 14, 1);                    /* the vessel, the bow up */
+  gfx_line(cx - 2, cy - 7, cx, cy - 11, 1); gfx_line(cx + 2, cy - 7, cx, cy - 11, 1);
+  abs_curve(cx, cy, R, r->intact, 0);
+  const float *wcf = r->d >= 0 ? r->group[r->d_grp] : r->single[r->c_thr];
+  abs_curve(cx, cy, R, wcf, 1);
+  /* today's wind from its direction relative to the heading on DP OPS */
+  float rel = fmodf(DP->w.wfrom - DP->r.hdg + 720, 360);
+  int ex = cx + (int)lroundf((R + 6) * sinf(rel * ABS_D2R)), ey = cy - (int)lroundf((R + 6) * cosf(rel * ABS_D2R));
+  int ix = cx + (int)lroundf((R - 26) * sinf(rel * ABS_D2R)), iy = cy - (int)lroundf((R - 26) * cosf(rel * ABS_D2R));
+  gfx_line(ex, ey, ix, iy, 1); gfx_line(ex + 1, ey, ix + 1, iy, 1);
+  gfx_disc(ix, iy, 2, 1);
+  draw_text(&TINY, ex + (ex >= cx ? 2 : -8), ey - 4, "W", 0);
+  /* the panel */
+  const int X = 208;
+  int y = 17;
+  nt(X, y, "ABS SKP  1-min wind"); y += 17;
+  skp_txt(a, r->a); skp_txt(b, r->b); skp_txt(c, r->c); skp_txt(d, r->d);
+  snprintf(s, sizeof s, "(%s, %s, %s, %s, %.1f, NS)", a, b, c, d, abs_cur);
+  nt_inv(X + 2, y, s); y += 18;
+  snprintf(s, sizeof s, "a intact          %s %%", a); draw_text(&TINY, X, y, s, 0); y += LH;
+  snprintf(s, sizeof s, "b least  %-7.7s  %s %%", v->thr[r->b_thr].name, b); draw_text(&TINY, X, y, s, 0); y += LH;
+  snprintf(s, sizeof s, "c most   %-7.7s  %s %%", v->thr[r->c_thr].name, c); draw_text(&TINY, X, y, s, 0); y += LH;
+  if (r->d >= 0) snprintf(s, sizeof s, "d worst failure G%d  %s %%", r->d_grp, d); else strcpy(s, "d worst failure: no groups");
+  draw_text(&TINY, X, y, s, 0); y += LH;
+  snprintf(s, sizeof s, "e current %.1f kn%s", abs_cur, abs_cur10 < 0 ? " (today's)" : ""); draw_text(&TINY, X, y, s, 0); y += LH;
+  snprintf(s, sizeof s, "f North Sea table   margin %d %%", abs_margin); draw_text(&TINY, X, y, s, 0); y += LH + 4;
+  gfx_rect(X, y + 4, 18, 2, 1); draw_text(&TINY, X + 22, y, "intact", 0);
+  for (int i = 0; i < 18; i += 6) gfx_rect(X + 80 + i, y + 4, 3, 1, 1);
+  draw_text(&TINY, X + 102, y, "worst failure", 0); y += LH + 6;
+  snprintf(s, sizeof s, "TODAY %03.0f%s %.0fkn  HDG %03.0f", DP->w.wfrom, NT_DEG, DP->w.wkn, DP->r.hdg); nt(X, y, s); y += 16;
+  snprintf(s, sizeof s, "rel %03.0f: holds to %.0f / %.0f m/s", rel, abs_at(r->intact, rel), abs_at(wcf, rel));
+  draw_text(&TINY, X, y + 3, s, 0); y += LH + 4;
+  draw_text(&TINY, X, y, "TODAY: SET's wind, 10-min mean;", 0); y += LH;
+  draw_text(&TINY, X, y, "the ABS limits are 1-min means", 0);
+  draw_text(&TINY, 2, MENU_Y - LH, ". or DNV: back to DP OPS   CUR 7  MARGIN 8", 0);
+}
+
+static void dpabs_key(int key) {
+  if (key == KEY_7) { abs_cur10 = abs_cur10 < 0 ? 5 : abs_cur10 >= 30 ? -1 : abs_cur10 + 5; abs_run(); }   /* today's, 0.5 .. 3 kn */
+  else if (key == KEY_8) { abs_margin = abs_margin >= 30 ? 0 : abs_margin + 10; abs_run(); }
+  else if (key == KEY_DOT || key == KEY_EXIT) go(PG_DP);
 }
 
 /* INPUT: the weather (the wind is SET's / FLOW's own), the current (FLOW or typed), the sea (DNV or typed),
@@ -2359,6 +2485,7 @@ static const char *ETA_MENU[6] = { "NOW", "TABLE", "", "KEEP", "VOYAGE", "BACK" 
 static const char *ETAT_MENU[6] = { "SPEED+", "SPEED-", "SET", "USE", "ETA", "BACK" };
 static const char *DP_MENU[6] = { "BEST", "FACE", "SIDE", "INPUT", "LOAD", "BACK" };
 static const char *DPIN_MENU[6] = { "", "", "", "", "", "BACK" };
+static const char *ABS_MENU[6] = { "DNV", "CUR", "MARGIN", "", "", "BACK" };
 
 #define ANIM_FRAMES 24
 #define ANIM_STEP   0.5
@@ -2456,6 +2583,7 @@ static void redraw(void) {
     case PG_ETA: draw_eta(); break;
     case PG_ETAT: draw_etat(); break;
     case PG_DP: draw_dp(); break;
+    case PG_DPABS: draw_dpabs(); break;
     case PG_DPIN: draw_dpin(); break;
     case PG_ZONES: draw_zones(); break;
     case PG_SET: draw_set(); break;
@@ -2472,7 +2600,7 @@ static void redraw(void) {
   CHART_MENU[3] = chart_globe ? "MERC" : "GLOBE";
   VOY_MENU[0] = voy_play ? "PAUSE" : "PLAY";
   lcd_draw_menu_keys(page == PG_WPDB ? (const char **)wpdb_menu() : page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0 || (page == PG_DPIN && DP && DP->edit >= 0) || (IS_GPS(page) && gps_editing())) ? EDIT_MENU :
-                     page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : page == PG_VOY ? VOY_MENU : page == PG_ETA ? ETA_MENU : page == PG_ETAT ? ETAT_MENU : page == PG_DP ? DP_MENU : page == PG_DPIN ? DPIN_MENU : MENUS[menu_page]);
+                     page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : page == PG_VOY ? VOY_MENU : page == PG_ETA ? ETA_MENU : page == PG_ETAT ? ETAT_MENU : page == PG_DP ? DP_MENU : page == PG_DPIN ? DPIN_MENU : page == PG_DPABS ? ABS_MENU : MENUS[menu_page]);
   lcd_refresh();
   lcd_refresh_wait();        /* the LCD goes out by DMA: done before the next frame clears the buffer (no flicker) */
   usbview_send();
@@ -2536,6 +2664,11 @@ static void softkey(int fn) {
     return;
   }
   if (page == PG_DP) { dp_soft(fn); return; }
+  if (page == PG_DPABS) {
+    static const int k[6] = { KEY_DOT, KEY_7, KEY_8, 0, 0, KEY_EXIT };
+    if (k[fn]) dpabs_key(k[fn]);
+    return;
+  }
   if (page == PG_DPIN) { if (fn == 5) dpin_key(KEY_EXIT); return; }
   if (page == PG_ETAT) {
     static const int k[6] = { KEY_8, KEY_2, KEY_5, KEY_ENTER, KEY_EXIT, KEY_EXIT };
@@ -2727,6 +2860,9 @@ static void handle_key(int key) {
     return;
   case PG_DP:
     dp_key(key);
+    return;
+  case PG_DPABS:
+    dpabs_key(key);
     return;
   case PG_DPIN:
     dpin_key(key);

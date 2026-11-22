@@ -215,7 +215,7 @@ const GPS = (() => {
     let cur2 = "";
     if (live && isFinite(g.hdg) && g.hdgAge < 5 && isFinite(g.stw) && g.stwAge < 5 && isFinite(g.cog)) {
       const e = g.sog * Math.sin(g.cog * D2R) - g.stw * Math.sin(g.hdg * D2R), n = g.sog * Math.cos(g.cog * D2R) - g.stw * Math.cos(g.hdg * D2R);
-      if (!cur.ok) cur = { e, n, ok: true }; else { cur.e += 0.1 * (e - cur.e); cur.n += 0.1 * (n - cur.n); }
+      if (!cur.ok) cur = { e, n, ok: true }; else { const k = 1 - Math.exp(-1 / 30); cur.e += k * (e - cur.e); cur.n += k * (n - cur.n);   /* 30 s, as the calculator */ }
       cur2 = `${deg(Math.atan2(cur.e, cur.n) / D2R)} ${Math.hypot(cur.e, cur.n).toFixed(1)} kn`;
     }
     $("gpsfix").innerHTML = `

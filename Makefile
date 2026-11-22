@@ -162,5 +162,8 @@ clean:
 
 -include $(shell mkdir -p $(BUILD_DIR)/.dep 2>/dev/null) $(wildcard $(BUILD_DIR)/.dep/*)
 
-.PHONY: both clean all test test-usb data sim FORCE
+# the manuals as PDFs: build/manual/ (docs/manual/*.md; the pictures: bash docs/manual/screens.sh)
+manual: ; $(PYTHON) tools/make_manual.py build/manual
+
+.PHONY: both clean all test test-usb data sim manual FORCE
 include web.mk

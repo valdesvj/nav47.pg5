@@ -3,6 +3,10 @@
 **NAV47.pg5** is a native DMCP5 program in C for the SwissMicros **DM42n**. It joins three of the "47"
 projects into one navigation computer:
 
+**Manuals**, with pictures: [the calculator](docs/manual/01-calculator.md), [the GPS and connecting it to a
+serial line](docs/manual/02-gps.md), [the web page](docs/manual/03-web.md), [formulas, accuracy and
+references](docs/manual/04-formulas.md). As PDFs: `make manual` (`build/manual/NAV47-manual.pdf`).
+
 No start menu: it opens on ALMANAC, and the **soft-key bar** (F1-F6, `>>` for the next row, as Chess 47) goes
 everywhere.
 
@@ -42,12 +46,14 @@ synthetic atlas: the real atlas is private.)*
 **HERE** adds the position of SET, **EDIT** (or ENTER) changes it, **DEL** removes it, **UP DOWN** move.
 Each row shows the leg from the waypoint before: **CRS** (true), **DIST** and **CUM** (nm), the total on top.
 
-* **RL**, rhumb line: Mercator sailing with the meridional parts of the WGS84 spheroid (Bowditch:
-  MP = 7915.7045 log tan(45° + φ/2) − 23.0133 sin φ − 0.0514 sin³ φ), parallel sailing on an east-west leg, the
-  shorter way across 180°.
-* **GC**, great circle: the distance on the sphere (1′ = 1 nm) and the **initial** course (ICRS).
+* **RL**, rhumb line: exact on the ellipsoid (the isometric latitude, the meridian arc as a geodesic), parallel
+  sailing on an east-west leg, the shorter way across 180°.
+* **GC**, great circle: the geodesic on the ellipsoid (Karney's algorithms, GeographicLib's C ported in `src/geo47`),
+  the **initial** course (ICRS).
+* **CS**, composite: great circles to and from a limiting latitude, the parallel between (**4 6** the limit).
 
-The route is saved in `/NAV47/ROUTE.TXT` (one `lat lon` per line, degrees), up to 40 waypoints.
+The route is saved in `/NAV47/ROUTE.TXT` (one `lat lon NAME` per line, degrees), up to 100 waypoints. The formulas and
+their accuracy: [docs/manual/04-formulas.md](docs/manual/04-formulas.md).
 
 ## WPTS: the waypoints' list
 
@@ -90,6 +96,14 @@ so, at which heading, inside the thrusters' working limits (a bow tunnel at 30 %
   within ± TOL. 4 6 turn the heading by hand. 7 9 turn the wind 10°, 8 2 change its speed by 1 kn (the sea
   follows when it is DNV's). UP DOWN move an hour, and the current follows the tide. 5 is now. FACE,
   SIDE, INPUT, LOAD.
+- **ABS SKP** (key **.**): the ABS *Guide for Dynamic Positioning Systems*, Section 9, *Station Keeping Performance*,
+  for the loaded vessel: SKP(a, b, c, d, e, f), the share of the 36 directions where the limiting wind (1-min mean) is
+  not exceeded in the Guide's North Sea wind-wave table, intact (a), after losing the least (b) and the most (c)
+  effective thruster, after the worst redundancy group (d), at the current e (today's, to half a knot, or 0.5 to 3 kn:
+  **7**) with a margin on the weather (20 %: **8**), location f the North Sea table. The polar shows the limiting wind
+  from every direction, intact (solid) and after the worst failure (dashed), and today's wind against the heading of
+  DP OPS. DPCAP47's ABS method (its engine, the same results: `make test-dp` checks it); the vessel's capability, not
+  today's set-up at the platform. **.** or **DNV** goes back.
 - **The weather**: the wind is SET's (FLOW's own). The current comes from the FLOW program at the platform: your
   atlas, else a stream station within 30 NM; or you type it. The sea comes from DNV's table for the wind, or you
   type it (INPUT).
