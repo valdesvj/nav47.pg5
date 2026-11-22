@@ -160,8 +160,12 @@ static void fmt_off(char *s, double o) {                  /* +3, -5:30 */
    position on the right, the page's name in the middle; bar_at: at another instant (a tide day stepped) */
 static int bar_live;                                     /* this page shows the GPS's position in its top bar */
 static double bar_lat, bar_lon;
+static double bar_shown_lat = 99, bar_shown_lon;          /* the position the bar showed last (SET's pages) */
 static void bar_at(double ut, const char *name) {
+  const char *tag = top_tag;
+  if (fabs(ut - ut_now()) > 1.0 / 1440) top_tag = NULL;  /* another instant (VOYAGE, TIDE's other day): no live tag */
   top_bar(ut + show_tz() / 24.0, N->cfg.lt, bar_live ? bar_lat : N->cfg.lat, bar_live ? bar_lon : N->cfg.lon, name);
+  top_tag = tag;
 }
 /* the latitude or longitude to 0.001', "26°19.567'N" */
 static void fmt_dm3(char *s, double v, int lat) {
@@ -1578,7 +1582,8 @@ static void draw_chart(void) {
   if (chart_live) nt(2, 192, chart_follow ? "1 FOLLOW on  7 9 zoom  R/S MOB" : "1 follow  8246 pan  7 9 zoom");
   else nt(2, 192, chart_globe ? "4 6 turn 8 2 tilt 7 9 zoom" : "8246 pan 7 9 zoom 5 fit");
   if (vessel) {                                            /* the GPS's chart: MOB, else where she is */
-    if (gps_mob_line(s)) { nt_inv(LCD_X - 2 - nt_w(s), 192, s); return; }
+    if (gps_mob_line(s)) { draw_text_r(&TINY, LCD_X - 2, 195, s, 1); return; }
+    if (!chart_detail) { nt_r(LCD_X - 2, 192, "no COAST_C.BIN"); return; }
     char a[20], b[20];
     fmt_dm3(a, vla, 1); fmt_dm3(b, vlo, 0);
     sprintf(s, "%s %s", a, b);
@@ -2584,7 +2589,8 @@ static int bar_tag_changed(void) {
   const char *t;
   const char *want = gps_bar(&a, &b, &t) ? (gps_follows() ? t : "SET") : NULL;
   if (!want || !top_tag) return want != top_tag;
-  return strcmp(want, top_tag) != 0;
+  if (strcmp(want, top_tag)) return 1;
+  return bar_shown_lat != 99 && (N->cfg.lat != bar_shown_lat || N->cfg.lon != bar_shown_lon);   /* SET followed the GPS */
 }
 
 static void redraw(void) {
@@ -2596,6 +2602,7 @@ static void redraw(void) {
     bar_live = live && (IS_GPS(page) || (page == PG_CHART && chart_live));
     top_tag = !live ? NULL : bar_live || gps_follows() ? t : "SET";
   }
+  bar_shown_lat = N->cfg.lat; bar_shown_lon = N->cfg.lon;   /* what SET's pages show from now */
   if (IS_VIEW(page)) {
     view_almanac_now();
     switch (page) {

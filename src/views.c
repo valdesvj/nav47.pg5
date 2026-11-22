@@ -151,8 +151,9 @@ void top_bar(double jl, int local, double lat, double lon, const char *name) {
   if (name && *name) {
     int w = nt_w(name), x = (xl + xr) / 2 - w / 2;
     if (x < xl + 6) x = xl + 6;
-    if (x + w > xr - 5 && xl + 3 + w <= xr - 3) x = xl + 3;   /* tight (the tag): closer to both sides */
-    if (x + w <= xr - 3) nt_inv(x, 0, name);
+    int m = top_tag && *top_tag ? 3 : 5;                 /* with the tag: closer to both sides */
+    if (top_tag && *top_tag && x + w > xr - 5 && xl + 3 + w <= xr - 3) x = xl + 3;
+    if (x + w <= xr - m) nt_inv(x, 0, name);
   }
   lcd_fill_rect(0, 15, LCD_X, 1, 1);
 }
