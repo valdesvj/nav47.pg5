@@ -145,6 +145,12 @@ latest, 200 bytes at a time. The web page's **GPS** tab does the same from Chrom
 
 ![The web page's GPS tab](docs/gps_web.png)
 
+On the web page the **Route** tab monitors the route with the GPS too (the same passage engine): the Live card, the
+Asiana on the chart with her wake and track, the XTE limits, the alarms, MOB, and the Bow view with your platforms.
+The GPS tab's **Demo** sails your route (1 to 60 times faster): `web/index.html#tab=route&ex=field&gpsdemo&gpsx=30`.
+
+![The web page's Route tab with the GPS](docs/gps_web_route.png)
+
 ![FIX, SATS, NAV, BOW, the live CHART, DR](docs/gps_views.png)
 
 *(Simulator pictures: a made-up track from test/nmea/make_log.py, made-up platforms.)*

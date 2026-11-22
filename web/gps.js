@@ -261,7 +261,7 @@ const GPS = (() => {
         </div>
         <div class="card"><h2>To the calculator</h2>
           <label><input type="checkbox" id="gpscalctab" checked> To the Calculator tab's program (its FIX SATS NAV BOW pages;
-            there: GPS SET, NMEA INPUT ON)</label>
+            its NMEA input is on here)</label>
           <div style="margin-top:6px"><button id="gpsopen">Open on the calculator</button> <span class="meta">its FIX page (then SATS NAV BOW;
             its NMEA input is on here)</span></div>
           <div style="margin-top:6px"><button id="gpscalc">Connect the DM42n (USB)</button> <span class="meta" id="calcstat">this page as the bridge:
