@@ -32,7 +32,7 @@
 #define TRAIL  240
 #define LHT    9                          /* the tiny font's line */
 
-enum { A_XTE = 1, A_ARR = 2, A_FINAL = 4, A_ANCHOR = 8, A_LOST = 16, A_MOB = 32, A_ZONE = 64 };
+enum { A_XTE = 1, A_ARR = 2, A_FINAL = 4, A_ANCHOR = 8, A_LOST = 16, A_MOB = 32, A_ZONE = 64, A_CPA = 128 };
 enum { S_INPUT, S_MODE, S_FOLLOW, S_UT, S_TIMEOUT, S_DRCRS, S_DRKN, S_XTE, S_ARR, S_ADV, S_ANCR, S_ALARMS, S_MOB, S_N };
 
 typedef struct {
@@ -51,7 +51,8 @@ typedef struct {
   int      anc; double anc_lat, anc_lon;
   int      alarm, ack, event;              /* A_* now, acknowledged, the one-shot (ARR, FINAL) */
   uint32_t event_ms;
-  char     zone_name[24];
+  char     zone_name[24], cpa_name[24];
+  double   cpa_min;
   int      sel, edit, elen;                /* GPS SET: the field, typing */
   char     ebuf[12];
   int      sat_sys, stars;                 /* SATS: the bars of one system (GNSS_N: all), the sky's bodies */
@@ -145,6 +146,12 @@ static void alarms_step(uint32_t now) {
   if (P->f.src == SRC_GPS || P->f.src == SRC_DR) {
     const Obj *o = obj_inside(P->f.lat, P->f.lon);
     if (o) { a |= A_ZONE; snprintf(P->zone_name, sizeof P->zone_name, "%s", o->name); }
+    else {                                             /* a zone on her course, within 30 min */
+      ObjNear z[4];
+      int n = obj_near(P->f.lat, P->f.lon, P->f.cog, P->f.sog, 6, z, 4);
+      for (int i = 0; i < n; i++)
+        if (z[i].warn) { a |= A_CPA; snprintf(P->cpa_name, sizeof P->cpa_name, "%s", z[i].o->name); P->cpa_min = z[i].tcpa * 60; break; }
+    }
   }
   P->ack &= a;                                         /* gone: armed again */
   int fresh = a & ~P->ack & ~P->alarm;
@@ -201,6 +208,7 @@ const char *gps_alarm_text(void) {
   if (a & A_MOB) { double b, d = nm_brg(P->f.lat, P->f.lon, P->mob_lat, P->mob_lon, &b); sprintf(s, "MOB %.2f nm %03.0f" NT_DEG, d, b); }
   else if (a & A_ZONE) snprintf(s, sizeof s, "IN THE ZONE: %s", P->zone_name);
   else if (a & A_ANCHOR) strcpy(s, "ANCHOR DRAGGING");
+  else if (a & A_CPA) snprintf(s, sizeof s, "ZONE AHEAD: %s %.0f min", P->cpa_name, P->cpa_min);
   else if (a & A_XTE) sprintf(s, "OFF TRACK %.2f nm %s", fabs(P->p.xte), P->p.xte >= 0 ? "R" : "L");
   else if (a & A_FINAL) strcpy(s, "ARRIVED: THE FINAL WAYPOINT");
   else if (a & A_ARR) sprintf(s, "WAYPOINT: NOW TO WP%d", P->p.user_no);
@@ -604,10 +612,24 @@ static void draw_nav(void) {
     sprintf(s, "MOB %03.0f" NT_DEG " %.2f", b, d);
     nt_inv(X + 2, y, s);
   }
-  gfx_rect(206, TOP, 1, 128, 1);
+  gfx_rect(206, TOP, 1, 104, 1);
+  /* the nearest objects: BRG, distance, CPA in how long (inverse: its zone on the course) */
+  ObjNear z[3];
+  int nz = obj_count() ? obj_near(f->lat, f->lon, f->cog, f->sog, 20, z, 3) : 0;
+  if (nz) {
+    gfx_rect(0, 121, LCD_X, 1, 1);
+    for (int i = 0; i < nz; i++) {
+      char c[24];
+      if (z[i].tcpa > 0 && z[i].tcpa < 24) sprintf(c, "CPA %.2f in %.0f'", z[i].cpa, z[i].tcpa * 60);
+      else strcpy(c, "opening");
+      static const char *TY[] = { "PLAT", "RIG", "WELL", "SPM", "WRECK", "BUOY", "LIGHT", "PORT" };
+      sprintf(s, "%-12.12s %-5s %03.0f" SYM_DEG " %5.2f nm  %s", z[i].o->name, TY[z[i].o->type < 8 ? z[i].o->type : 0], z[i].brg, z[i].nm, c);
+      draw_text(&TINY, 4, 122 + i * 9, s, z[i].warn);
+    }
+  }
   /* the XTE bar */
   if (R && p->active && !p->done) {
-    int yb = 174;
+    int yb = 178;
     sprintf(s, "XTE %.3f nm %s", fabs(p->xte), p->xte >= 0 ? "R" : "L");
     if (P->alarm & A_XTE) nt_inv(6, yb - 26, s); else nt(6, yb - 26, s);
     double steer = p->xte;
@@ -767,22 +789,23 @@ static void draw_bow(uint32_t frame) {
     }
   }
   /* the platforms and their zones ahead */
-  obj_bow(bow_proj, hdg, P->f.lat, P->f.lon);
+  obj_bow(P->f.lat, P->f.lon, hdg, HOR, KPER, FOC);
   bow_ship();
-  /* the numbers, in boxes */
-  gfx_rect(2, HOR + 4, 104, 34, 0); gfx_frame(2, HOR + 4, 104, 34);
-  gfx_rect(LCD_X - 106, HOR + 4, 104, 34, 0); gfx_frame(LCD_X - 106, HOR + 4, 104, 34);
+  /* the numbers, in boxes beside the bow (the horizon stays clear) */
+  const int BY = 150;
+  gfx_rect(2, BY, 104, 34, 0); gfx_frame(2, BY, 104, 34);
+  gfx_rect(LCD_X - 106, BY, 104, 34, 0); gfx_frame(LCD_X - 106, BY, 104, 34);
   if (R && p->active && !p->done) {
-    sprintf(s, "XTE %.2f%s", fabs(p->xte), p->xte >= 0 ? "R" : "L"); nt(6, HOR + 5, s);
-    fmt_deg(t, p->cts); sprintf(s, "CTS %s", t); nt(6, HOR + 21, s);
-  } else { nt(6, HOR + 5, "no route"); nt(6, HOR + 21, "NAV 5 start"); }
-  fmt_kn(t, f->sog); sprintf(s, "SOG %s", t); nt(LCD_X - 102, HOR + 5, s);
-  fmt_deg(t, hdg); sprintf(s, "%s %s", !isnan(f->hdg) ? "HDG" : "COG", t); nt(LCD_X - 102, HOR + 21, s);
+    sprintf(s, "XTE %.2f%s", fabs(p->xte), p->xte >= 0 ? "R" : "L"); nt(6, BY + 1, s);
+    fmt_deg(t, p->cts); sprintf(s, "CTS %s", t); nt(6, BY + 17, s);
+  } else { nt(6, BY + 1, "no route"); nt(6, BY + 17, "NAV 5 start"); }
+  fmt_kn(t, f->sog); sprintf(s, "SOG %s", t); nt(LCD_X - 102, BY + 1, s);
+  fmt_deg(t, hdg); sprintf(s, "%s %s", !isnan(f->hdg) ? "HDG" : "COG", t); nt(LCD_X - 102, BY + 17, s);
   if (R && p->active && !p->done && !isnan(p->next_crs) && p->dtg < 3 * p->arr_r + 0.5) {
     fmt_deg(t, p->next_crs);
     sprintf(s, "TURN AHEAD %s", t);
-    gfx_rect(2, 160, nt_w(s) + 8, 16, 0); gfx_frame(2, 160, nt_w(s) + 8, 16);
-    nt(6, 160, s);
+    gfx_rect(2, BY - 20, nt_w(s) + 8, 16, 0); gfx_frame(2, BY - 20, nt_w(s) + 8, 16);
+    nt(6, BY - 20, s);
   }
   alarm_bar();
 }

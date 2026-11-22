@@ -26,8 +26,10 @@ int  obj_count(void);
 const Obj *obj_get(int i);
 const Obj *obj_inside(double lat, double lon);   /* the first zone the point is in, NULL none */
 void obj_chart(const map_t *m);           /* the symbols, zones (dotted), outlines to scale, names when there is room */
-/* BOW: proj maps a point to the screen (0 behind) */
-typedef int (*obj_proj_fn)(double lat, double lon, double hdg, float *x, float *y);
-void obj_bow(obj_proj_fn proj, double hdg, double lat, double lon);
-
+/* the nearest objects: distance and bearing from the vessel, and the closest approach on her course (CPA, TCPA) */
+typedef struct { const Obj *o; double nm, brg, cpa, tcpa; int warn; } ObjNear;   /* tcpa hours (< 0: opening); warn: CPA in its zone, within 30 min */
+int  obj_near(double lat, double lon, double cog, double sog, double max_nm, ObjNear *out, int max);
+/* BOW: the objects within 8 nm as seen from the helideck (20 m): jackets and deck modules in perspective, to their
+   outline (or 50 m square), the farthest first; the view: row = hor + kper / forward (nm), column = 200 + foc * right / forward */
+void obj_bow(double lat, double lon, double hdg, int hor, double kper, double foc);
 #endif

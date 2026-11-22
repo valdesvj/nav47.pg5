@@ -200,6 +200,32 @@ const Obj *obj_inside(double lat, double lon) {
   return NULL;
 }
 
+int obj_near(double lat, double lon, double cog, double sog, double max_nm, ObjNear *out, int max) {
+  int n = 0;
+  double ve = 0, vn = 0;
+  if (!isnan(cog) && !isnan(sog) && sog > 0.3) { ve = sog * sin(cog * D2R); vn = sog * cos(cog * D2R); }
+  for (int i = 0; i < NO; i++) {
+    double dl = fmod(O[i].lon - lon + 540.0, 360.0) - 180.0;
+    double e = dl * cos(lat * D2R) * 60, nn = (O[i].lat - lat) * 60, d = hypot(e, nn);
+    if (d > max_nm) continue;
+    ObjNear z = { &O[i], d, fmod(atan2(e, nn) / D2R + 360.0, 360.0), d, -1, 0 };
+    double v2 = ve * ve + vn * vn;
+    if (v2 > 0) {
+      double t = (e * ve + nn * vn) / v2;                /* hours to the closest point */
+      z.tcpa = t;
+      if (t > 0) z.cpa = hypot(e - ve * t, nn - vn * t);
+    }
+    z.warn = O[i].zone > 0 && (d * 1852 < O[i].zone || (z.tcpa > 0 && z.tcpa < 0.5 && z.cpa * 1852 < O[i].zone));
+    int k;                                               /* insert, by distance: the nearest max kept */
+    if (n < max) k = n++;
+    else if (d < out[max - 1].nm) k = max - 1;
+    else continue;
+    while (k > 0 && out[k - 1].nm > d) { out[k] = out[k - 1]; k--; }
+    out[k] = z;
+  }
+  return n;
+}
+
 #ifndef OBJ_NO_DMCP
 int obj_load(void) {
   if (!sys_disk_ok() || !file_exists(OBJ_FILE)) return -1;
@@ -293,36 +319,150 @@ void obj_chart(const map_t *m) {
   }
 }
 
-void obj_bow(obj_proj_fn proj, double hdg, double lat, double lon) {
-  for (int i = 0; i < NO; i++) {
-    const Obj *o = &O[i];
+/* ---------------------------------------------------------------- BOW: the objects in perspective */
+#define CAM_M 20.0                                   /* the eye on the helideck, m above the sea */
+
+typedef struct { double hor, kper, foc, lat, lon, ch, sh; } View;
+
+/* a point (metres east, north of the vessel) at height h m: 0 behind / too near */
+static int vproj(const View *v, double e, double n, double h, float *x, float *y) {
+  double fw = (e * v->sh + n * v->ch) / 1852, rt = (e * v->ch - n * v->sh) / 1852;
+  if (fw < 0.012) return 0;
+  *x = (float)(200 + v->foc * rt / fw);
+  *y = (float)(v->hor + v->kper / fw * (1 - h / CAM_M));
+  return 1;
+}
+
+static void quad(const float *x, const float *y) {     /* a face: white, outlined (the painter's way) */
+  float y0 = 1e9f, y1 = -1e9f;
+  for (int i = 0; i < 4; i++) { if (y[i] < y0) y0 = y[i]; if (y[i] > y1) y1 = y[i]; }
+  if (y0 < 16) y0 = 16;
+  if (y1 > 207) y1 = 207;
+  for (int r = (int)ceilf(y0); r <= (int)y1; r++) {
+    float xs[4];
+    int k = 0;
+    float yc = r + 0.5f;
+    for (int i = 0, j = 3; i < 4; j = i++)
+      if ((y[i] > yc) != (y[j] > yc)) xs[k++] = x[j] + (yc - y[j]) * (x[i] - x[j]) / (y[i] - y[j]);
+    if (k < 2) continue;
+    if (xs[0] > xs[1]) { float t = xs[0]; xs[0] = xs[1]; xs[1] = t; }
+    int a = (int)lroundf(xs[0]), b = (int)lroundf(xs[1]);
+    if (a < 0) a = 0;
+    if (b > LCD_X - 1) b = LCD_X - 1;
+    if (b >= a) gfx_rect(a, r, b - a + 1, 1, 0);
+  }
+  for (int i = 0; i < 4; i++) gfx_line((int)lroundf(x[i]), (int)lroundf(y[i]), (int)lroundf(x[(i + 1) % 4]), (int)lroundf(y[(i + 1) % 4]), 1);
+}
+
+/* a box: the footprint's corners (e, n), from h0 to h1: the faces the eye sees */
+static int box(const View *v, const double c[4][2], double h0, double h1) {
+  float bx[4], by[4], tx[4], ty[4];
+  for (int i = 0; i < 4; i++)
+    if (!vproj(v, c[i][0], c[i][1], h0, &bx[i], &by[i]) || !vproj(v, c[i][0], c[i][1], h1, &tx[i], &ty[i])) return 0;
+  double ce = (c[0][0] + c[2][0]) / 2, cn = (c[0][1] + c[2][1]) / 2;
+  for (int i = 0; i < 4; i++) {
+    int j = (i + 1) % 4;
+    double me = (c[i][0] + c[j][0]) / 2, mn = (c[i][1] + c[j][1]) / 2;
+    if ((me - ce) * (-me) + (mn - cn) * (-mn) <= 0) continue;   /* faces away from the eye */
+    float qx[4] = { bx[i], bx[j], tx[j], tx[i] }, qy[4] = { by[i], by[j], ty[j], ty[i] };
+    quad(qx, qy);
+  }
+  return 1;
+}
+
+typedef struct { int i; double d; } Far;
+
+void obj_bow(double lat, double lon, double hdg, int hor, double kper, double foc) {
+  View v = { hor, kper, foc, lat, lon, cos(hdg * D2R), sin(hdg * D2R) };
+  Far f[64];
+  int nf = 0;
+  for (int i = 0; i < NO && nf < 64; i++) {
+    double dl = fmod(O[i].lon - lon + 540.0, 360.0) - 180.0;
+    double e = dl * cos(lat * D2R) * 111320, n = (O[i].lat - lat) * 110574;
+    double d = hypot(e, n) / 1852;
+    if (d > 8 || O[i].type == OB_PORT) continue;
+    f[nf].i = i; f[nf].d = d; nf++;
+  }
+  for (int a = 1; a < nf; a++) for (int b = a; b > 0 && f[b].d > f[b - 1].d; b--) { Far t = f[b]; f[b] = f[b - 1]; f[b - 1] = t; }
+  for (int k = 0; k < nf; k++) {                       /* the farthest first: the nearer hide them */
+    const Obj *o = &O[f[k].i];
     double dl = fmod(o->lon - lon + 540.0, 360.0) - 180.0;
-    double d = 60 * hypot(dl * cos(lat * D2R), o->lat - lat);
-    if (d > 8) continue;
-    float x, y;
-    if (!proj(o->lat, o->lon, hdg, &x, &y) || x < -40 || x > LCD_X + 40) continue;
+    double e0 = dl * cos(lat * D2R) * 111320, n0 = (o->lat - lat) * 110574;
     /* the zone: dots on the sea */
     if (o->zone > 0)
-      for (int k = 0; k < 48; k++) {
-        double la, lo;
+      for (int j = 0; j < 72; j++) {
         float zx, zy;
-        off(o->lat, o->lon, k * 7.5, o->zone, &la, &lo);
-        if (proj(la, lo, hdg, &zx, &zy) && zx >= 0 && zx < LCD_X && zy < 207) gfx_pixel((int)zx, (int)zy, 1);
+        if (vproj(&v, e0 + o->zone * sin(j * 5 * D2R), n0 + o->zone * cos(j * 5 * D2R), 0, &zx, &zy) && zx >= 0 && zx < LCD_X && zy < 207)
+          gfx_pixel((int)zx, (int)zy, 1);
       }
-    /* the structure: its size with the distance (a platform 30 m high) */
-    float s = (float)(0.6 / (d > 0.08 ? d : 0.08));
-    if (s > 6) s = 6;
-    int X = (int)x, Y = (int)y;
-    int w = (int)(6 * s) + 2, h = (int)(8 * s) + 3;
-    if (o->type == OB_PLATFORM || o->type == OB_RIG) {
-      gfx_rect(X - w / 2, Y - h, w, (int)(2 * s) + 1, 1);                 /* the deck */
-      for (int k = 0; k < 2; k++) gfx_line(X - w / 2 + 1 + k * (w - 3), Y - h, X - w / 2 + 1 + k * (w - 3) + (k ? 1 : -1), Y, 1);   /* the legs */
-      if (o->type == OB_RIG) gfx_line(X, Y - h, X, Y - h - (int)(5 * s) - 2, 1);    /* the derrick */
-      else gfx_rect(X - w / 4, Y - h - (int)(2 * s) - 1, w / 2, (int)(2 * s) + 1, 1);
-    } else if (o->type == OB_BUOY || o->type == OB_SPM || o->type == OB_LIGHT) {
-      gfx_line(X, Y, X, Y - h, 1); gfx_disc(X, Y - h, 1 + (int)s / 2, 1);
-    } else symbol(X, Y, o->type);
-    draw_text(&TINY, X + w / 2 + 2, Y - h - 2, o->name, 0);
+    /* the footprint and the heights by kind */
+    double a = 50, b = 50, rot = 0, legs = 22, top = 42, mast = 0;
+    switch (o->type) {
+    case OB_PLATFORM: if (o->orient >= 0) { a = o->a; b = o->b; rot = o->orient; } break;
+    case OB_RIG: a = 70; b = 60; legs = 25; top = 40; mast = 95; if (o->orient >= 0) { a = o->a; b = o->b; rot = o->orient; } break;
+    case OB_WELL: a = b = 14; legs = 14; top = 20; break;
+    case OB_SPM: a = b = 12; legs = 0; top = 5; break;
+    case OB_BUOY: a = b = 3; legs = 0; top = 4; mast = 7; break;
+    case OB_LIGHT: a = b = 5; legs = 0; top = 14; mast = 18; break;
+    case OB_WRECK: a = b = 30; legs = 0; top = 0; break;
+    }
+    /* out of the view (+-55 deg of the bow): gone by, or not yet in sight */
+    double rel = fmod(atan2(e0, n0) / D2R - hdg + 540.0, 360.0) - 180.0;
+    if (fabs(rel) > 55) continue;
+    /* far: drawn bigger (to 4 times at 1.6 nm), so a platform stays a box and not a dot */
+    double big = f[k].d / 0.4;
+    if (big < 1) big = 1;
+    if (big > 4) big = 4;
+    a *= big; b *= big;
+    double c[4][2];
+    for (int j = 0; j < 4; j++) {                      /* face 0 looks to rot: a along it, b the other side */
+      double fw = (j == 0 || j == 3) ? b / 2 : -b / 2, sd = j < 2 ? -a / 2 : a / 2;
+      c[j][0] = e0 + fw * sin(rot * D2R) + sd * cos(rot * D2R);
+      c[j][1] = n0 + fw * cos(rot * D2R) - sd * sin(rot * D2R);
+    }
+    float px, py, qx, qy;
+    if (!vproj(&v, e0, n0, 0, &px, &py)) continue;     /* abeam or astern: gone past */
+    vproj(&v, e0 + a / 2 * v.ch, n0 - a / 2 * v.sh, 0, &qx, &qy);
+    int small = fabsf(qx - px) < 2.5f;
+    int X = (int)px, Y = (int)py, ytop = Y;
+    if (small) {                                       /* far: a mark */
+      int h = top > 10 ? 6 : 3;
+      gfx_line(X, Y, X, Y - h, 1);
+      if (top > 10) gfx_rect(X - 2, Y - h - 1, 5, 2, 1);
+      ytop = Y - h - 2;
+    } else if (o->type == OB_WRECK) {
+      gfx_line(X - 4, Y, X + 4, Y, 1); gfx_line(X - 2, Y - 3, X - 2, Y, 1); gfx_line(X + 2, Y - 3, X + 2, Y, 1);
+    } else {
+      if (legs > 0)                                    /* the jacket's legs, then the deck module on them */
+        for (int j = 0; j < 4; j++) {
+          float lx0, ly0, lx1, ly1;
+          double ie = e0 + (c[j][0] - e0) * 0.8, in = n0 + (c[j][1] - n0) * 0.8;
+          if (vproj(&v, ie, in, 0, &lx0, &ly0) && vproj(&v, ie, in, legs, &lx1, &ly1)) {
+            gfx_line((int)lx0, (int)ly0, (int)lx1, (int)ly1, 1);
+            gfx_line((int)lx0 + 1, (int)ly0, (int)lx1 + 1, (int)ly1, 1);
+          }
+        }
+      box(&v, (const double (*)[2])c, legs, top);
+      float mx, my;
+      if (mast > 0 && vproj(&v, e0, n0, mast, &mx, &my)) {   /* the derrick, the light, the buoy's topmark */
+        float bx2, by2;
+        vproj(&v, e0, n0, top, &bx2, &by2);
+        gfx_line((int)bx2, (int)by2, (int)mx, (int)my, 1);
+        if (o->type == OB_RIG) { gfx_line((int)bx2 - 3, (int)by2, (int)mx, (int)my, 1); gfx_line((int)bx2 + 3, (int)by2, (int)mx, (int)my, 1); }
+        else gfx_disc((int)mx, (int)my, 2, 1);
+        ytop = (int)my;
+      }
+      float tx2, ty2;
+      if (vproj(&v, e0, n0, top, &tx2, &ty2) && ty2 < ytop) ytop = (int)ty2;
+      for (int j = 0; j < 4; j++) { float zx, zy; if (vproj(&v, c[j][0], c[j][1], top, &zx, &zy) && zy < ytop) ytop = (int)zy; }
+    }
+    char s[32];
+    snprintf(s, sizeof s, f[k].d < 9.95 ? "%s %.1f" : "%s", o->name, f[k].d);
+    int w = text_width(&TINY, s);
+    if (X - w / 2 > -w && X - w / 2 < LCD_X && ytop - 10 > 16) {
+      gfx_rect(X - w / 2 - 1, ytop - 10, w + 2, 9, 0);
+      draw_text(&TINY, X - w / 2, ytop - 10, s, 0);
+    }
   }
 }
 #endif
