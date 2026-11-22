@@ -18,6 +18,9 @@ int  gps_cfg_line(const char *l);         /* 1 = a GPS line */
 void gps_start(void);                     /* after the CFG: the input on if it was */
 int  gps_ut(double *jd);                  /* UT from the GPS (GPS SET: UT GPS on, a fresh time): 1 */
 int  gps_live(double *lat, double *lon, double *hdg);   /* the vessel's position (GPS or DR): 1 */
+int  gps_bar(double *lat, double *lon, const char **tag);   /* the top bar: the input on (or DR ONLY), GPS or DR: 1, its source */
+int  gps_follows(void);                   /* GPS SET: SET FOLLOWS on */
+int  gps_mob_line(char *s);               /* the chart's strip: "MOB 232° 0.45 nm", 0 no MOB */
 void gps_chart_layer(const map_t *m, uint32_t frame, int follow);   /* the live CHART: track, ship, XTE lines */
 const char *gps_alarm_text(void);         /* the alarm now, NULL none */
 void gps_mob(void);                       /* man overboard: the position now */

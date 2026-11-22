@@ -158,7 +158,19 @@ static void fmt_off(char *s, double o) {                  /* +3, -5:30 */
 
 /* the top bar, the same on every page (views.c top_bar): the date and time shown (UT or LT) on the left, the
    position on the right, the page's name in the middle; bar_at: at another instant (a tide day stepped) */
-static void bar_at(double ut, const char *name) { top_bar(ut + show_tz() / 24.0, N->cfg.lt, N->cfg.lat, N->cfg.lon, name); }
+static int bar_live;                                     /* this page shows the GPS's position in its top bar */
+static double bar_lat, bar_lon;
+static void bar_at(double ut, const char *name) {
+  top_bar(ut + show_tz() / 24.0, N->cfg.lt, bar_live ? bar_lat : N->cfg.lat, bar_live ? bar_lon : N->cfg.lon, name);
+}
+/* the latitude or longitude to 0.001', "26°19.567'N" */
+static void fmt_dm3(char *s, double v, int lat) {
+  double a = fabs(v);
+  int d = (int)a;
+  double m = (a - d) * 60;
+  if (m >= 59.9995) { d++; m = 0; }
+  sprintf(s, lat ? "%02d" NT_DEG "%06.3f'%c" : "%03d" NT_DEG "%06.3f'%c", d, m, lat ? (v < 0 ? 'S' : 'N') : (v < 0 ? 'W' : 'E'));
+}
 static void header(const char *name) { bar_at(ut_now(), name); }
 
 /* the degree sign of the system font text */
@@ -1565,6 +1577,14 @@ static void draw_chart(void) {
   gfx_rect(0, CHART_Y0 + CHART_H, LCD_X, 1, 1);
   if (chart_live) nt(2, 192, chart_follow ? "1 FOLLOW on  7 9 zoom  R/S MOB" : "1 follow  8246 pan  7 9 zoom");
   else nt(2, 192, chart_globe ? "4 6 turn 8 2 tilt 7 9 zoom" : "8246 pan 7 9 zoom 5 fit");
+  if (vessel) {                                            /* the GPS's chart: MOB, else where she is */
+    if (gps_mob_line(s)) { nt_inv(LCD_X - 2 - nt_w(s), 192, s); return; }
+    char a[20], b[20];
+    fmt_dm3(a, vla, 1); fmt_dm3(b, vlo, 0);
+    sprintf(s, "%s %s", a, b);
+    draw_text_r(&TINY, LCD_X - 2, 195, s, 0);
+    return;
+  }
   if (chart_detail) sprintf(s, "%c grid %d" NT_DEG, chart_detail, step);
   else strcpy(s, "no COAST_C.BIN");
   nt_r(LCD_X - 2, 192, s);
@@ -2558,8 +2578,24 @@ void nav_chart_live(int back) {
   go(PG_CHART);
 }
 
+/* the source in the top bar is not the one shown (another page than the GPS's) */
+static int bar_tag_changed(void) {
+  double a, b;
+  const char *t;
+  const char *want = gps_bar(&a, &b, &t) ? (gps_follows() ? t : "SET") : NULL;
+  if (!want || !top_tag) return want != top_tag;
+  return strcmp(want, top_tag) != 0;
+}
+
 static void redraw(void) {
   lcd_clear_buf();
+  { /* the top bar's position: the GPS pages and the GPS's chart show the vessel's (GPS or DR), the others SET's;
+       the tag says which: GPS / DGPS / DR, or SET while the GPS runs but SET does not follow it */
+    const char *t;
+    int live = gps_bar(&bar_lat, &bar_lon, &t);
+    bar_live = live && (IS_GPS(page) || (page == PG_CHART && chart_live));
+    top_tag = !live ? NULL : bar_live || gps_follows() ? t : "SET";
+  }
   if (IS_VIEW(page)) {
     view_almanac_now();
     switch (page) {
@@ -2958,6 +2994,7 @@ void program_main(void) {
         if (anim && t - last_anim >= 250) { anim_frame++; last_anim = t; }
         last = t; redraw();
       }
+      else if (gnew && bar_tag_changed()) { last = t; redraw(); }   /* the top bar's source: GPS, DR, SET */
       else if (page == PG_VSKY && t - last >= 1000) { last = t; vframe++; redraw(); }
       else if (page == PG_VOY && voy_play && t - last >= 250) { last = t; voy_tick(); redraw(); }
       else if (page == PG_VANIM && t - last >= (vframe >= ANIM_FRAMES - 1 ? 3000u : 500u)) {

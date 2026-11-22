@@ -34,5 +34,6 @@ void view_moon(Al *al, int south);
 
 /* the top bar of every page: jl the shown local JD (UT + tz), local: LT or UT, the position, the page's name */
 void top_bar(double jl, int local, double lat, double lon, const char *name);
+extern const char *top_tag;                   /* the position's source in the top bar (main.c sets it), NULL none */
 
 #endif

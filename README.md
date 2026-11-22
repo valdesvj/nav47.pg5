@@ -186,8 +186,11 @@ The GPS tab's **Demo** sails your route (1 to 60 times faster): `web/index.html#
   the course and speed come from (G gyro, C COG, M typed; L log, S SOG); when the fix comes back, how far the DR was.
 - **Alarms** (a beep, the alarm over the top bar, **ENTER** acknowledges): OFF TRACK (XTE over the limit), WAYPOINT,
   ARRIVED, NO FIX: DEAD RECKONING, ANCHOR DRAGGING, IN THE ZONE (a platform's), MOB.
-- **MOB**: **R/S** on any GPS page or the live chart: the position now; NAV and the chart show its bearing and
-  distance until GPSSET clears it.
+- **MOB**: **R/S** on any GPS page or the live chart: the position now; every GPS page and the chart show its
+  bearing and distance (FIX and GPSSET its position too) until GPSSET clears it.
+- **The top bar's position**: while the GPS runs, a tag says where it comes from: on the GPS pages and the live chart
+  the vessel's (GPS, DGPS, DR…), every second; on the other pages SET's, tagged with the GPS's source when SET
+  FOLLOWS is on, else SET. NAV and BOW show her position too.
 - **Your objects**: `/NAV47/OBJECTS.CSV`, the web page's objects file (Route tab, *objects.csv*: `type, name, lat,
   lon[, zone m[, orient[, face m[, side m]]]]`): platforms, rigs, wellheads, SPMs, wrecks, buoys, lights, ports with
   their zones (dotted), the platforms to scale when they show, on CHART, VOYAGE, the live chart and BOW; IN THE ZONE
