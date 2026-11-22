@@ -73,7 +73,7 @@ void map_center(map_t *m, double lat, double lon) {
 float map_kmin(const map_t *m) {
   return m->globe ? (m->h < m->w ? m->h : m->w) * 0.5f - 4 : (float)(m->w / (2 * M_PI));
 }
-float map_kmax(const map_t *m) { return (float)(m->w / (0.2 * D2R)); }   /* 0.2 deg (12 NM) across */
+float map_kmax(const map_t *m) { return (float)(m->w / (0.01 * D2R)); }  /* 0.01 deg (0.6 NM) across: the GPS's harbour view */
 
 void map_set_globe(map_t *m, int on) {
   if (on == m->globe) return;
@@ -116,8 +116,8 @@ static void clamp_view(map_t *m) {
 void map_fit(map_t *m, double lat_s, double lat_n, double lon_w, double lon_e) {
   float ps = map_psi(m, lat_s), pn = map_psi(m, lat_n);
   double dl = lon_e - lon_w;
-  if (dl < 0.5) dl = 0.5;
-  if (pn - ps < 0.005f) pn = ps + 0.005f;
+  if (dl < 0.01) dl = 0.01;
+  if (pn - ps < 0.0002f) pn = ps + 0.0002f;
   m->lon0 = (float)((lon_w + lon_e) / 2);
   m->psi0 = (ps + pn) / 2;
   float kx = (float)(m->w / (dl * D2R)), ky = m->h / (pn - ps);

@@ -28,6 +28,10 @@
 #include "geo_nav.h"
 #include "map47.h"
 #include "dpops.h"
+#include "gpsin.h"
+#include "gpsui.h"
+#include "navctx.h"
+#include "objects.h"
 
 #define DIR       "/NAV47"
 #define TIDEDIR   "/NAV47/TIDES"
@@ -40,7 +44,9 @@
 /*  State (heap: a DMCP5 program has 8 KB of static RAM)              */
 /* ------------------------------------------------------------------ */
 enum { PG_VALM, PG_VSPLIT, PG_VSKY, PG_VALLSKY, PG_VMOON, PG_VANIM, PG_VSKY2,
-       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP, PG_CHART, PG_VOY, PG_ETA, PG_ETAT, PG_DP, PG_DPIN };
+       PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP, PG_CHART, PG_VOY, PG_ETA, PG_ETAT, PG_DP, PG_DPIN,
+       PG_GFIX, PG_GSATS, PG_GNAV, PG_GBOW, PG_GSET };
+#define IS_GPS(p) ((p) >= PG_GFIX && (p) <= PG_GSET)
 #define IS_VIEW(p) ((p) <= PG_VSKY2)
 
 typedef struct {
@@ -110,7 +116,8 @@ static double clock_jd_local(void) {
 }
 
 static double ut_now(void) {
-  double base = N->cfg.live ? clock_jd_local() - N->cfg.tz / 24.0 : N->cfg.fixed_jd;
+  double gj;
+  double base = N->cfg.live ? (gps_ut(&gj) ? gj : clock_jd_local() - N->cfg.tz / 24.0) : N->cfg.fixed_jd;
   return base + toff / 24.0;
 }
 
@@ -827,6 +834,7 @@ static void cfg_save(void) {
                c->south, c->gc, c->lt);
   o += sprintf(o, "DPWX %d %d %.1f %.2f %.1f %.1f %.1f\n", c->dcauto, c->dsauto, c->dcset, c->dckn, c->dsfrom, c->dhs, c->dtp);
   for (int i = 0; i < c->nfiles; i++) o += sprintf(o, "FILE %s\n", c->files[i]);
+  gps_cfg_write(o);
   sys_disk_write_enable(1);
   check_create_dir(DIR);
   FIL f;
@@ -859,6 +867,7 @@ static void cfg_load(void) {
     else if (!strncmp(l, "LT ", 3)) c->lt = atoi(l + 3) != 0;
     else if (!strncmp(l, "DPWX ", 5)) sscanf(l + 5, "%d %d %lf %lf %lf %lf %lf", &c->dcauto, &c->dsauto, &c->dcset, &c->dckn, &c->dsfrom, &c->dhs, &c->dtp);
     else if (!strncmp(l, "FILE ", 5) && c->nfiles < 4) { strncpy(c->files[c->nfiles], l + 5, 39); c->files[c->nfiles++][39] = 0; }
+    else gps_cfg_line(l);
     l = strtok(NULL, "\n");
   }
   free(t);
@@ -1386,9 +1395,11 @@ static void cmp_key(int key) {
 #define CHART_H  175
 static map_t chart_m;
 static int chart_back = PG_PLAN, chart_refit = 1, chart_globe;
+static int chart_live, chart_follow;                     /* the GPS's chart: the vessel, her track; FOLLOW keeps her centred */
+static uint32_t anim_frame;
 static char chart_detail;                                /* 'C' or 'L': the coastline last drawn, 0 none */
 
-static void chart_open(int back) { chart_back = back; chart_refit = 1; go(PG_CHART); }
+static void chart_open(int back) { chart_back = back; chart_refit = 1; chart_live = 0; go(PG_CHART); }
 
 /* no route: you, and the nearest coast in view */
 static void chart_fit_here(void) {
@@ -1480,7 +1491,24 @@ static void draw_chart(void) {
   }
   route_t *R = route ? &geo_route : NULL;
   if (R && R->n < 2) { route = 0; R = NULL; }             /* no plan: the chart without it */
-  if (chart_refit) { chart_fit(); chart_refit = 0; }
+  double vla, vlo, vh;
+  int vessel = chart_live && gps_live(&vla, &vlo, &vh);
+  if (chart_refit) {
+    chart_fit(); chart_refit = 0;
+    if (vessel && chart_follow) {                          /* the GPS's chart: 3 nm round the vessel */
+      double c = cos(vla * M_PI / 180);
+      map_init(&chart_m, 0, CHART_Y0, LCD_X, CHART_H, &geo_ell);
+      chart_m.globe = chart_globe;
+      if (chart_globe) { map_center(&chart_m, vla, vlo); chart_m.k = (CHART_H * 0.5f) / (float)(1.5 / 60 * M_PI / 180); map_zoom(&chart_m, 1); }
+      else map_fit(&chart_m, vla - 0.75 / 60, vla + 0.75 / 60, vlo - 1.5 / 60 / c, vlo + 1.5 / 60 / c);
+    }
+  }
+  if (vessel && chart_follow) {                            /* FOLLOW: centred on her, a margin before it moves */
+    float x, y;
+    map_xy(&chart_m, vla, vlo, &x, &y);
+    if (chart_globe || x < LCD_X * 0.25f || x > LCD_X * 0.75f || y < CHART_Y0 + CHART_H * 0.25f || y > CHART_Y0 + CHART_H * 0.75f)
+      map_center(&chart_m, vla, vlo);
+  }
   chart_m.e = (float)sqrt(geo_ell.f * (2 - geo_ell.f));   /* the ellipsoid may have changed */
   int step = map_grid(&chart_m);
   chart_detail = 0;
@@ -1513,16 +1541,23 @@ static void draw_chart(void) {
     for (int i = 0; i < R->n; i++) map_mark(&chart_m, R->w[i].lat, R->w[i].lon, (R->w[i].flags & WPT_USER) ? 1 : 0);
     if (plan_cur < R->n) map_mark(&chart_m, R->w[plan_cur].lat, R->w[plan_cur].lon, 2);
   }
-  map_mark(&chart_m, N->cfg.lat, N->cfg.lon, 3);         /* you */
+  if (!vessel) map_mark(&chart_m, N->cfg.lat, N->cfg.lon, 3);         /* you (SET's position) */
+  if (chart_live) gps_chart_layer(&chart_m, anim_frame, chart_follow);
+  else obj_chart(&chart_m);
   map_space(&chart_m);
   gfx_rect(0, CHART_Y0 + CHART_H, LCD_X, 1, 1);
-  nt(2, 192, chart_globe ? "4 6 turn 8 2 tilt 7 9 zoom" : "8246 pan 7 9 zoom 5 fit");
+  if (chart_live) nt(2, 192, chart_follow ? "1 FOLLOW on  7 9 zoom  R/S MOB" : "1 follow  8246 pan  7 9 zoom");
+  else nt(2, 192, chart_globe ? "4 6 turn 8 2 tilt 7 9 zoom" : "8246 pan 7 9 zoom 5 fit");
   if (chart_detail) sprintf(s, "%c grid %d" NT_DEG, chart_detail, step);
   else strcpy(s, "no COAST_C.BIN");
   nt_r(LCD_X - 2, 192, s);
 }
 
 static void chart_key(int key) {
+  if (chart_live && key == KEY_1) { chart_follow ^= 1; return; }
+  if (chart_live && key == KEY_RUN) { gps_mob(); return; }
+  if (chart_live && key == KEY_ENTER) { gps_key(GP_NAV, KEY_ENTER); return; }
+  if (chart_live && (key == KEY_4 || key == KEY_6 || key == KEY_8 || key == KEY_2 || key == KEY_UP || key == KEY_DOWN)) chart_follow = 0;
   if (key == KEY_4) map_pan(&chart_m, -0.25f, 0);
   else if (key == KEY_6) map_pan(&chart_m, 0.25f, 0);
   else if (key == KEY_8 || key == KEY_UP) map_pan(&chart_m, 0, 0.25f);
@@ -1531,7 +1566,7 @@ static void chart_key(int key) {
   else if (key == KEY_7) map_zoom(&chart_m, 1 / 1.5f);
   else if (key == KEY_5) chart_refit = 1;
   else if (key == KEY_0) { chart_globe ^= 1; map_set_globe(&chart_m, chart_globe); }
-  else if (key == KEY_EXIT) { go(chart_back); if (chart_back == PG_ROUTE) menu_page = 3; }
+  else if (key == KEY_EXIT) { go(chart_back); if (chart_back == PG_ROUTE) menu_page = 3; if (IS_GPS(chart_back)) menu_page = 4; chart_live = 0; }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1619,6 +1654,7 @@ static void draw_voy(void) {
     }
   }
   for (int i = 0; i < R->n; i++) if (R->w[i].flags & WPT_USER) map_mark(&voy_m, R->w[i].lat, R->w[i].lon, 1);
+  obj_chart(&voy_m);
   map_icon(&voy_m, lat, lon, crs, plane, !voy_play && (voy_step == 0 || voy_step >= VOY_STEPS));   /* stopped: its side */
   map_space(&voy_m);
   gfx_rect(0, CHART_Y0 + CHART_H, LCD_X, 1, 1);
@@ -2288,11 +2324,12 @@ static void dpin_key(int key) {
   else if (key == KEY_EXIT) { go(PG_DP); dp_best(); }
 }
 
-static const char *MENUS[4][6] = {
+static const char *MENUS[5][6] = {
   { "ALMAN", "SPLIT", "SKY", "ALLSK", "MOON", ">>" },
   { "ANIM", "T&F", "TIDE", "ROUTE", "ZONES", ">>" },
   { "SET", "FILES", "INFO", "DP", "USB", ">>" },
   { "ADD", "EDIT", "DEL", "RL/GC", "HERE", ">>" },
+  { "FIX", "SATS", "NAV", "BOW", "GPSSET", ">>" },
 };
 static const char *FILE_MENU[6] = { "TID", "FLW", "CLEAR", "", "", "BACK" };
 static const char *EDIT_MENU[6] = { "", "", "", "", "", "CANCEL" };
@@ -2317,6 +2354,50 @@ static void view_almanac_now(void) {
     N->valid = 1;
   }
   N->al.local = N->cfg.lt;
+}
+
+/* ------------------------------------------------------------------ */
+/*  What the GPS pages borrow (navctx.h)                              */
+/* ------------------------------------------------------------------ */
+double nav_ut(void) { return ut_now(); }
+double nav_tz_shown(void) { return show_tz(); }
+void nav_header(const char *name) { header(name); }
+void nav_pos(double *lat, double *lon) { *lat = N->cfg.lat; *lon = N->cfg.lon; }
+void nav_follow(double lat, double lon) {
+  if (fabs(lat - N->cfg.lat) < 1e-7 && fabs(lon - N->cfg.lon) < 1e-7) return;
+  N->cfg.lat = lat; N->cfg.lon = lon; N->valid = 0;
+}
+const route_t *nav_route(double *plan_kn) {
+  *plan_kn = voy_kn;
+  if (N->nwp < 2 || !geo_route_alloc()) return NULL;
+  if (plan_dirty || legs_dirty) plan_build();
+  return geo_route.n >= 2 ? &geo_route : NULL;
+}
+const struct geod_geodesic *nav_ell(void) { return &geo_ell; }
+int nav_bodies(VBody *b) {                    /* the almanac again only a minute later, or 3' away */
+  static VBody c[8];
+  static int n;
+  static double cj, cla, clo;
+  double j = ut_now();
+  if (!n || fabs(j - cj) > 1.0 / 1440 || fabs(cla - N->cfg.lat) > 0.05 || fabs(clo - N->cfg.lon) > 0.05) {
+    view_almanac_now();
+    n = vbodies(&N->al, c);
+    cj = j; cla = N->cfg.lat; clo = N->cfg.lon;
+  }
+  memcpy(b, c, sizeof c);
+  return n;
+}
+void nav_beep(void) {
+#ifndef NAV47_SIM
+  if (is_beep_mute()) return;
+#endif
+  start_buzzer_freq(2400000);
+  sys_delay(120);
+  stop_buzzer();
+}
+void nav_chart_live(int back) {
+  chart_back = PG_GFIX + back; chart_refit = 1; chart_live = 1; chart_follow = 1;
+  go(PG_CHART);
 }
 
 static void redraw(void) {
@@ -2350,13 +2431,15 @@ static void redraw(void) {
     case PG_FILES: draw_files(); break;
     case PG_INFO: draw_info(); break;
     case PG_PICK: draw_pick(); break;
+    case PG_GFIX: case PG_GSATS: case PG_GNAV: case PG_GBOW: case PG_GSET: gps_draw(page - PG_GFIX, anim_frame); break;
     }
   if (page != PG_ROUTE && menu_page == 3) menu_page = 0;
+  CHART_MENU[4] = chart_live ? "NAV" : "PLAN";
   MENUS[2][4] = usbview_is_on() ? "USB*" : "USB";
   MENUS[0][2] = page == PG_VSKY ? "SKY2" : "SKY";
   CHART_MENU[3] = chart_globe ? "MERC" : "GLOBE";
   VOY_MENU[0] = voy_play ? "PAUSE" : "PLAY";
-  lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0 || (page == PG_DPIN && DP && DP->edit >= 0)) ? EDIT_MENU :
+  lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0 || (page == PG_DPIN && DP && DP->edit >= 0) || (IS_GPS(page) && gps_editing())) ? EDIT_MENU :
                      page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : page == PG_VOY ? VOY_MENU : page == PG_ETA ? ETA_MENU : page == PG_ETAT ? ETAT_MENU : page == PG_DP ? DP_MENU : page == PG_DPIN ? DPIN_MENU : MENUS[menu_page]);
   lcd_refresh();
   lcd_refresh_wait();        /* the LCD goes out by DMA: done before the next frame clears the buffer (no flicker) */
@@ -2435,12 +2518,14 @@ static void softkey(int fn) {
   }
   if (page == PG_CHART) {
     static const int k[6] = { KEY_9, KEY_7, KEY_5, KEY_0, 0, KEY_EXIT };
-    if (fn == 4) { plan_cur = 0; go(PG_PLAN); }
+    if (fn == 4 && chart_live) { chart_live = 0; go(chart_back); menu_page = 4; }
+    else if (fn == 4) { plan_cur = 0; go(PG_PLAN); }
     else chart_key(k[fn]);
     return;
   }
   if (fn == 5) {                                       /* >> */
-    menu_page = menu_page == 3 ? 0 : (page == PG_ROUTE && menu_page == 2) ? 3 : (menu_page + 1) % 3;
+    /* the rows: 0 1 2, the GPS's (4), then ROUTE's own (3) on ROUTE */
+    menu_page = menu_page == 3 ? 0 : menu_page == 2 ? 4 : menu_page == 4 ? (page == PG_ROUTE ? 3 : 0) : menu_page + 1;
     return;
   }
   switch (menu_page * 6 + fn) {
@@ -2464,6 +2549,7 @@ static void softkey(int fn) {
   case 20: route_delete(); route_save(); break;
   case 21: N->cfg.gc = (N->cfg.gc + 1) % 3; route_save(); break;
   case 22: route_insert(N->cfg.lat, N->cfg.lon); route_save(); break;
+  case 24: case 25: case 26: case 27: case 28: go(PG_GFIX + fn); menu_page = 4; break;   /* FIX SATS NAV BOW GPSSET */
   }
 }
 
@@ -2485,6 +2571,7 @@ static void handle_key(int key) {
       return;
     }
   }
+  if (IS_GPS(page) && gps_editing()) { gps_key(page - PG_GFIX, key); return; }
   if ((edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0) && key == KEY_F6) key = KEY_EXIT;
   if (edit_field >= 0) { key_edit(key); return; }
   if (wp_edit >= 0) { key_wp(key); return; }
@@ -2509,6 +2596,12 @@ static void handle_key(int key) {
     else if (key == KEY_2 && page == PG_VSPLIT) split_first++;
     else if (key == KEY_EXIT) go(PG_VALM);
     vframe = 0;
+    return;
+  }
+  if (IS_GPS(page)) {
+    if (gps_key(page - PG_GFIX, key)) return;
+    if (key == KEY_0 && page == PG_GFIX) { go(PG_GSET); return; }
+    if (key == KEY_EXIT) { go(PG_VALM); menu_page = 0; }
     return;
   }
   switch (page) {
@@ -2571,7 +2664,7 @@ static void handle_key(int key) {
     cmp_key(key);
     return;
   case PG_CHART:
-    if (key == KEY_RUN && N->nwp > 1) { voy_open(PG_CHART); return; }
+    if (key == KEY_RUN && N->nwp > 1 && !chart_live) { voy_open(PG_CHART); return; }
     chart_key(key);
     return;
   case PG_VOY:
@@ -2619,8 +2712,11 @@ void program_main(void) {
   N = (Nav *)nav_alloc(sizeof(Nav));
   if (!N || !c47_init()) { lcd_clear_buf(); draw_text(&TINY, 10, 100, "NAV47: not enough memory", 0); lcd_refresh(); for (;;) wait_for_key_press(); }
   nt_init();
+  gps_init();                     /* before the CFG: its GPS lines */
   cfg_load();
   route_load();
+  obj_load();                     /* /NAV47/OBJECTS.CSV: the platforms and their zones */
+  gps_start();
   if (N->cfg.zone < 0 || N->cfg.zone >= NZONES) N->cfg.zone = zone_nearest(N->cfg.tz, ut_now());
   int nf = N->cfg.nfiles;
   N->cfg.nfiles = 0;
@@ -2632,10 +2728,14 @@ void program_main(void) {
   redraw();
   uint32_t last = sys_current_ms();
   for (;;) {
-    if (usbview_is_on() && !ST(STAT_PGM_END) && key_empty())
-      usbser_idle(page == PG_VANIM || (page == PG_VOY && voy_play) ? 250 : 1000);       /* the USB runs: no sleep (it would stop the USB) */
+    /* the wait: 250 ms for the movies, 200 ms while the GPS reads (channel 2 holds three sentences), else a second */
+    int live_chart = page == PG_CHART && chart_live;
+    int anim = page == PG_VANIM || (page == PG_VOY && voy_play) || (IS_GPS(page) && gps_anim(page - PG_GFIX)) || live_chart;
+    uint32_t wait = gpsin_is_on() ? 200 : anim ? 250 : 1000;
+    if (usb_any_on() && !ST(STAT_PGM_END) && key_empty())
+      usbser_idle(wait);                                 /* the USB runs: no sleep (it would stop the USB) */
     else if ((ST(STAT_PGM_END) && ST(STAT_SUSPENDED)) || (!ST(STAT_PGM_END) && key_empty())) {
-      sys_timer_start(0, page == PG_VANIM || (page == PG_VOY && voy_play) ? 250 : 1000);
+      sys_timer_start(0, wait);
       CLR_ST(STAT_RUNNING);
       sys_sleep();
     }
@@ -2643,6 +2743,7 @@ void program_main(void) {
       if (!ST(STAT_SUSPENDED)) {
         cfg_save();
         usbview_off();
+        gpsin_off();
         lcd_set_buf_cleared(0);
         draw_power_off_image(1);
         LCD_power_off(0);
@@ -2657,14 +2758,22 @@ void program_main(void) {
       LCD_power_on();
       rtc_wakeup_delay();
       CLR_ST(STAT_OFF);
+      gps_start();                                     /* the GPS input on again, if it was */
       redraw();
     }
     if (ST(STAT_POWER_CHANGE)) { switch_usb_powered_freq(); CLR_ST(STAT_POWER_CHANGE); }
     /* SKY: the name loop, a name a second. ANIM: a frame every half second, the last held 3 s, then again.
        Live pages: the zone clock every second, the others every 30 s (a new time). */
     uint32_t t = sys_current_ms();
+    int gnew = gps_poll(t);                              /* the NMEA in, a step a second */
+    if (gnew && gpsin_is_on()) reset_auto_off();         /* a navigation display: on while the data comes */
+    static uint32_t last_anim;
     if (key_empty()) {
-      if (page == PG_VSKY && t - last >= 1000) { last = t; vframe++; redraw(); }
+      if ((IS_GPS(page) || live_chart) && (gnew || (anim && t - last_anim >= 250))) {
+        if (anim && t - last_anim >= 250) { anim_frame++; last_anim = t; }
+        last = t; redraw();
+      }
+      else if (page == PG_VSKY && t - last >= 1000) { last = t; vframe++; redraw(); }
       else if (page == PG_VOY && voy_play && t - last >= 250) { last = t; voy_tick(); redraw(); }
       else if (page == PG_VANIM && t - last >= (vframe >= ANIM_FRAMES - 1 ? 3000u : 500u)) {
         last = t;

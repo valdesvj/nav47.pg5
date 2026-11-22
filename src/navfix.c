@@ -40,7 +40,7 @@ void navfix_update(NavFix *f, const GpsState *g, const NavFixCfg *c, double set_
   uint32_t to = (uint32_t)(c->timeout > 0 ? c->timeout : 10) * 1000u;
   int gps_ok = g && fresh(g->fix_ms, now, to);
   if (c->mode == POS_AUTO && gps_ok) {
-    if (prev == SRC_DR) { dist(f->lat, f->lon, g->lat, g->lon, &f->dr_err_nm, &f->dr_err_brg); f->dr_err_ms = f->t_ms; }
+    if (prev == SRC_DR && f->dr_from_fix) { dist(f->lat, f->lon, g->lat, g->lon, &f->dr_err_nm, &f->dr_err_brg); f->dr_err_ms = f->t_ms; }
     f->src = SRC_GPS; f->q = nmea_qual(g);
     if (!g->have_fix) f->q = Q_NONE;               /* the last fix held, inside the timeout */
     f->lat = g->lat; f->lon = g->lon;
@@ -61,6 +61,7 @@ void navfix_update(NavFix *f, const GpsState *g, const NavFixCfg *c, double set_
 
   /* dead reckoning */
   if (prev != SRC_DR) {
+    f->dr_from_fix = prev == SRC_GPS;
     if (prev != SRC_GPS) { f->lat = set_lat; f->lon = set_lon; dt = 0; }   /* never a fix: from SET's position */
     else dt = f->last_fix_ms && now - f->last_fix_ms < 3600000u ? (now - f->last_fix_ms) / 1000.0 : 0;   /* from the fix's time */
   }

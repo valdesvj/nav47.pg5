@@ -30,6 +30,7 @@ typedef struct {
   uint32_t t_ms;            /* the last update */
   double   ce, cn;          /* the current's filtered east and north, knots */
   int      have_c;
+  int      dr_from_fix;     /* the DR started from a fix (not from SET's position) */
 } NavFix;
 
 void navfix_init(NavFix *f);
