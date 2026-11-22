@@ -154,6 +154,16 @@ int main(void) {
   dpo_write(&p, buf, sizeof buf);
   DpPlat p2;
   CHECK(dpo_parse(buf, &p2, err, sizeof err) == 0 && p2.len == p.len && p2.side == p.side && p2.nlim == p.nlim, "DPOPS.TXT round trip: %s", err);
+  /* ABS SKP: dpo_abs (the vessel's copy on the heap) = dp_abs, to the bit */
+  {
+    static AbsResult r1, r2;
+    dp_abs(&v, 1.5f, 0.2f, &r1, NULL);
+    dpo_abs(&v, 1.5f, 0.2f, &r2, NULL);
+    r1.solves = r2.solves = 0;
+    CHECK(!memcmp(&r1, &r2, sizeof r1), "ABS SKP: dpo_abs differs from dp_abs");
+    CHECK(r2.a > 0 && r2.a <= 100 && r2.c <= r2.b, "ABS SKP: a %.1f b %.1f c %.1f d %.1f", r2.a, r2.b, r2.c, r2.d);
+    printf("ABS SKP(%.0f, %.0f, %.0f, %.0f, 1.5, NS)\n", r2.a, r2.b, r2.c, r2.d);
+  }
   printf("%s\n", fails ? "FAILED" : "all passed");
   return fails != 0;
 }

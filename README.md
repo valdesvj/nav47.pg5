@@ -90,6 +90,14 @@ so, at which heading, inside the thrusters' working limits (a bow tunnel at 30 %
   within ± TOL. 4 6 turn the heading by hand. 7 9 turn the wind 10°, 8 2 change its speed by 1 kn (the sea
   follows when it is DNV's). UP DOWN move an hour, and the current follows the tide. 5 is now. FACE,
   SIDE, INPUT, LOAD.
+- **ABS SKP** (key **.**): the ABS *Guide for Dynamic Positioning Systems*, Section 9, *Station Keeping Performance*,
+  for the loaded vessel: SKP(a, b, c, d, e, f), the share of the 36 directions where the limiting wind (1-min mean) is
+  not exceeded in the Guide's North Sea wind-wave table, intact (a), after losing the least (b) and the most (c)
+  effective thruster, after the worst redundancy group (d), at the current e (today's, to half a knot, or 0.5 to 3 kn:
+  **7**) with a margin on the weather (20 %: **8**), location f the North Sea table. The polar shows the limiting wind
+  from every direction, intact (solid) and after the worst failure (dashed), and today's wind against the heading of
+  DP OPS. DPCAP47's ABS method (its engine, the same results: `make test-dp` checks it); the vessel's capability, not
+  today's set-up at the platform. **.** or **DNV** goes back.
 - **The weather**: the wind is SET's (FLOW's own). The current comes from the FLOW program at the platform: your
   atlas, else a stream station within 30 NM; or you type it. The sea comes from DNV's table for the wind, or you
   type it (INPUT).

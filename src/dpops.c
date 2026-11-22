@@ -403,3 +403,54 @@ float dpo_limit_wind(Vessel *v, const DpPlat *p, const DpWx *w, int face, float 
   }
   return lo;
 }
+
+/* ------------------------------------------------------------------ ABS SKP
+   dp_abs's steps (src/dp/dpcap.c, the ABS DPS Guide Section 9) with the vessel's copy on the heap: dp_abs keeps it
+   static, 1.4 KB the DM42n's 8 KB of static RAM has not got with the TinyUSB build. test/dpops checks the two agree. */
+#include <stdlib.h>
+static float skp_of(const float *w) {
+  float s = 0;
+  for (int h = 0; h < NHEAD; h++) s += dp_abs_p(w[h]);
+  return s / NHEAD;
+}
+
+int dpo_abs(const Vessel *vin, float cur_kn, float margin, AbsResult *r, void (*progress)(int, int)) {
+  Vessel *v = (Vessel *)malloc(sizeof *v);
+  if (!v) return 0;
+  *v = *vin;
+  memset(r, 0, sizeof *r);
+  r->cur_kn = cur_kn;
+  r->margin = margin;
+  float cur = cur_kn * 0.514444f;
+  dp_abs_prepare(v, cur);
+  for (int i = 0; i < v->nthr; i++) r->tf[i] = v->thr[i].tf;
+  uint32_t s0 = dp_solves, all = dp_case_mask(v, 0);
+  int ng = v->ngrp > 1 ? v->ngrp : 0, total = (1 + v->nthr + ng) * NHEAD, done = 0;
+  Alloc a;
+  for (int c = 0; c < 1 + v->nthr + ng; c++) {
+    uint32_t m = c == 0 ? all : c <= v->nthr ? all & ~(1u << (c - 1)) : dp_case_mask(v, c - v->nthr);
+    float *w = c == 0 ? r->intact : c <= v->nthr ? r->single[c - 1] : r->group[c - v->nthr];
+    memset(&a, 0, sizeof a);
+    for (int h = 0; h < NHEAD && !dp_abort; h++) {
+      w[h] = dp_abs_limit(v, m, (float)(h * 10), cur, margin, &a);
+      if (progress) progress(++done, total);
+    }
+  }
+  r->a = skp_of(r->intact);
+  r->b = -1; r->c = 101; r->d = -1;
+  for (int i = 0; i < v->nthr; i++) {
+    float s = r->skp_single[i] = skp_of(r->single[i]);
+    if (s > r->b) { r->b = s; r->b_thr = i; }
+    if (s < r->c) { r->c = s; r->c_thr = i; }
+  }
+  if (ng) {
+    r->d = 101;
+    for (int g = 1; g <= ng; g++) {
+      float s = r->skp_group[g] = skp_of(r->group[g]);
+      if (s < r->d) { r->d = s; r->d_grp = g; }
+    }
+  }
+  r->solves = dp_solves - s0;
+  free(v);
+  return 1;
+}
