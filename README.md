@@ -19,6 +19,7 @@ everywhere.
 | `>>` F4 | **ROUTE** | | passage planning: waypoints, course and distance of each leg, the cumulative distance; rhumb line or great circle |
 | `>>` F5 | **ZONES** | [zones47](https://github.com/valdesvj/zones47) | the world map with the zone column, its time and date, DST computed on the calculator, the cities |
 | `>> >>` | **SET FILES INFO NOW USB** | | position, clock TZ, live or fixed time, wind; tide files; about; back to now; the screen to the PC |
+| `>> >> >>` | **FIX SATS NAV BOW GPSSET** | | the GPS: the fix and its quality (DGPS), the satellites, the passage monitored (XTE, the next waypoint, ETA), the view over the bow, DR, MOB, the anchor watch |
 
 The views are Almanac 47's (`python/native/c47screen21.py`): the same bodies, charts, glyphs47 symbols (☉ ☾ ♀ ♂ ♃ ♄
 ★ and the Moon phases), tinyFont scale labels and dotted celestial equator, in the 208 rows above the menu bar. The
@@ -47,6 +48,18 @@ Each row shows the leg from the waypoint before: **CRS** (true), **DIST** and **
 * **GC**, great circle: the distance on the sphere (1′ = 1 nm) and the **initial** course (ICRS).
 
 The route is saved in `/NAV47/ROUTE.TXT` (one `lat lon` per line, degrees), up to 40 waypoints.
+
+## WPTS: the waypoints' list
+
+`/NAV47/WAYPTS.CSV` (`name, lat, lon`; up to 250), on its page **WPTS** (FILES **WPTS**, or **1** on ROUTE):
+**ADD** the position now (the GPS's, else SET's) and type its name (HP-42S style: **F1-F6** a group of letters,
+then **F1-F5** the letter; the digits as they are; **←** deletes; **ENTER**, then LAT and LON: ENTER keeps them),
+**EDIT**, **DEL**, **SORT** by name or the nearest (BRG and NM from the vessel), **1** your objects (`*`, from
+OBJECTS.CSV) listed too. **ROUTE** (or ENTER when opened from ROUTE) puts the waypoint into the route after its
+cursor, with its name; **3** on ROUTE saves the cursor's waypoint to the list. The route keeps the names
+(ROUTE.TXT: `lat lon NAME`, as the web page writes them): NAV shows **TO BRAVO**. The web page: Route tab,
+**WAYPTS.CSV** (the route's waypoints for the list); *To the calculator* also sends your objects (OBJECTS.CSV);
+FILES **LOAD** reads OBJECTS.CSV (and the pictures) again; FILES lists your files in /NAV47.
 
 ## DP OPS: station keeping off a platform
 
@@ -109,6 +122,78 @@ plots. `make test-dp` checks it:
 - the hull stays at least STANDOFF m off, on every side, face and heading;
 - the lee works as described;
 - the limits hold.
+
+## GPS: the fix, the passage, DR
+
+NMEA (a GPS, DGPS, the gyro, the log) comes in over USB: the DM42n's USB port is a device, so a PC, a laptop, a
+Raspberry Pi or the web page is the **bridge**. It reads the ship's NMEA network, a USB GPS or a log, and sends the
+sentences on the calculator's serial console, channel 2. **GPS SET: NMEA INPUT ON** reads them, in both builds
+(DMCP5 3.58's console and TinyUSB).
+
+```
+python3 tools/nmea_bridge.py --udp 10110                       # the ship's NMEA network (NMEA over IP)
+python3 tools/nmea_bridge.py --serial /dev/ttyUSB0 --baud 4800 # a GPS, or the ship's NMEA 0183 through a USB adapter
+python3 tools/nmea_bridge.py --serial /dev/ttyUSB0 --serial /dev/ttyUSB1:4800   # the GPS and the gyro
+python3 tools/nmea_bridge.py --gpsd localhost:2947             # gpsd
+python3 tools/nmea_bridge.py --file log.nmea                   # a log (python3 test/nmea/make_log.py log.nmea)
+```
+
+The calculator holds 256 bytes a channel (three sentences) and reads them every 0.2 s while the GPS is on, so the
+bridge keeps the sentences NAV47 uses (RMC GGA GNS GSA VTG ZDA GST, HDT THS HDG, VHW; GSV every 5 s), always the
+latest, 200 bytes at a time. The web page's **GPS** tab does the same from Chrome (Web Serial): *Connect a GPS*,
+*Connect the DM42n*.
+
+![The web page's GPS tab](docs/gps_web.png)
+
+On the web page the **Route** tab monitors the route with the GPS too (the same passage engine): the Live card, the
+Asiana on the chart with her wake and track, the XTE limits, the alarms, MOB, and the Bow view with your platforms.
+The GPS tab's **Demo** sails your route (1 to 60 times faster): `web/index.html#tab=route&ex=field&gpsdemo&gpsx=30`.
+
+![The web page's Route tab with the GPS](docs/gps_web_route.png)
+
+![FIX, SATS, NAV, BOW, the live CHART, DR](docs/gps_views.png)
+
+*(Simulator pictures: a made-up track from test/nmea/make_log.py, made-up platforms.)*
+
+| Page | |
+|---|---|
+| **FIX** | the position (big), the source: **GPS / DGPS / RTK / DR / SET**; 2D / 3D, the satellites used of those seen, PDOP HDOP VDOP, the DGPS station and its age, the error (GST, 1σ), the GPS's UT against the clock; SOG COG, the gyro's HDG, the log's STW. **7** drops the anchor (the anchor watch: its distance and bearing, an alarm outside the radius). **ENTER**: the Sun's bearing by the gyro, typed: the gyro error (the azimuth from the almanac) |
+| **SATS** | the sky: each satellite at its elevation and azimuth, a symbol a system (● GPS ■ GLONASS ◆ Galileo ▲ BeiDou ✕ SBAS ...), filled when used in the fix; the counts used / seen; the signal bars (dB-Hz). **4 6** one system's bars. **0** the Sun, the Moon, the planets and the stars on the same sky |
+| **NAV** | the passage on the plan (ROUTE, PLAN): the active leg, **TO WPn** (or its name): BRG, DTG, CTS, the next leg's course; the next user waypoint's distance, **ETA** and TTG, the **final** one's; at SOG (the plan's speed when stopped). SOG (big), COG, HDG, **SET and drift** (the ground vector less the water vector: gyro and log); your **three nearest objects** (BRG, distance, CPA and in how long; inverse, and the alarm ZONE AHEAD, when the CPA is inside its zone within 30 min); the **XTE** bar with its limits, STEER PORT / STBD. The next leg at the arrival circle or past the waypoint (AUTO), or by hand. **4 6** the previous / next leg, **5** start on the leg nearest, **0** the live CHART |
+| **BOW** | the view over the Asiana's bow from the helideck (or your `BOW.BMP`): the route a lane to the horizon (its edges the XTE limits), the waypoints' flags, the turn ahead (TURN AHEAD 096°), your platforms as jackets and deck modules in perspective (to their outline, seen from 20 m; drawn bigger far off), growing as she closes and passing by, their zones dotted on the sea, the Sun or the Moon at their bearings, the sea coming at her speed |
+| **GPSSET** (8 2 scroll; the field's help on the last line) | NMEA INPUT; POSITION: AUTO (the GPS, DR when the fix is lost), DR ONLY, OFF (SET's); SET FOLLOWS (the GPS's position to SET once a minute: the almanac, the tides AUTO, the zones and HERE follow); UT FROM GPS (the calculator's clock is left alone); DR AFTER (s); the DR's COURSE and SPEED (typed, or the gyro / COG and the log / SOG); the XTE limit, the arrival circle, the next leg AUTO or by hand; the anchor's radius; the alarms; MOB clear |
+
+- **The live CHART** (NAV **0**): the Asiana from above, to scale when the chart is that close (else 40 px), her
+  wake moving and bending in a turn, her heading line and the COG vector (6 minutes), her track (a point every 10 s),
+  the active leg's XTE limits (dotted), the next waypoint ringed, the box: BRG, DTG, ETA, XTE, the final distance.
+  **1** FOLLOW (on: she stays in the middle), **7 9** zoom (to 0.6 nm across), **0** the globe.
+- **DR**: when the fix is lost (DR AFTER, 10 s) the position goes on from the last fix with the gyro's heading and the
+  log's speed, or what you typed (DR COURSE, DR SPEED: a speed by hand). FIX shows the time without a fix and where
+  the course and speed come from (G gyro, C COG, M typed; L log, S SOG); when the fix comes back, how far the DR was.
+- **Alarms** (a beep, the alarm over the top bar, **ENTER** acknowledges): OFF TRACK (XTE over the limit), WAYPOINT,
+  ARRIVED, NO FIX: DEAD RECKONING, ANCHOR DRAGGING, IN THE ZONE (a platform's), MOB.
+- **MOB**: **R/S** on any GPS page or the live chart: the position now; NAV and the chart show its bearing and
+  distance until GPSSET clears it.
+- **Your objects**: `/NAV47/OBJECTS.CSV`, the web page's objects file (Route tab, *objects.csv*: `type, name, lat,
+  lon[, zone m[, orient[, face m[, side m]]]]`): platforms, rigs, wellheads, SPMs, wrecks, buoys, lights, ports with
+  their zones (dotted), the platforms to scale when they show, on CHART, VOYAGE, the live chart and BOW; IN THE ZONE
+  inside one.
+- **Your vessel's pictures**: two BMP files in `/NAV47/`, made or changed with any paint program (1, 4, 8, 24 or
+  32 bits, not compressed). Dark pixels are ink, light are paper; light pixels joined to the edge (the sky and the sea
+  round her) and pure magenta are see-through. FILES **LOAD** reads them again.
+  - `BOW.BMP`: over the bow from the bridge or the helideck, for **BOW**; up to 400 x 150, drawn at the bottom in the
+    middle (its top a little below the horizon).
+  - `SHIP.BMP`: the vessel from above, **bow up**, for the live **CHART**; up to 64 x 160, turned to her heading, at
+    her true length when the chart is that close, else its own size.
+  - Templates: `docs/vessel/BOW.BMP`, `docs/vessel/SHIP.BMP` (NAV47's own drawings). From a photo:
+    `python3 tools/vessel_bmp.py bow photo.jpg BOW.BMP --top 820 --dither --png check.png` (`--top`: the stem's row
+    in the photo); a picture from above: `python3 tools/vessel_bmp.py ship top.png SHIP.BMP --length 64`. The web
+    page takes the same files (Route tab, Bow view: *Bow picture*, *Ship icon*). A photo of your ship stays yours:
+    don't commit it.
+- **Tests**: `make test-gps`: the parser on known sentences and a synthetic log (GPS, GLONASS, Galileo, BeiDou, SBAS,
+  DGPS, a loss of the fix, the gyro, the log, bad checksums), the DR and the current against the log's, and the
+  passage against geographiclib (XTE, along-track, DTG, BRG on geodesic and rhumb legs; the advance, the alarms).
+  The simulator replays a log: `NAV47_NMEA=log.nmea build/sim F6 F6 F6 F1 WAIT:1000 ... SNAP:fix`.
 
 ## The screen on your PC (USB)
 

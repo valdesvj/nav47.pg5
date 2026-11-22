@@ -27,8 +27,56 @@ void usb_serial_write(uint8_t chan_nr, const char *buf, int len) {
   if (!f) f = fopen("acm.out", "wb");
   fputc(US_CHAN0_CHAR + chan_nr, f); fwrite(buf, 1, (size_t)(len > 255 ? 255 : len), f); fflush(f);
 }
+/* channel 2 in: NMEA. NAV47_NMEA=file replays a log (test/nmea/make_log.py: a blank line ends each second), its
+   second k due k seconds after the GPS went on; the web page pushes its lines (sim_nmea_push). */
+#include <stdlib.h>
+uint32_t sys_current_ms(void);
+#define QN 64
+static char q[QN][128];
+static int qh, qt;
+void sim_nmea_push(const char *line) {
+  if ((qt + 1) % QN == qh) return;                /* full: the line lost, as on the calculator */
+  snprintf(q[qt], sizeof q[qt], "%s\n", line);
+  qt = (qt + 1) % QN;
+}
+static FILE *nm;
+static int nm_done, nm_sec;
+static uint32_t nm_t0;
+static char nm_line[256];
+static int nm_have;
 int usb_serial_read_line(uint8_t chan_nr, uint8_t *buf, int buflen, uint8_t *is_overflow) {
-  (void)chan_nr; (void)buf; (void)buflen; if (is_overflow) *is_overflow = 0; return 0;
+  if (is_overflow) *is_overflow = 0;
+  if (!en || chan_nr != 2) return 0;
+  const char *l = NULL;
+  if (qh != qt) l = q[qh];
+  else {
+    if (!nm && !nm_done) {
+      const char *p = getenv("NAV47_NMEA");
+      nm = p ? fopen(p, "r") : NULL;
+      if (!nm) nm_done = 1;
+      nm_t0 = sys_current_ms();
+    }
+    if (!nm) return 0;
+    for (;;) {
+      if (!nm_have) {
+        if (!fgets(nm_line, sizeof nm_line, nm)) { fclose(nm); nm = NULL; nm_done = 1; return 0; }
+        nm_have = 1;
+      }
+      if (nm_line[0] == '\n' || nm_line[0] == '\r') {     /* the end of a second: the next one when it is due */
+        if (sys_current_ms() - nm_t0 < (uint32_t)(nm_sec + 1) * 1000u) return 0;
+        nm_sec++; nm_have = 0; continue;
+      }
+      l = nm_line;
+      break;
+    }
+  }
+  int n = (int)strlen(l);
+  if (buf) {
+    if (n > buflen) return -1;
+    memcpy(buf, l, (size_t)n + 1);
+  }
+  if (qh != qt) qh = (qh + 1) % QN; else nm_have = 0;
+  return n;
 }
 
 void sim_host_L(void) { memset(sent_ok, 0, sizeof sent_ok); }

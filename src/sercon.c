@@ -16,9 +16,11 @@
 #include "usbview.h"
 #include "usbser.h"
 #include "sercon_ifc.h"
+#include "gpsin.h"
 
 #define RD SER_IOCTL_READ
 static int on, was_en = -1, was_lcd = -1, redraws;
+static int gps_on, gps_lines, gps_ovf;            /* GPS: NMEA in on channel 2 (the console on, no LCD stream) */
 
 static int sw(int op) { return usb_serial_ioctl(op, RD); }
 static void put_back(int op, int v) { if (v == 0 || v == 1) usb_serial_ioctl(op, v); }   /* only a real 0 / 1 */
@@ -28,7 +30,7 @@ void usbview_on(void) {
 #ifdef SERCON_TINYUSB
   usbcon_ident("NAV47 screen", PROGRAM_VERSION);
 #endif
-  was_en = sw(SERIO_IS_ENABLED);
+  if (!gps_on) was_en = sw(SERIO_IS_ENABLED);       /* the GPS already has it on: its was_en stays */
   was_lcd = sw(SERIO_SEND_LCD);
   usb_serial_ioctl(SERIO_IS_ENABLED, 1);
 #ifdef SERCON_TINYUSB
@@ -41,8 +43,54 @@ void usbview_on(void) {
 void usbview_off(void) {
   if (!on) return;
   put_back(SERIO_SEND_LCD, was_lcd);              /* the user's DMCP settings, as they were */
-  put_back(SERIO_IS_ENABLED, was_en);
+  if (!gps_on) put_back(SERIO_IS_ENABLED, was_en);  /* the GPS still reads: the console stays on */
   on = 0;
+}
+
+/* GPS: the console on for channel 2's input (the bridge's NMEA), the LCD stream left as it is */
+int gpsin_on(void) {
+  if (gps_on) return 1;
+#ifdef SERCON_TINYUSB
+  if (!on) usbcon_ident("NAV47 GPS", PROGRAM_VERSION);
+#endif
+  if (!on) was_en = sw(SERIO_IS_ENABLED);
+  usb_serial_ioctl(SERIO_IS_ENABLED, 1);
+#ifdef SERCON_TINYUSB
+  if (sw(SERIO_IS_ENABLED) != 1) return 0;
+#endif
+  while (usb_serial_read_line(GPSIN_CH, NULL, USIN_CHAN_SIZE, NULL) > 0) {}   /* what waited: old */
+  gps_on = 1;
+  return 1;
+}
+
+void gpsin_off(void) {
+  if (!gps_on) return;
+  gps_on = 0;
+  if (!on) put_back(SERIO_IS_ENABLED, was_en);
+}
+
+int gpsin_is_on(void) { return gps_on; }
+int usb_any_on(void) { return on || gps_on; }
+void gpsin_counts(int *lines, int *ovf) { *lines = gps_lines; *ovf = gps_ovf; }
+
+/* the next whole line from channel 2, without its end: its length, 0 none */
+int gpsin_line(char *buf, int n) {
+  if (!gps_on) return 0;
+#ifdef SERCON_TINYUSB
+  usbcon_poll();
+#endif
+  for (;;) {
+    uint8_t ovf = 0;
+    int k = usb_serial_read_line(GPSIN_CH, (uint8_t *)buf, n - 1, &ovf);
+    if (k == 0) return 0;
+    if (k < 0) { usb_serial_read_line(GPSIN_CH, NULL, USIN_CHAN_SIZE, NULL); gps_ovf++; continue; }   /* too long */
+    if (ovf) { gps_ovf++; continue; }
+    buf[k] = 0;
+    while (k && (buf[k - 1] == '\n' || buf[k - 1] == '\r')) buf[--k] = 0;
+    if (!k) continue;
+    gps_lines++;
+    return k;
+  }
 }
 
 int usbview_is_on(void) { return on; }

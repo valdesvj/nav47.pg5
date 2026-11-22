@@ -801,6 +801,7 @@ function draw() {
   });
   { const [x, y, v] = proj(S.pos[0], S.pos[1]); if (v) { g.strokeStyle = css("--now"); g.lineWidth = 2; g.beginPath(); g.moveTo(x - 8, y); g.lineTo(x + 8, y); g.moveTo(x, y - 8); g.lineTo(x, y + 8); g.stroke(); } }
   if (VOY.on) { const p = VOY.at(); if (p) drawVessel(p.lat, p.lon, p.crs, R.speed >= 100, !VOY.playing && (VOY.t <= 0 || VOY.t >= 1)); }
+  if (typeof LIVE !== "undefined") LIVE.drawChart(g);         /* the GPS: the vessel, her track, the XTE limits (live.js) */
   /* the scale and the corner */
   g.font = "12px system-ui"; g.fillStyle = css("--soft");
   const la0 = unproj(CH.W / 2, CH.H / 2);
@@ -894,8 +895,11 @@ function routeTab() {
       <span><svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="none" stroke="var(--accent)" stroke-dasharray="2 2"/></svg> departure / arrival circle</span>
       <span id="cursor" class="mono"></span>
     </div></div>
+    <div class="card" id="bowcard" hidden><h2>Bow view <span class="meta">over the Asiana's bow from the helideck, with the GPS: the route a lane
+      (its edges the XTE limits), the waypoints' flags, your platforms</span></h2><div class="controls" id="bowpics" style="margin-bottom:6px"></div><canvas id="bowcv" style="width:100%;border-radius:8px;display:block"></canvas></div>
     <div class="card" id="plancard"></div>
     </div><div>
+    <div class="card" id="livecard"></div>
     <div class="card" id="routecard"></div>
     <div class="card" id="checkcard"></div>
     <div class="card" id="voycard"></div>
@@ -1140,15 +1144,18 @@ function planCard() {
       <td class="num">${i ? FMT.crs(rows[i - 1].rl) : ""}</td><td class="num">${i ? FMT.nm(w.leg) : ""}</td><td class="num">${i ? FMT.nm(w.cum) : ""}</td>
       <td>${i ? w.kind : ""}</td><td class="num">${FMT.dt(etd + w.cum / NM / R.speed / 24, off)}</td></tr>`; }).join("")}</table></div>
     <div class="controls" style="margin-top:8px"><button id="xcsv">CSV</button><button id="xnmea">NMEA</button><button id="xgpx">GPX</button>
-      <button id="xtxt">ROUTE.TXT</button><button id="xcalc">To the calculator</button></div>
+      <button id="xtxt">ROUTE.TXT</button><button id="xwpt" title="the route's waypoints for the calculator's list: /NAV47/WAYPTS.CSV">WAYPTS.CSV</button><button id="xcalc">To the calculator</button></div>
     <div class="meta">Steer: the rhumb course to the next point. G geodesic, R rhumb, P parallel (composite). ETA at ${R.speed} kn from the departure in Voyage.</div>`;
   $("xcsv").onclick = () => download("PLAN.CSV", planCSV());
   $("xnmea").onclick = () => download("PLAN.NMEA", planNMEA());
   $("xgpx").onclick = () => download("PLAN.GPX", planGPX());
   $("xtxt").onclick = () => download("ROUTE.TXT", routeTxt());
+  $("xwpt").onclick = () => download("WAYPTS.CSV", wayptsCsv());
   $("xcalc").onclick = () => {
     if (ROUTE.pts.length > 100) { alert(`The calculator holds 100 waypoints; this route has ${ROUTE.pts.length} points.`); return; }
-    if (confirm("Send this route to the calculator (its ROUTE.TXT) and open it?")) CALC.putAndRestart("ROUTE.TXT", routeTxt());
+    if (!confirm("Send this route (ROUTE.TXT) and your objects (OBJECTS.CSV) to the calculator and open it?")) return;
+    if (S.objects.length) localStorage.setItem("nav47fs:/simdisk/NAV47/OBJECTS.CSV", objectsCsv());
+    CALC.putAndRestart("ROUTE.TXT", routeTxt());
   };
 }
 function planCSV() {
@@ -1174,11 +1181,20 @@ function planGPX() {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="NAV47" xmlns="http://www.topografix.com/GPX/1/1"><rte><name>NAV47</name>\n` +
     r.map((w, i) => `<rtept lat="${w.lat.toFixed(7)}" lon="${nearLon(w.lon, 0).toFixed(7)}"><name>WP${String(i + 1).padStart(3, "0")}</name></rtept>`).join("\n") + "\n</rte></gpx>\n";
 }
+/* the objects file, for this page and the calculator (/NAV47/OBJECTS.CSV) */
+function objectsCsv() {
+  return "type,name,lat,lon,zone_m,orient,face_m,side_m\n" + S.objects.map(o => [o.type, `"${o.name.replace(/"/g, "'")}"`, o.lat.toFixed(7), o.lon.toFixed(7), o.r,
+    o.orient ?? "", o.orient !== null && o.orient !== undefined ? o.a : "", o.orient !== null && o.orient !== undefined && o.b !== o.a ? o.b : ""].join(",")).join("\n") + "\n";
+}
+/* the route's waypoints as the calculator's waypoints' list (/NAV47/WAYPTS.CSV: name, lat, lon) */
+function wayptsCsv() {
+  return "name,lat,lon\n" + S.route.wps.map((w, i) => `${(w.name || "WP" + String(i + 1).padStart(3, "0")).replace(/[,;"]/g, " ").slice(0, 12).toUpperCase()},${w.lat.toFixed(7)},${nearLon(w.lon, 0).toFixed(7)}`).join("\n") + "\n";
+}
 /* the calculator's ROUTE.TXT: the planned points (round the zones) as its waypoints, its sailing, split, ellipsoid, speed */
 function routeTxt() {
   const R = S.route;
   return `NAV47 ROUTE 1\n${["RL", "GC", "CS"][R.sail]}\nLIM ${R.lim.toFixed(1)}\nSPLIT ${R.split} ${(+R.val).toFixed(3)}\nELL ${R.ell}\nSPEED ${(+R.speed).toFixed(4)}\nETD ${(R.etd || 0).toFixed(6)}\n` +
-    ROUTE.pts.map(p => `${p.lat.toFixed(7)} ${nearLon(p.lon, 0).toFixed(7)}`).join("\n") + "\n";
+    ROUTE.pts.map(p => `${p.lat.toFixed(7)} ${nearLon(p.lon, 0).toFixed(7)}${p.name ? " " + String(p.name).replace(/[\s,;]+/g, " ").trim().slice(0, 12) : ""}`).join("\n") + "\n";
 }
 /* the calculator's ROUTE.TXT into the route: its waypoints, sailing, limit, split, ellipsoid, speed, departure */
 function loadRouteTxt(t) {
@@ -1239,8 +1255,7 @@ function objList() {
     S.view.lat0 = o.lat; S.view.lon0 = o.lon; S.view.k = Math.max(S.view.k, CH.W / (0.15 * D2R)); clampView(); draw(); objList(); });
   $("objload").onchange = e => Promise.all([...e.target.files].map(f => f.text().then(t => parseObjects(t, f.name)))).then(ls => {
     const add = ls.flat(); S.objects.push(...add); alert(`${add.length} objects loaded.`); refresh(); fit(add); draw(); });
-  $("objcsv").onclick = () => download("objects.csv", "type,name,lat,lon,zone_m,orient,face_m,side_m\n" + S.objects.map(o => [o.type, `"${o.name.replace(/"/g, "'")}"`, o.lat.toFixed(7), o.lon.toFixed(7), o.r,
-    o.orient ?? "", o.orient !== null && o.orient !== undefined ? o.a : "", o.orient !== null && o.orient !== undefined && o.b !== o.a ? o.b : ""].join(",")).join("\n") + "\n");
+  $("objcsv").onclick = () => download("objects.csv", objectsCsv());
   $("objex").onclick = exampleField;
   $("objclr").onclick = () => { if (confirm("Forget every object in this browser?")) { S.objects = []; S.route.wps.forEach(w => w.obj = null); refresh(); } };
 }
@@ -1395,7 +1410,7 @@ function voyCard() {
 }
 
 /* ---------------------------------------------------------------- the page */
-const TABS = [["route", "Route"], ["weather", "Weather"], ["almanac", "Almanac"], ["sky", "Sky"], ["tide", "Tide"], ["flow", "Flow"], ["zones", "Zones"], ["dp", "DP"], ["calc", "Calculator"]];
+const TABS = [["route", "Route"], ["weather", "Weather"], ["almanac", "Almanac"], ["sky", "Sky"], ["tide", "Tide"], ["flow", "Flow"], ["zones", "Zones"], ["dp", "DP"], ["gps", "GPS"], ["calc", "Calculator"]];
 function showTab(t) {
   S.tab = t; store.set("tab", t);
   document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
@@ -1403,6 +1418,7 @@ function showTab(t) {
   if (t === "route") resize();
   else if (t === "calc") CALC.start();
   else if (t === "weather") WX.show();
+  else if (t === "gps") GPS.show();
   else if (typeof TABS2 !== "undefined" && TABS2[t]) TABS2[t]();
 }
 function header() {
@@ -1420,7 +1436,7 @@ function header() {
   times.onchange = () => { S.times = times.value; save(); rerender(); };
   setInterval(() => { if (S.live) { show(); if (S.tab !== "route" && S.tab !== "calc") rerender(); } }, 5000);
 }
-function rerender() { if (S.tab === "route") { draw(); planCard(); voyCard(); } else if (typeof TABS2 !== "undefined" && TABS2[S.tab]) TABS2[S.tab](); }
+function rerender() { if (S.tab === "route") { draw(); planCard(); voyCard(); if (typeof LIVE !== "undefined") LIVE.card(); } else if (typeof TABS2 !== "undefined" && TABS2[S.tab]) TABS2[S.tab](); }
 
 /* #test=avoid: random fields, random routes between two objects; every leg checked with exact distances */
 function selfTest() {

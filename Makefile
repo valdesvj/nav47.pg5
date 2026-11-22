@@ -21,12 +21,15 @@ ZONES47 ?= ../zones47
 TIDE47_TEST ?= $(if $(TIDE47),$(TIDE47),../tide47)
 
 USB ?= sercon
+# the GPS: NMEA, the position (GPS / DR), the passage, the pages, your objects
+GPS_SRC = src/nmea.c src/navfix.c src/passage.c src/gpsui.c src/objects.c src/wpdb.c src/bmp.c
 C_INCLUDES += -Idmcp -Isrc -Isrc/usb -Ithird_party/tinyusb/src
 C_SOURCES  += dmcp/sys/pgm_syscalls.c
 ASM_SOURCES = dmcp/startup_pgm.s
 C_SOURCES += src/main.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
              src/c47scr.c src/views.c src/fonts21.c src/ntext.c src/moon47.c src/route.c \
-             src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c
+             src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c \
+             $(GPS_SRC)
 ifeq ($(USB),sercon)
 # the screen through DMCP5 3.58's serial console: DMCP streams the LCD (tools/dm42view.py)
 C_SOURCES += src/sercon.c
@@ -115,6 +118,15 @@ test-usb: | $(BUILD_DIR)
 	    test/usbcon_test.c src/usb/usbcon.c
 	$(BUILD_DIR)/usbcon_test
 
+# NAV47 GPS: src/nmea.c on the PC, on a synthetic log (test/nmea/make_log.py: made-up positions)
+test-gps: | $(BUILD_DIR)
+	$(PYTHON) test/nmea/make_log.py $(BUILD_DIR)/passage.nmea
+	gcc -std=gnu11 -Wall -Wextra -O1 -Isrc -o $(BUILD_DIR)/nmea_test test/nmea_test.c src/nmea.c src/navfix.c -lm
+	$(BUILD_DIR)/nmea_test $(BUILD_DIR)/passage.nmea
+	gcc -std=gnu11 -Wall -Wextra -O1 -Isrc -I$(GEO47_DIR) -o $(BUILD_DIR)/passage_test test/passage_test.c src/passage.c $(GEO47_SRC) -lm
+	$(BUILD_DIR)/passage_test > $(BUILD_DIR)/passage_out.txt
+	$(PYTHON) test/passage_verify.py $(BUILD_DIR)/passage_out.txt
+
 test:
 	$(PYTHON) test/test_astro.py $(ALMANAC47)
 	$(PYTHON) test/test_moon47.py $(ALMANAC47)
@@ -129,7 +141,7 @@ SIM_DEFS = $(if $(filter sercon,$(USB)),,-DSERCON_TINYUSB)
 SIM_SRC = test/sim/sim.c src/main.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
           src/c47scr.c src/views.c src/fonts21.c src/ntext.c src/moon47.c src/route.c $(SIM_USB) \
           src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c \
-          $(GEO47_SRC) src/geo_nav.c src/map47.c $(DPOPS_SRC)
+          $(GEO47_SRC) src/geo_nav.c src/map47.c $(DPOPS_SRC) $(GPS_SRC)
 $(BUILD_DIR)/gen/simfont.h: test/sim/gen_simfont.py
 	@mkdir -p $(BUILD_DIR)/gen
 	$(PYTHON) test/sim/gen_simfont.py $@
