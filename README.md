@@ -374,7 +374,8 @@ pip install -r requirements.txt   # the Python the tests and tools need (geograp
 | `src/route.c` | ROUTE: rhumb line and great circle |
 | `src/sercon.c`, `src/usb/usbcon.c`, `tools/dm42view.py` | the screen to the PC over DMCP5's serial console (DMCP's own, or played over TinyUSB), and its viewer |
 | `src/gfx.c` `fonts.c` | the other pages, C47 standardFont and tinyFont (`tools/gen_fonts.py`) |
-| `src/main.c` | the pages, keys, settings |
+| `src/main.c` | the menus, keys, main loop, SET, FILES, INFO, ZONES, the views; the state's types in `app.h` |
+| `src/tide_ui.c` `route_ui.c` `dp_ui.c` | the tide pages (STATNS, T&F, TIDE); ROUTE, PLAN, COMPARE, CHART, VOYAGE, ETA; DP OPS, ABS SKP |
 | memory | 262 KB of program flash. Static RAM 1.7 KB of 8 KB; the rest is on the heap |
 
 ## Data and credits

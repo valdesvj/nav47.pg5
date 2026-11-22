@@ -2,6 +2,7 @@
 # check.sh - make check: the simulator built with ASan and UBSan, walked through every page with a made-up route,
 # platforms, a GPS log and bad lines in OBJECTS.CSV. Any sanitizer report fails it.
 #   bash test/sim/check.sh            (from the repository's top; needs gcc with libasan/libubsan, python3)
+#   CHECK_SNAPS=dir bash test/sim/check.sh: every screen of every walk kept (a refactor: diff -r two runs)
 set -e
 cd "$(dirname "$0")/../.."
 TOP=$PWD; W=$(mktemp -d); trap 'rm -rf "$W"' EXIT
@@ -33,10 +34,15 @@ G="F6 F6 F6"
 fail=0; n=0
 run() {   # run NAME KEYS...: one walk from the start; a sanitizer report or a crash fails it
   local name=$1; shift; n=$((n + 1))
+  if [ -n "$CHECK_SNAPS" ]; then   # CHECK_SNAPS=dir: the screen after every key (not after WAIT) and the USB stream kept
+    local a=() i=0 k; for k in "$@"; do a+=("$k"); case $k in WAIT:*) ;; *) i=$((i + 1)); a+=("SNAP:${name}_$(printf %03d $i)");; esac; done
+    set -- "${a[@]}"; rm -f "$W"/*.pbm "$W/acm.out"
+  fi
   if ! (cd "$W" && NAV47_CLOCK="2026-11-22 09:00" NAV47_NMEA="$W/log.nmea" "$SIM" "$@" SNAP:x >"$W/out" 2>&1) \
      || grep -qE "ERROR: AddressSanitizer|runtime error:|LeakSanitizer" "$W/out"; then
     echo "FAIL $name"; grep -E "ERROR|runtime error|#[0-4] " "$W/out" | head -8; fail=1
   fi
+  if [ -n "$CHECK_SNAPS" ]; then mkdir -p "$CHECK_SNAPS"; cp "$W"/${name}_*.pbm "$CHECK_SNAPS"/; [ -f "$W/acm.out" ] && cp "$W/acm.out" "$CHECK_SNAPS/$name.acm" || true; fi
 }
 export ASAN_OPTIONS=detect_leaks=0:abort_on_error=0 UBSAN_OPTIONS=print_stacktrace=1
 run almanac  WAIT:300 F2 F3 WAIT:300 F4 F5 UP DOWN 4 6 8 2
