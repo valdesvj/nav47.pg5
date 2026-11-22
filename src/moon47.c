@@ -95,6 +95,12 @@ void moon47_page(double j, int south, Moon47 *p) {
       }
 }
 
+int moon47_name_index(const Moon47 *p) {
+  for (int k = 0; k < 4; k++)
+    if (fabs(pmod(p->elong - 90.0 * k + 180.0, 360.0) - 180.0) < RATE / 2) return 2 * k;
+  return 2 * ((int)(pmod(p->elong, 360.0) / 90.0) & 3) + 1;
+}
+
 int moon47_disc_runs(int r, double age, int south, int dx, int runs[2][2]) {
   double ct = cosd(age / M47_LUN * 360.0);
   if (ct == 0.0) ct = 1e-30;

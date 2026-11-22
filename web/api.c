@@ -117,12 +117,14 @@ K int api_alm(double jd, double lat, double lon, double tz) {
 }
 K const char *api_star_name(int n) { return STAR_NAME[n - 1]; }
 K int api_bright(int i) { return BRIGHT[i]; }
-/* OUT: lit %, age d, HP, SD, phase index, then the next 4 phases (JD, kind) */
+/* OUT: lit %, age d, HP, SD, phase index (moon47.py's), then the next 4 phases (JD, kind), then the name's index
+   (moon47_name_index: a principal phase only within half a day of it) */
 K void api_moon(double jd) {
   Moon47 p;
   moon47_page(jd, 0, &p);
   OUT[0] = p.lit; OUT[1] = p.age; OUT[2] = p.hp; OUT[3] = p.sd; OUT[4] = p.index;
   for (int i = 0; i < 4; i++) { OUT[5 + 2 * i] = p.next_t[i]; OUT[6 + 2 * i] = p.next_k[i]; }
+  OUT[13] = moon47_name_index(&p);
 }
 K const char *api_moon_name(int i) { return M47_NAMES[i]; }
 

@@ -92,8 +92,10 @@ sunset, meridian passage, twilight, the semi-diameters, the Moon's phase and age
 
 ![MOON](img/calc_moon.png)
 
-**MOON** (MOON47): the disc as seen from your latitude, the phase, % illuminated, age, HP and SD, the next four
-phases. **0** shows it as seen from the south. **ANIM** plays the Sun and the Moon across the sky: 24 frames, 30
+**MOON** (MOON47): the disc as seen from your latitude, the phase and the time to the next one ("FULL IN 2.4 d"),
+% illuminated, age, HP and SD, the next four phases. NEW MOON, FIRST QUARTER, FULL MOON and LAST QUARTER are instants:
+the page names them within half a day of the instant, and in between says crescent or gibbous (two days before the
+full: WAXING GIBBOUS, FULL IN 2 d). **0** shows it as seen from the south. **ANIM** plays the Sun and the Moon across the sky: 24 frames, 30
 minutes apart.
 
 ---

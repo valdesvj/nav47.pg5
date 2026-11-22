@@ -84,7 +84,7 @@ static int symbol(int id) { return id == 0 ? '@' : id == -1 ? '(' : id < 0 ? "<>
 static const char *body_name(int id) {
   return id == 0 ? "SUN" : id == -1 ? "MOON" : id < 0 ? PNAME[-id - 1] : STAR_NAME47[id - 1];
 }
-static int phase_index(double age) { return (int)(ipd(age / LUN * 8 + 0.5) % 8); }
+static int phase_now(double j) { Moon47 p; moon47_page(j, 0, &p); return moon47_name_index(&p); }   /* as MOON names it */
 static const char *daylight(double hc) { return hc > 0 ? "DAY" : hc > -12 ? "TWILIGHT" : "NIGHT"; }
 static const char *moon_word(const Al *al) {
   if (99.5 <= al->illum) return "FULL";
@@ -201,7 +201,7 @@ void view_almanac(Al *al) {
     c47_glyph(&SYMB, symbol(B[i].id), BL(y), 0);
     if (B[i].id > 0) c47_tiny_num(BL(y) + 7, 14, B[i].id);
   }
-  c47_glyph(&SYMB, '0' + phase_index(al->age), BL(12 * R + 1), 0);
+  c47_glyph(&SYMB, '0' + phase_now(al->j), BL(12 * R + 1), 0);
   c47_show();
   header(al, al->j, "ALMANAC");
   table_heads(R, &X);
@@ -539,6 +539,7 @@ static const char *const PHSHORT[4] = { "NEW", "1ST QTR", "FULL", "LAST QTR" };
 void view_moon(Al *al, int south) {
   Moon47 p;
   moon47_page(al->j, south, &p);
+  int ni = moon47_name_index(&p);
   c47_clear();
   const int cx = 70, cy = CY(98), r = 60;
   int runs[2][2];
@@ -550,24 +551,28 @@ void view_moon(Al *al, int south) {
   for (int i = 0; i < 8; i++) {                       /* the eight phases, today's inverted */
     int x = 6 + i * 20;
     c47_glyph(&SYMB, '0' + (south ? (8 - i) % 8 : i), BL(176), x);
-    if ((south ? (8 - i) % 8 : i) == p.index) c47_xor_box(BL(176) - 2, x - 3, 18, 16);
+    if ((south ? (8 - i) % 8 : i) == ni) c47_xor_box(BL(176) - 2, x - 3, 18, 16);
   }
   c47_show();
   char s[64], t[16];
   header(al, al->j, "MOON");
   const int X = 146;
-  nt(X, 20, M47_NAMES[p.index]);
+  nt(X, 20, M47_NAMES[ni]);
+  double dt = p.next_t[0] - al->j;                    /* the next of the four: FULL IN 2.2 d, or IN 7 h */
+  if (dt < 1) sprintf(s, "%s IN %ld h", PHSHORT[p.next_k[0]], (long)floor(dt * 24 + 0.5));
+  else sprintf(s, "%s IN %.1f d", PHSHORT[p.next_k[0]], dt);
+  nt(X, 36, s);
   sprintf(s, "LIT %ld%%   AGE %.1f d", (long)floor(p.lit + 0.5), p.age);
-  nt(X, 40, s);
-  sprintf(s, "HP %.1f'  SD %.1f'", p.hp, p.sd);
   nt(X, 56, s);
+  sprintf(s, "HP %.1f'  SD %.1f'", p.hp, p.sd);
+  nt(X, 72, s);
   for (int k = 0; k < 4; k++) {
     int y, m, dd;
     double h;
     jd_to_ymd(p.next_t[k] + al->tz / 24.0 + 1e-9, &y, &m, &dd, &h);
     f_hm(t, h);
     sprintf(s, "%-8s %02d-%02d %s", PHSHORT[p.next_k[k]], dd, m, t);
-    nt(X, 80 + R * k, s);
+    nt(X, 92 + R * k, s);
   }
   nt(1, 192, south ? "AS SEEN FROM THE SOUTH" : "AS SEEN FROM THE NORTH");
   nt_r(399, 192, "0 FLIP");
