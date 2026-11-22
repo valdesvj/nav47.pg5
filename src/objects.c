@@ -177,7 +177,7 @@ int obj_parse(const char *text) {
     int extra = 3;
     if (!geo_parse_pos(ps, &la, &lon)) {
       ps[0] = 0;
-      for (int i = 1; i < nr; i++) { strncat(ps, r[i], sizeof ps - strlen(ps) - 2); strcat(ps, " "); }
+      for (int i = 1; i < nr && strlen(ps) < sizeof ps - 2; i++) { strncat(ps, r[i], sizeof ps - strlen(ps) - 2); strcat(ps, " "); }
       if (!geo_parse_pos(ps, &la, &lon)) continue;
       extra = nr;
     }

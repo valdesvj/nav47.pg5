@@ -1,0 +1,6 @@
+# Python for NAV47's tests and tools on the PC (the calculator itself needs none):  pip install -r requirements.txt
+geographiclib>=2.0   # make test-gps, make test-geo, docs/manual/screens.sh: the reference geodesics
+mpmath>=1.3          # make test-geo: test/geo47/verify.py's high-precision checks
+Pillow>=10           # test/sim/render.py, docs/manual/screens.sh and demo_gif.sh: the screenshots and the GIF
+markdown>=3.4        # make manual: tools/make_manual.py (and Chrome or Chromium for the PDFs)
+numpy>=1.24          # tools/ticon_stations.py only (make data's NOAA/TICON stations)
