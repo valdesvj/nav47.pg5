@@ -145,5 +145,7 @@ const CALC = (() => {
     }
   }
   build();
-  return { lcd, saveAll, restore, start, putAndRestart, K };
+  /* keys pressed one after the other (the GPS tab: the calculator's GPS pages) */
+  function keys(list) { list.forEach((c, i) => setTimeout(() => press(K[c] !== undefined ? K[c] : K["N" + c]), 400 + 220 * i)); }
+  return { lcd, saveAll, restore, start, putAndRestart, K, keys };
 })();

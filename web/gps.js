@@ -101,9 +101,21 @@ const GPS = (() => {
                  ["GP", 20, 55, 225, 43], ["GP", 29, 27, 345, 39], ["GP", 18, 8, 165, 26], ["GL", 65, 30, 20, 37], ["GL", 66, 72, 100, 44],
                  ["GL", 81, 58, 300, 42], ["GA", 3, 60, 75, 45], ["GA", 8, 25, 150, 39], ["GA", 26, 70, 10, 46], ["GA", 31, 9, 270, 25],
                  ["GB", 6, 52, 130, 42], ["GB", 23, 64, 290, 44], ["GB", 28, 14, 80, 30]];
-    let [lat, lon] = S().pos, t = 0;
+    let [lat, lon] = S().pos, t = 0, run = 0;
+    const rows = () => (typeof ROUTE !== "undefined" && ROUTE.plan && ROUTE.plan.rows) || [];
+    const along = rows().length >= 2;                    /* a route: she sails it (a little off, as a vessel does) */
+    if (along) { lat = rows()[0].lat; lon = rows()[0].lon; }
+    const x = () => +(($("gpsx") || {}).value || (location.hash.match(/gpsx=(\d+)/) || [0, 1])[1]);   /* faster: 1 to 60 */
     const id = setInterval(() => {
-      const hdg = Math.floor(t / 300) % 2 ? 90 : 45, stw = 10;
+      let hdg = Math.floor(t / 300) % 2 ? 90 : 45, stw = 10;
+      if (along) {                                        /* the course to a point 0.3 nm ahead on the plan, off by a swing */
+        const r = rows(), tot = r[r.length - 1].cum;
+        const ahead = (s) => { let i = 1; while (i < r.length - 1 && r[i].cum < s) i++; const a = r[i - 1], b = r[i], ds = Math.max(0, Math.min(s - a.cum, b.cum - a.cum));
+          const q = APP.nav.inv(a.lat, a.lon, b.lat, b.lon), p = APP.nav.dir(a.lat, a.lon, q.a1, ds); return p; };
+        const tgt = ahead(Math.min(tot, run + 0.3 * 1852)), q = APP.nav.inv(lat, lon, tgt.lat, tgt.lon);
+        hdg = (q.a1 + 360 + 6 * Math.sin(t / 40) - 4) % 360;   /* the swing, and the current's set allowed for badly */
+        if (run >= tot) stw = 0;
+      }
       const ve = stw * Math.sin(hdg * D2R) + 1.2 * Math.sin(135 * D2R), vn = stw * Math.cos(hdg * D2R) + 1.2 * Math.cos(135 * D2R);
       const sog = Math.hypot(ve, vn), cog = (Math.atan2(ve, vn) / D2R + 360) % 360;
       const d = new Date(), hh = d.toISOString().slice(11, 19).replace(/:/g, "") + ".00", dd = d.toISOString().slice(2, 10).split("-").reverse().join("");
@@ -123,8 +135,9 @@ const GPS = (() => {
               `,${String(s[1]).padStart(2, "0")},${String(s[2]).padStart(2, "0")},${String(Math.round(s[3] + t / 60) % 360).padStart(3, "0")},${s[4] + Math.round(2 * Math.sin(t / 7 + s[1]))}`).join("") + ",1"));
         });
       }
-      const p = APP.nav.dir(lat, lon, cog, sog * 1852 / 3600); lat = p.lat; lon = p.lon; t++;
-      status(`demo: a made-up track from the DR, ${t} s`);
+      const k = x(), p = APP.nav.dir(lat, lon, cog, sog * 1852 / 3600 * k); lat = p.lat; lon = p.lon; t += k;
+      run += stw * 1852 / 3600 * k;
+      status(along ? `demo: along the route, ${k}× (${(run / 1852).toFixed(1)} nm run)` : `demo: a made-up track from the DR, ${t} s`);
     }, 1000);
     src = "demo"; stopSrc = () => clearInterval(id);
   }
@@ -194,6 +207,7 @@ const GPS = (() => {
     const g = read();
     if (!g) return;
     st = g;
+    if (!$("gpsfix")) return;
     const live = g.fixAge >= 0 && g.fixAge < 10;
     const q = Module.UTF8ToString(Module.ccall("api_qual_name", "number", ["number"], [live ? g.q : 0]));
     const counts = SYS.map((n, k) => { const a = sats.filter(s => s.sys === k); return a.length ? `<span class="chip">${n} ${a.filter(s => s.used).length}/${a.length}</span>` : ""; }).join("");
@@ -217,6 +231,10 @@ const GPS = (() => {
       </table>`;
     sky($("gpssky")); bars($("gpsbars"));
     $("gpsraw").textContent = last.join("\n");
+    followStep(g);
+  }
+  function followStep(g) {
+    const live = g && g.fixAge >= 0 && g.fixAge < 10;
     if (follow && live && performance.now() - followT > 10000) {           /* the DR follows: every 10 s */
       followT = performance.now();
       const dr = $("dr"); dr.value = F().pos(g.lat, g.lon); dr.dispatchEvent(new Event("change"));
@@ -231,7 +249,9 @@ const GPS = (() => {
           <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
             <button id="gpsser">Connect a GPS (USB / serial)</button>
             <label>Baud <select id="gpsbaud"><option>4800</option><option>9600</option><option>38400</option><option>115200</option></select></label>
-            <button id="gpsdemo">Demo</button> <button id="gpsstop">Stop</button></div>
+            <button id="gpsdemo" title="a made-up vessel: along the route if there is one">Demo</button>
+            <select id="gpsx" title="the demo, faster"><option>1</option><option>5</option><option>10</option><option>30</option><option>60</option></select>×
+            <button id="gpsstop">Stop</button></div>
           <div style="margin-top:6px"><label>Replay a log <input type="file" id="gpslog" accept=".nmea,.txt,.log"></label>
             <label>speed <select id="gpsspeed"><option>1</option><option>2</option><option>5</option><option>10</option></select></label></div>
           <div class="meta" id="gpsstat">no source</div>
@@ -242,6 +262,8 @@ const GPS = (() => {
         <div class="card"><h2>To the calculator</h2>
           <label><input type="checkbox" id="gpscalctab" checked> To the Calculator tab's program (its FIX SATS NAV BOW pages;
             there: GPS SET, NMEA INPUT ON)</label>
+          <div style="margin-top:6px"><button id="gpsopen">Open on the calculator</button> <span class="meta">its FIX page (then SATS NAV BOW;
+            its NMEA input is on here)</span></div>
           <div style="margin-top:6px"><button id="gpscalc">Connect the DM42n (USB)</button> <span class="meta" id="calcstat">this page as the bridge:
             the sentences NAV47 uses, paced for its buffer (as tools/nmea_bridge.py)</span></div>
         </div>
@@ -261,9 +283,17 @@ const GPS = (() => {
     $("gpsfollow").onchange = e => { follow = e.target.checked; followT = 0; };
     $("gpscalctab").onchange = e => { toCalcTab = e.target.checked; };
     $("gpscalc").onclick = connectCalc;
-    setInterval(() => { if (S().tab === "gps") show(); else if (follow) show(); }, 1000);
-    if (/gpsdemo/.test(location.hash)) demo();                 /* #tab=gps&gpsdemo: the demo at once (tests, pictures) */
+    $("gpsopen").onclick = () => { toCalcTab = true; $("gpscalctab").checked = true; APP.showTab("calc"); CALC.keys(["EXIT", "F6", "F6", "F6", "F1"]); };
   }
+  /* every second: the state read; the Route tab's live layer fed; this tab shown when it is open */
+  setInterval(() => {
+    if (!window.Module || !Module.ready || typeof APP === "undefined" || !window.NAV47_UP) return;
+    if (S().tab === "gps") { show(); }
+    else if (src || follow) { st = read(); followStep(st); }
+    if (typeof LIVE !== "undefined" && st) LIVE.tick(st, sats);
+  }, 1000);
+  /* #gpsdemo: the demo at once (tests, pictures), when the page is up */
+  if (/gpsdemo/.test(location.hash)) { const w = setInterval(() => { if (window.NAV47_UP) { clearInterval(w); demo(); } }, 200); }
 
-  return { show, line, demo, stop };
+  return { show, line, demo, stop, state: () => st, sats: () => sats, running: () => !!src };
 })();

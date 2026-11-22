@@ -72,6 +72,9 @@ int gps_init(void) {
   P->fc.mode = POS_AUTO; P->fc.dr_crs = -1; P->fc.dr_kn = 0; P->fc.timeout = 10;
   P->alarms = 1; P->anc_r = 80; P->sat_sys = GNSS_N; P->edit = -1;
   P->last_hdg = NAN;
+#ifdef NAV47_WEB
+  P->input = 1;                                        /* the web page: its GPS tab feeds the program, input on */
+#endif
   return 1;
 }
 

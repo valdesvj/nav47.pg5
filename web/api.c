@@ -64,21 +64,25 @@ K int api_geod_pts(double la1, double lo1, double la2, double lo2, int n) {
 /* the plan: IN holds nwp (lat, lon) pairs; sail 0 RL 1 GC 2 CS; split 0 none 1 every val NM 2 val legs 3 meridians.
  * OUT: 10 a waypoint: lat lon leg_m cum_m crs_in crs_out rl_crs rl_m kind flags. Returns the waypoints, < 0 an error */
 static route_t *R;
-K int api_plan(int nwp, int sail, double lim, int split, double val) {
+static int build_plan(route_t *r, int nwp, int sail, double lim, int split, double val) {
   static const sail_t S[3] = { SAIL_RHUMB, SAIL_GEOD, SAIL_COMPOSITE };
+  double v = split == SPLIT_DIST ? val * 1852.0 : val;
+  route_init(r, &G);
+  int rc0 = ROUTE_OK;
+  for (int i = 1; i < nwp; i++) {
+    int rc = route_add_leg(r, IN[0], IN[1], IN[2 * i], IN[2 * i + 1], S[sail % 3], lim, (split_t)split, v);
+    if (rc == ROUTE_ELIMIT || rc == ROUTE_ECOMP)
+      rc = route_add_leg(r, 0, 0, IN[2 * i], IN[2 * i + 1], SAIL_GEOD, 0, (split_t)split, v);
+    if (rc != ROUTE_OK && rc0 == ROUTE_OK) rc0 = rc;
+  }
+  route_finish(r);
+  return rc0;
+}
+K int api_plan(int nwp, int sail, double lim, int split, double val) {
   ready();
   if (!R && !(R = (route_t *)calloc(1, sizeof *R))) return -100;
   if (nwp < 2) return 0;
-  double v = split == SPLIT_DIST ? val * 1852.0 : val;
-  route_init(R, &G);
-  int rc0 = ROUTE_OK;
-  for (int i = 1; i < nwp; i++) {
-    int rc = route_add_leg(R, IN[0], IN[1], IN[2 * i], IN[2 * i + 1], S[sail % 3], lim, (split_t)split, v);
-    if (rc == ROUTE_ELIMIT || rc == ROUTE_ECOMP)
-      rc = route_add_leg(R, 0, 0, IN[2 * i], IN[2 * i + 1], SAIL_GEOD, 0, (split_t)split, v);
-    if (rc != ROUTE_OK && rc0 == ROUTE_OK) rc0 = rc;
-  }
-  route_finish(R);
+  int rc0 = build_plan(R, nwp, sail, lim, split, val);
   int n = R->n > 800 ? 800 : R->n;
   for (int i = 0; i < n; i++) {
     const wpt_t *w = &R->w[i];
@@ -421,4 +425,45 @@ K int api_gps_state(double ms) {
   v[25] = n;
   memcpy(OUT, v, sizeof v);
   return n;
+}
+
+/* ---------------------------------------------------------------- the passage monitored (web/live.js): src/passage.c on
+   the plan api_plan built last (the Route tab's), as on the calculator */
+#include "passage.h"
+static Passage PS;
+static route_t *PR;                               /* the monitored plan: its own (COMPARE builds plans too) */
+/* the plan to monitor: IN as api_plan's; the leg kept when the route is the same length */
+K int api_psg_plan(int nwp, int sail, double lim, int split, double val) {
+  ready();
+  if (!PR && !(PR = (route_t *)calloc(1, sizeof *PR))) return -100;
+  if (nwp < 2) { PR->n = 0; return 0; }
+  build_plan(PR, nwp, sail, lim, split, val);
+  return PR->n;
+}
+static int ps_ready;
+static void ps_init(void) { if (!ps_ready) { psg_init(&PS); ps_ready = 1; } }
+K void api_psg_cfg(double xte_lim, double arr_r, int auto_adv) { ps_init(); PS.xte_lim = xte_lim; PS.arr_r = arr_r; PS.auto_adv = auto_adv; }
+K int api_psg_start(double lat, double lon) { ps_init(); if (!PR || PR->n < 2) return 0; psg_start(&PS, PR, &G, lat, lon); return PS.leg; }
+K void api_psg_step(int dir) {
+  ps_init();
+  if (!PR || PR->n < 2) return;
+  psg_step(&PS, PR, dir);
+}
+K void api_psg_stop(void) { ps_init(); PS.active = 0; }
+/* OUT: 0 active 1 leg 2 done 3 xte 4 atd 5 leg_nm 6 brg 7 dtg 8 cts 9 next_crs 10 to_user 11 user_no 12 dtg_user
+   13 dtg_final 14 kn 15 ttg_user 16 ttg_final 17 alarm 18 event (then cleared) 19 n 20 track lat 21 track lon */
+K int api_psg_update(double lat, double lon, double kn, double plan_kn, int by_hand) {
+  ps_init();
+  if (!PR || PR->n < 2) { OUT[0] = 0; return 0; }
+  int adv = PS.auto_adv;
+  if (by_hand) PS.auto_adv = 0;
+  psg_update(&PS, PR, &G, lat, lon, kn, plan_kn);
+  PS.auto_adv = adv;
+  double tl = lat, to = lon;
+  if (PS.active) psg_track_point(&PS, PR, &G, &tl, &to);
+  double v[22] = { PS.active, PS.leg, PS.done, PS.xte, PS.atd, PS.leg_nm, PS.brg, PS.dtg, PS.cts, PS.next_crs, PS.to_user,
+                   PS.user_no, PS.dtg_user, PS.dtg_final, PS.kn, PS.ttg_user, PS.ttg_final, PS.alarm, PS.event, PR->n, tl, to };
+  memcpy(OUT, v, sizeof v);
+  PS.event = 0;
+  return PS.active;
 }

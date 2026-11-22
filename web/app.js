@@ -801,6 +801,7 @@ function draw() {
   });
   { const [x, y, v] = proj(S.pos[0], S.pos[1]); if (v) { g.strokeStyle = css("--now"); g.lineWidth = 2; g.beginPath(); g.moveTo(x - 8, y); g.lineTo(x + 8, y); g.moveTo(x, y - 8); g.lineTo(x, y + 8); g.stroke(); } }
   if (VOY.on) { const p = VOY.at(); if (p) drawVessel(p.lat, p.lon, p.crs, R.speed >= 100, !VOY.playing && (VOY.t <= 0 || VOY.t >= 1)); }
+  if (typeof LIVE !== "undefined") LIVE.drawChart(g);         /* the GPS: the vessel, her track, the XTE limits (live.js) */
   /* the scale and the corner */
   g.font = "12px system-ui"; g.fillStyle = css("--soft");
   const la0 = unproj(CH.W / 2, CH.H / 2);
@@ -894,8 +895,11 @@ function routeTab() {
       <span><svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="none" stroke="var(--accent)" stroke-dasharray="2 2"/></svg> departure / arrival circle</span>
       <span id="cursor" class="mono"></span>
     </div></div>
+    <div class="card" id="bowcard" hidden><h2>Bow view <span class="meta">over the Asiana's bow from the helideck, with the GPS: the route a lane
+      (its edges the XTE limits), the waypoints' flags, your platforms</span></h2><canvas id="bowcv" style="width:100%;border-radius:8px;display:block"></canvas></div>
     <div class="card" id="plancard"></div>
     </div><div>
+    <div class="card" id="livecard"></div>
     <div class="card" id="routecard"></div>
     <div class="card" id="checkcard"></div>
     <div class="card" id="voycard"></div>
@@ -1432,7 +1436,7 @@ function header() {
   times.onchange = () => { S.times = times.value; save(); rerender(); };
   setInterval(() => { if (S.live) { show(); if (S.tab !== "route" && S.tab !== "calc") rerender(); } }, 5000);
 }
-function rerender() { if (S.tab === "route") { draw(); planCard(); voyCard(); } else if (typeof TABS2 !== "undefined" && TABS2[S.tab]) TABS2[S.tab](); }
+function rerender() { if (S.tab === "route") { draw(); planCard(); voyCard(); if (typeof LIVE !== "undefined") LIVE.card(); } else if (typeof TABS2 !== "undefined" && TABS2[S.tab]) TABS2[S.tab](); }
 
 /* #test=avoid: random fields, random routes between two objects; every leg checked with exact distances */
 function selfTest() {
