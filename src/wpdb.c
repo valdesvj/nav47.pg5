@@ -18,7 +18,7 @@
 #define ROW0 34
 
 typedef struct { double lat, lon; char name[WP_NAME]; } Wp;
-typedef struct { short k; double nm, brg; } Row;          /* k >= 0 a waypoint, < 0 the object -k - 1 */
+typedef struct { short k; float nm, brg; } Row;            /* k >= 0 a waypoint, < 0 the object -k - 1 */
 
 static Wp *W;
 static int NW, cur, top, pick, sortn = 1, objs = 1, rows_n;
@@ -129,8 +129,8 @@ static void build(void) {
     if (rows[i].k >= 0) { a = W[rows[i].k].lat; b = W[rows[i].k].lon; }
     else { const Obj *o = obj_get(-rows[i].k - 1); a = o->lat; b = o->lon; }
     double dl = fmod(b - lo + 540.0, 360.0) - 180.0, e = dl * cos((a + la) / 2 * D2R), n = a - la;
-    rows[i].nm = 60 * hypot(e, n);
-    rows[i].brg = fmod(atan2(e, n) / D2R + 360.0, 360.0);
+    rows[i].nm = (float)(60 * hypot(e, n));
+    rows[i].brg = (float)fmod(atan2(e, n) / D2R + 360.0, 360.0);
   }
   for (int i = 1; i < rows_n; i++)                         /* by distance, or by name (the objects after) */
     for (int j = i; j > 0; j--) {
