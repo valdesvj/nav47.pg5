@@ -131,6 +131,12 @@ bridge keeps the sentences NAV47 uses (RMC GGA GNS GSA VTG ZDA GST, HDT THS HDG,
 latest, 200 bytes at a time. The web page's **GPS** tab does the same from Chrome (Web Serial): *Connect a GPS*,
 *Connect the DM42n*.
 
+![The web page's GPS tab](docs/gps_web.png)
+
+![FIX, SATS, NAV, BOW, the live CHART, DR](docs/gps_views.png)
+
+*(Simulator pictures: a made-up track from test/nmea/make_log.py, made-up platforms.)*
+
 | Page | |
 |---|---|
 | **FIX** | the position (big), the source: **GPS / DGPS / RTK / DR / SET**; 2D / 3D, the satellites used of those seen, PDOP HDOP VDOP, the DGPS station and its age, the error (GST, 1σ), the GPS's UT against the clock; SOG COG, the gyro's HDG, the log's STW. **7** drops the anchor (the anchor watch: its distance and bearing, an alarm outside the radius). **ENTER**: the Sun's bearing by the gyro, typed: the gyro error (the azimuth from the almanac) |
