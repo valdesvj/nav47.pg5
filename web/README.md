@@ -39,6 +39,24 @@ or `name, lat, lon`; positions as `27.2` or `27 12.0N`), GeoJSON, GPX or KML poi
 field (invented positions) to try it. **Your objects and routes stay in this browser (localStorage); they are never
 sent anywhere and never go into this repository.**
 
+
+**Platforms to scale.** A platform can carry its orientation and size: the bearing its face 0 looks to, then face 0's
+length, then the other side. One length makes a square, two a rectangle; with only the orientation it is 50 m. The
+chart draws it to scale, turned, face 0 in red. Picked in the DP tab, it brings its orientation and size with it.
+
+```
+type,name,lat,lon,zone_m,orient,face_m,side_m
+platform,Alpha,27.1000,50.2000,500,030,40          # a 40 m square, face 0 looking to 030
+platform,Bravo,27.1045,50.2045,500,120,60,35       # 60 m (face 0) x 35 m
+platform,Charlie,27 05.8N,050 12.3E,500,045        # 50 m
+platform,Delta,27.0985,50.1950,500                 # no orientation: a symbol
+```
+
+The older files still load: `type,name,lat,lon[,zone_m]`, `name,lat,lon`, positions as 27.1 or 27 06.0N. A header
+row may name the columns in any order, and extra columns are ignored. The objects table edits them too (Face° and
+size: `40` or `60x35`). Save CSV writes every column. ROUTE.TXT lines may also carry extra columns after `lat lon`,
+such as a name: the web page and the calculator both still load the waypoints.
+
 ## Tide and flow files
 
 The page has TICON-3's tide gauges worldwide (CC BY 4.0, `make ticon`: 2343 coastal and harbour gauges of GESLA-3,
