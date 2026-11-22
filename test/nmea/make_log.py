@@ -82,12 +82,14 @@ def main():
     a.add_argument("--drift", type=float, default=1.2)
     a.add_argument("--lost", default="300:90", help="start s:length s of the loss of the fix ('' none)")
     a.add_argument("--date", default="2026-11-22T06:00:00")
+    a.add_argument("--rot", type=float, default=0, help="the rate of turn, degrees a minute (0: the new course at once)")
     o = a.parse_args()
     legs = [(float(c), float(m) * 60) for c, m in (x.split(":") for x in o.legs.split(","))]
     lost0, lostn = (int(x) for x in o.lost.split(":")) if o.lost else (-1, 0)
     t0 = dt.datetime.fromisoformat(o.date)
     lat, lon = o.start
     lines = []
+    head = legs[0][0]
     for t in range(int(o.minutes * 60)):
         acc, hdg = 0, legs[-1][0]
         for c, d in legs:
@@ -95,6 +97,10 @@ def main():
                 hdg = c
                 break
             acc += d
+        if o.rot > 0:                                   # the ship swings to the new course at the rate of turn
+            dh = (hdg - head + 540) % 360 - 180
+            head = (head + max(-o.rot / 60, min(o.rot / 60, dh))) % 360
+            hdg = head
         # ground vector = water vector + current
         ve = o.stw * math.sin(math.radians(hdg)) + o.drift * math.sin(math.radians(o.set))
         vn = o.stw * math.cos(math.radians(hdg)) + o.drift * math.cos(math.radians(o.set))
