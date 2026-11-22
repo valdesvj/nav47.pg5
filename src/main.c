@@ -871,7 +871,7 @@ static void cfg_save(void) {
 
 static void cfg_load(void) {
   Cfg *c = &N->cfg;
-  c->lat = 26.5; c->lon = 50.1667; c->tz = 3; c->live = 1; c->fixed_jd = jd_ymd(2026, 11, 2, 12);
+  c->lat = 26 + 30 / 60.0; c->lon = 50 + 10 / 60.0; c->tz = 3; c->live = 1; c->fixed_jd = jd_ymd(2026, 11, 2, 12);
   c->wdir = 0; c->wkn = 0; c->zone = -1; c->tauto = 1; c->dcauto = 1; c->dsauto = 1;
   char *t = read_text(CFGFILE);
   if (!t) return;

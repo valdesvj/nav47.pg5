@@ -378,7 +378,7 @@ static void draw_fix(void) {
     long age = g->rx_ms ? (long)((now - g->rx_ms) / 1000) : -1;
     if (age < 0) strcpy(s, "waiting for NMEA"); else if (age > 3) sprintf(s, "no data %lds", age); else s[0] = 0;
     if (s[0]) nt_r(LCD_X - 4, y, s);
-  } else if (!P->input && f->src != SRC_SET) nt_r(LCD_X - 4, y, "input OFF");
+  } else if (!P->input && f->src == SRC_GPS) nt_r(LCD_X - 4, y, "input OFF");   /* DR: its own line there; the strip says input off */
   /* the position, big */
   y += 20;
   fmt_pos(s, f->lat, 1); big(6, y, s, 2);

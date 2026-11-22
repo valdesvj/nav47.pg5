@@ -19,8 +19,8 @@
 #define USIN_CHAN_SIZE      256       /* bytes buffered per input channel */
 #define USIN_MAX_READLINES  16
 
-#define SER_IOCTL_READ      (1 << 31) /* val: read the switch */
-#define SER_IOCTL_INVALID   (1 << 31) /* returned for an unknown op */
+#define SER_IOCTL_READ      INT32_MIN /* val: read the switch (bit 31; 1 << 31 overflows an int) */
+#define SER_IOCTL_INVALID   INT32_MIN /* returned for an unknown op */
 
 #define SERIO_IS_ENABLED    0x01      /* RW the serial console on / off (DMCP's menu item) */
 #define SERIO_IS_ACTIVE     0x02      /* R  enabled and the USB cable in */

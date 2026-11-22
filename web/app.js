@@ -103,7 +103,7 @@ const store = {
 const S = {
   tab: store.get("tab", "route"),
   live: true, jd: jdOf(Date.now()),
-  pos: store.get("pos", [26.5, 50.1667]),
+  pos: store.get("pos", [26 + 30 / 60, 50 + 10 / 60]),
   times: store.get("times", "ut") === "ut" ? "ut" : "zt",
   route: Object.assign({ wps: [], sail: 1, lim: 60, split: 0, val: 10, ell: 0, avoid: true, speed: 12, etd: null, margin: 50, clear: 50, len: 95 },
                        store.get("route", {})),
