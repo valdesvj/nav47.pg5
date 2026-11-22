@@ -800,7 +800,8 @@ function draw() {
     if (S.sel && S.sel.t === "w" && S.sel.i === i) { g.beginPath(); g.arc(x, y, 11, 0, 2 * Math.PI); g.stroke(); }
   });
   { const [x, y, v] = proj(S.pos[0], S.pos[1]); if (v) { g.strokeStyle = css("--now"); g.lineWidth = 2; g.beginPath(); g.moveTo(x - 8, y); g.lineTo(x + 8, y); g.moveTo(x, y - 8); g.lineTo(x, y + 8); g.stroke(); } }
-  if (VOY.on) { const p = VOY.at(); if (p) drawVessel(p.lat, p.lon, p.crs, R.speed >= 100, !VOY.playing && (VOY.t <= 0 || VOY.t >= 1)); }
+  const gpsLive = typeof LIVE !== "undefined" && LIVE.active();   /* the GPS's vessel: the only one then */
+  if (VOY.on && !gpsLive) { const p = VOY.at(); if (p) drawVessel(p.lat, p.lon, p.crs, R.speed >= 100, !VOY.playing && (VOY.t <= 0 || VOY.t >= 1)); }
   if (typeof LIVE !== "undefined") LIVE.drawChart(g);         /* the GPS: the vessel, her track, the XTE limits (live.js) */
   /* the scale and the corner */
   g.font = "12px system-ui"; g.fillStyle = css("--soft");
@@ -854,7 +855,7 @@ const VOY = {
 };
 function hud() {
   const h = $("hud"); if (!h) return;
-  if (!VOY.on || ROUTE.plan.rows.length < 2) { h.hidden = true; return; }
+  if (!VOY.on || ROUTE.plan.rows.length < 2 || (typeof LIVE !== "undefined" && LIVE.active())) { h.hidden = true; return; }
   h.hidden = false;
   const p = VOY.at(), H = VOY.hours(), gone = H * VOY.t, etd = VOY.etd(), off = zd(), lab = off ? "ZT" : "UT";
   const plane = S.route.speed >= 100;
@@ -1372,6 +1373,7 @@ function voyCard() {
       <label>Departure UT <input type="datetime-local" id="etd" value="${iso}" step="60"></label><button id="etdnow" class="small">now</button>
       <label>Arrival UT <input type="datetime-local" id="eta" value="${new Date(msOf(etd + H / 24)).toISOString().slice(0, 16)}" step="60"></label>
       <label title="a new departure keeps the arrival (the speed follows), else the speed (the arrival follows)"><input type="checkbox" id="keepeta" ${S.keepEta ? "checked" : ""}> a new departure keeps the arrival</label></div>
+    ${typeof LIVE !== "undefined" && LIVE.active() ? '<div class="meta">The GPS is live: the chart shows her real position (Live); the voyage player waits until the GPS stops.</div>' : ""}
     <div class="controls" style="margin-top:6px"><button id="voyplay">Play</button><input type="range" id="voyt" min="0" max="1000" value="${Math.round(VOY.t * 1000)}" style="flex:1">
       <label><input type="checkbox" id="follow" checked> follow</label></div>
     ${ROUTE.check && (ROUTE.check.land.length || ROUTE.check.hits.length) ? `<div class="meta" style="color:var(--now);font-weight:600">⛔ Not a safe route
@@ -1403,7 +1405,9 @@ function voyCard() {
   document.querySelectorAll("[data-use]").forEach(b => b.onclick = () => { R.speed = +b.dataset.use; save(); voyCard(); planCard(); draw(); });
   $("keepeta").onchange = e => { S.keepEta = e.target.checked; store.set("keepEta", S.keepEta); };
   $("etdnow").onclick = () => { R.etd = null; save(); voyCard(); planCard(); draw(); };
-  $("voyplay").onclick = () => { VOY.on = true; if (VOY.t >= 1) VOY.t = 0; VOY.playing = !VOY.playing; VOY.last = 0; voyUI(); if (VOY.playing) requestAnimationFrame(VOY.tick); else draw(); };
+  $("voyplay").onclick = () => {
+    if (typeof LIVE !== "undefined" && LIVE.active()) { alert("The GPS is live: its vessel is on the chart. Stop the GPS (GPS tab) to play the voyage."); return; }
+    VOY.on = true; if (VOY.t >= 1) VOY.t = 0; VOY.playing = !VOY.playing; VOY.last = 0; voyUI(); if (VOY.playing) requestAnimationFrame(VOY.tick); else draw(); };
   $("voyt").oninput = e => { VOY.on = true; VOY.playing = false; VOY.t = e.target.value / 1000; voyUI();
     if ($("follow").checked) { const p = VOY.at(); if (p) { S.view.lat0 = p.lat; S.view.lon0 = p.lon; clampView(); } } draw(); };
   voyUI();

@@ -127,7 +127,9 @@ const LIVE = (() => {
         pos.set = (Math.atan2(L.cur.e, L.cur.n) / D2R + 360) % 360; pos.drift = Math.hypot(L.cur.e, L.cur.n);
       }
     }
+    if (!L.pos && typeof VOY !== "undefined") { VOY.on = false; VOY.playing = false; }   /* the GPS live: the voyage player steps aside */
     L.pos = pos;
+    L.posT = now;
     if (!L.trail.length || now - L.trailT > 10000) { L.trail.push([pos.lat, pos.lon]); L.trailT = now; if (L.trail.length > 3000) L.trail.shift(); }
     /* the passage */
     L.psg = null;
@@ -509,5 +511,7 @@ const LIVE = (() => {
     if (++tk % 2 === 0) { L.frame++; draw(); }
   }, 250);
 
-  return { tick, drawChart, card, bow, state: () => L, cfg };
+  /* the GPS live: a position in the last 15 s (the voyage player and its box step aside) */
+  const active = () => !!L.pos && performance.now() - (L.posT || 0) < 15000;
+  return { tick, drawChart, card, bow, state: () => L, cfg, active };
 })();
