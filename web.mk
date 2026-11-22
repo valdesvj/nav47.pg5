@@ -3,7 +3,7 @@
 # also works opened as a file. Never private data: the private tide table is made empty here, whatever TIDE47 says.
 EMCC ?= $(firstword $(wildcard /usr/lib/emscripten/emcc) emcc)
 WEB_OUT = web/nav47.js
-WEB_SRC = $(filter-out %tidedata_priv.c %bowimg.c,$(SIM_SRC)) build/web/tidedata_priv.c build/web/bowimg.c web/api.c
+WEB_SRC = $(filter-out %tidedata_priv.c,$(SIM_SRC)) build/web/tidedata_priv.c web/api.c
 WEB_API = $(shell grep -o 'api_[a-z0-9_]*' web/api.c | sort -u | sed 's/^/_/' | paste -sd, -)
 WEB_NOAA = $(sort $(wildcard build/noaa/N*.TID))
 WEB_TICON = $(sort $(wildcard build/ticon/T*.TID))
@@ -15,11 +15,10 @@ WEB_FLAGS = -O2 -std=gnu11 -w -ffp-contract=off '-D__packed=__attribute__((__pac
             $(foreach f,$(WEB_NOAA),--embed-file $(f)@/noaa/$(notdir $(f))) $(foreach f,$(WEB_TICON),--embed-file $(f)@/ticon/$(notdir $(f)))
 
 web: $(WEB_OUT)
-$(WEB_OUT): web/api.c $(wildcard src/*.h src/geo47/*.h src/dp/*.h) $(filter-out %tidedata_priv.c %bowimg.c,$(SIM_SRC)) $(BUILD_DIR)/gen/simfont.h build/coast/COAST_C.BIN build/coast/COAST_L.BIN $(WEB_NOAA) $(WEB_TICON) web.mk
+$(WEB_OUT): web/api.c $(wildcard src/*.h src/geo47/*.h src/dp/*.h) $(filter-out %tidedata_priv.c,$(SIM_SRC)) $(BUILD_DIR)/gen/simfont.h build/coast/COAST_C.BIN build/coast/COAST_L.BIN $(WEB_NOAA) $(WEB_TICON) web.mk
 	@test -n "$(WEB_NOAA)" || { echo "make web: no build/noaa/N*.TID - run make noaa first (NOAA's current stations)"; exit 1; }
 	@mkdir -p build/web build/emcache
 	$(PYTHON) tools/gen_tides.py private - build/web/tidedata_priv.c >/dev/null
-	$(PYTHON) tools/gen_bow.py build/web/bowimg.c
 	EM_CACHE=$(CURDIR)/build/emcache $(EMCC) $(WEB_FLAGS) -o $@ $(WEB_SRC)
 .PHONY: web
 

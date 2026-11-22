@@ -59,7 +59,7 @@ OBJECTS.CSV) listed too. **ROUTE** (or ENTER when opened from ROUTE) puts the wa
 cursor, with its name; **3** on ROUTE saves the cursor's waypoint to the list. The route keeps the names
 (ROUTE.TXT: `lat lon NAME`, as the web page writes them): NAV shows **TO BRAVO**. The web page: Route tab,
 **WAYPTS.CSV** (the route's waypoints for the list); *To the calculator* also sends your objects (OBJECTS.CSV);
-FILES **OBJ** reads OBJECTS.CSV again.
+FILES **LOAD** reads OBJECTS.CSV (and the pictures) again; FILES lists your files in /NAV47.
 
 ## DP OPS: station keeping off a platform
 
@@ -160,8 +160,8 @@ The GPS tab's **Demo** sails your route (1 to 60 times faster): `web/index.html#
 | **FIX** | the position (big), the source: **GPS / DGPS / RTK / DR / SET**; 2D / 3D, the satellites used of those seen, PDOP HDOP VDOP, the DGPS station and its age, the error (GST, 1σ), the GPS's UT against the clock; SOG COG, the gyro's HDG, the log's STW. **7** drops the anchor (the anchor watch: its distance and bearing, an alarm outside the radius). **ENTER**: the Sun's bearing by the gyro, typed: the gyro error (the azimuth from the almanac) |
 | **SATS** | the sky: each satellite at its elevation and azimuth, a symbol a system (● GPS ■ GLONASS ◆ Galileo ▲ BeiDou ✕ SBAS ...), filled when used in the fix; the counts used / seen; the signal bars (dB-Hz). **4 6** one system's bars. **0** the Sun, the Moon, the planets and the stars on the same sky |
 | **NAV** | the passage on the plan (ROUTE, PLAN): the active leg, **TO WPn** (or its name): BRG, DTG, CTS, the next leg's course; the next user waypoint's distance, **ETA** and TTG, the **final** one's; at SOG (the plan's speed when stopped). SOG (big), COG, HDG, **SET and drift** (the ground vector less the water vector: gyro and log); your **three nearest objects** (BRG, distance, CPA and in how long; inverse, and the alarm ZONE AHEAD, when the CPA is inside its zone within 30 min); the **XTE** bar with its limits, STEER PORT / STBD. The next leg at the arrival circle or past the waypoint (AUTO), or by hand. **4 6** the previous / next leg, **5** start on the leg nearest, **0** the live CHART |
-| **BOW** | the view over the Asiana's bow from the helideck: the route a lane to the horizon (its edges the XTE limits), the waypoints' flags, the turn ahead (TURN AHEAD 096°), your platforms as jackets and deck modules in perspective (to their outline, seen from 20 m; drawn bigger far off), growing as she closes and passing by, their zones dotted on the sea, the Sun or the Moon at their bearings, the sea coming at her speed |
-| **GPSSET** | NMEA INPUT; POSITION: AUTO (the GPS, DR when the fix is lost), DR ONLY, OFF (SET's); SET FOLLOWS (the GPS's position to SET once a minute: the almanac, the tides AUTO, the zones and HERE follow); UT FROM GPS (the calculator's clock is left alone); DR AFTER (s); the DR's COURSE and SPEED (typed, or the gyro / COG and the log / SOG); the XTE limit, the arrival circle, the next leg AUTO or by hand; the anchor's radius; the alarms; MOB clear |
+| **BOW** | the view over the Asiana's bow from the helideck (or your `BOW.BMP`): the route a lane to the horizon (its edges the XTE limits), the waypoints' flags, the turn ahead (TURN AHEAD 096°), your platforms as jackets and deck modules in perspective (to their outline, seen from 20 m; drawn bigger far off), growing as she closes and passing by, their zones dotted on the sea, the Sun or the Moon at their bearings, the sea coming at her speed |
+| **GPSSET** (8 2 scroll; the field's help on the last line) | NMEA INPUT; POSITION: AUTO (the GPS, DR when the fix is lost), DR ONLY, OFF (SET's); SET FOLLOWS (the GPS's position to SET once a minute: the almanac, the tides AUTO, the zones and HERE follow); UT FROM GPS (the calculator's clock is left alone); DR AFTER (s); the DR's COURSE and SPEED (typed, or the gyro / COG and the log / SOG); the XTE limit, the arrival circle, the next leg AUTO or by hand; the anchor's radius; the alarms; MOB clear |
 
 - **The live CHART** (NAV **0**): the Asiana from above, to scale when the chart is that close (else 40 px), her
   wake moving and bending in a turn, her heading line and the COG vector (6 minutes), her track (a point every 10 s),
@@ -178,9 +178,18 @@ The GPS tab's **Demo** sails your route (1 to 60 times faster): `web/index.html#
   lon[, zone m[, orient[, face m[, side m]]]]`): platforms, rigs, wellheads, SPMs, wrecks, buoys, lights, ports with
   their zones (dotted), the platforms to scale when they show, on CHART, VOYAGE, the live chart and BOW; IN THE ZONE
   inside one.
-- **Your bow**: `make BOW=~/Pictures/asiana_bow.jpg` (and `BOW_ARGS="--top 820 --dither"`: the stem's row in the
-  photo) puts your photo, over the bow from the helideck, on BOW (tools/gen_bow.py; `--png preview.png` to check it).
-  It goes to build/gen only: never into git.
+- **Your vessel's pictures**: two BMP files in `/NAV47/`, made or changed with any paint program (1, 4, 8, 24 or
+  32 bits, not compressed). Dark pixels are ink, light are paper; light pixels joined to the edge (the sky and the sea
+  round her) and pure magenta are see-through. FILES **LOAD** reads them again.
+  - `BOW.BMP`: over the bow from the bridge or the helideck, for **BOW**; up to 400 x 150, drawn at the bottom in the
+    middle (its top a little below the horizon).
+  - `SHIP.BMP`: the vessel from above, **bow up**, for the live **CHART**; up to 64 x 160, turned to her heading, at
+    her true length when the chart is that close, else its own size.
+  - Templates: `docs/vessel/BOW.BMP`, `docs/vessel/SHIP.BMP` (NAV47's own drawings). From a photo:
+    `python3 tools/vessel_bmp.py bow photo.jpg BOW.BMP --top 820 --dither --png check.png` (`--top`: the stem's row
+    in the photo); a picture from above: `python3 tools/vessel_bmp.py ship top.png SHIP.BMP --length 64`. The web
+    page takes the same files (Route tab, Bow view: *Bow picture*, *Ship icon*). A photo of your ship stays yours:
+    don't commit it.
 - **Tests**: `make test-gps`: the parser on known sentences and a synthetic log (GPS, GLONASS, Galileo, BeiDou, SBAS,
   DGPS, a loss of the fix, the gyro, the log, bad checksums), the DR and the current against the log's, and the
   passage against geographiclib (XTE, along-track, DTG, BRG on geodesic and rhumb legs; the advance, the alarms).

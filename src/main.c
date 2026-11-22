@@ -819,6 +819,13 @@ static void draw_files(void) {
     draw_text(&TINY, 10, y, s, 0);
   }
   if (N->have_ffl) { sprintf(s, "atlas: %dx%d, reference %s", N->ffl.nlat, N->ffl.nlon, N->ffl.ref); draw_text(&TINY, 10, y, s, 0); y += LH; }
+  /* your own files in /NAV47: LOAD reads them again */
+  y = MENU_Y - 6 * LH - 4;
+  draw_text(&TINY, 2, y, "YOUR FILES IN /NAV47 (LOAD reads them again):", 0); y += LH;
+  sprintf(s, "OBJECTS.CSV  your platforms and zones: %d", obj_count()); draw_text(&TINY, 10, y, s, 0); y += LH;
+  sprintf(s, "WAYPTS.CSV   your waypoints (WPTS): %d", wpdb_count()); draw_text(&TINY, 10, y, s, 0); y += LH;
+  draw_text(&TINY, 10, y, "BOW.BMP      over the bow, for BOW (400 x 150 at most)", 0); y += LH;
+  draw_text(&TINY, 10, y, "SHIP.BMP     from above, bow up, for the CHART (64 x 160)", 0);
   if (N->msg[0]) draw_text(&TINY, 2, MENU_Y - LH, N->msg, 1);
 }
 
@@ -1554,6 +1561,7 @@ static void draw_chart(void) {
   if (chart_live) gps_chart_layer(&chart_m, anim_frame, chart_follow);
   else obj_chart(&chart_m);
   map_space(&chart_m);
+  lcd_fill_rect(0, CHART_Y0 + CHART_H, LCD_X, MENU_Y - CHART_Y0 - CHART_H, 0);   /* the hint's strip: nothing of the chart in it */
   gfx_rect(0, CHART_Y0 + CHART_H, LCD_X, 1, 1);
   if (chart_live) nt(2, 192, chart_follow ? "1 FOLLOW on  7 9 zoom  R/S MOB" : "1 follow  8246 pan  7 9 zoom");
   else nt(2, 192, chart_globe ? "4 6 turn 8 2 tilt 7 9 zoom" : "8246 pan 7 9 zoom 5 fit");
@@ -2340,7 +2348,7 @@ static const char *MENUS[5][6] = {
   { "ADD", "EDIT", "DEL", "RL/GC", "HERE", ">>" },
   { "FIX", "SATS", "NAV", "BOW", "GPSSET", ">>" },
 };
-static const char *FILE_MENU[6] = { "TID", "FLW", "CLEAR", "WPTS", "OBJ", "BACK" };
+static const char *FILE_MENU[6] = { "TID", "FLW", "CLEAR", "WPTS", "LOAD", "BACK" };
 static int wpdb_back = PG_ROUTE;
 static const char *EDIT_MENU[6] = { "", "", "", "", "", "CANCEL" };
 static const char *PLAN_MENU[6] = { "CSV", "NMEA", "SPLIT", "CMP", "CHART", "BACK" };
@@ -2502,10 +2510,11 @@ static void softkey(int fn) {
       strcpy(N->msg, "files cleared (memory is freed at the next start)");
       cfg_save();
     } else if (fn == 3) { wpdb_back = PG_FILES; wpdb_open(0); go(PG_WPDB); }
-    else if (fn == 4) {
+    else if (fn == 4) {                                  /* LOAD: your files again: objects, pictures */
+      char pm[40];
       int k = obj_load();
-      if (k < 0) strcpy(N->msg, "no /NAV47/OBJECTS.CSV (the web page's objects.csv)");
-      else sprintf(N->msg, "OBJECTS.CSV: %d objects", k);
+      gps_pics_load(pm, sizeof pm);
+      snprintf(N->msg, sizeof N->msg, "OBJECTS %d  %s", k < 0 ? 0 : k, pm);
     }
     else if (fn == 5) go(PG_SET);
     return;

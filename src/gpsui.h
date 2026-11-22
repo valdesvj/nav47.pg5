@@ -21,5 +21,6 @@ int  gps_live(double *lat, double *lon, double *hdg);   /* the vessel's position
 void gps_chart_layer(const map_t *m, uint32_t frame, int follow);   /* the live CHART: track, ship, XTE lines */
 const char *gps_alarm_text(void);         /* the alarm now, NULL none */
 void gps_mob(void);                       /* man overboard: the position now */
+int  gps_pics_load(char *msg, int n);     /* BOW.BMP and SHIP.BMP read again: how many; msg what happened */
 
 #endif

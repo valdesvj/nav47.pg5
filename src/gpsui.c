@@ -25,6 +25,7 @@
 #include "gpsui.h"
 #include "navctx.h"
 #include "objects.h"
+#include "bmp.h"
 
 #define D2R    (M_PI / 180)
 #define TOP    16
@@ -99,7 +100,11 @@ int gps_cfg_line(const char *l) {
   return 0;
 }
 
-void gps_start(void) { if (P && P->input && !gpsin_on()) P->input = 0; }
+void gps_start(void) {
+  if (P && P->input && !gpsin_on()) P->input = 0;
+  static int pics;
+  if (!pics) { pics = 1; gps_pics_load(NULL, 0); }
+}
 
 int gps_ut(double *jd) {
   if (!P || !P->use_ut || !P->g.utc_ms || sys_current_ms() - P->g.utc_ms > 5000) return 0;
@@ -576,37 +581,42 @@ static void draw_nav(void) {
   int y = TOP + 3;
   /* left: to the next point, the next user waypoint, the final */
   if (R && p->active) {
-    if (p->done) nt(4, y, "ARRIVED");
+    if (p->done) nt_inv(6, y, "ARRIVED");
     else {
       int user = R->w[p->leg].flags & WPT_USER;
       const char *wn = nav_wp_name(p->user_no - 1);
-      if (wn[0]) snprintf(s, sizeof s, user ? "TO %s" : "TO %s (pt %d)", wn, p->leg + 1);
+      if (wn[0]) snprintf(s, sizeof s, user ? "TO %.12s" : "TO %.12s (pt %d)", wn, p->leg + 1);
       else sprintf(s, user ? "TO WP%d" : "TO WP%d (pt %d)", p->user_no, p->leg + 1);
       nt_inv(6, y, s);
     }
-    y += 18;
-    fmt_deg(t, p->brg); nt(4, y, "BRG"); big(48, y - 2, t, 1);
-    sprintf(t, "%.2f", p->dtg); nt(110, y, "DTG"); nt(150, y, t);
-    y += 16;
-    fmt_deg(t, p->cts); nt(4, y, "CTS"); nt(48, y, t);
-    if (!isnan(p->next_crs)) { fmt_deg(t, p->next_crs); nt(110, y, "NEXT"); nt(150, y, t); }
-    y += 16;
+    y += 17;                                            /* 36: to the next point */
+    fmt_deg(t, p->brg); nt(4, y, "BRG"); nt_r(96, y, t);
+    sprintf(t, "%.2f", p->dtg); nt(106, y, "DTG"); nt_r(200, y, t);
+    y += 16;                                            /* 52 */
+    fmt_deg(t, p->cts); nt(4, y, "CTS"); nt_r(96, y, t);
+    if (!isnan(p->next_crs)) { fmt_deg(t, p->next_crs); nt(106, y, "NEXT"); nt_r(200, y, t); }
+    y += 16;                                            /* 68: the next waypoint, the final one: distance, ETA */
     { const char *wn = nav_wp_name(p->user_no - 1);
       fmt_eta(t, p->ttg_user);
-      if (wn[0]) snprintf(s, sizeof s, "%.9s %.1f nm", wn, p->dtg_user); else sprintf(s, "WP%d %.1f nm", p->user_no, p->dtg_user);
-      nt(4, y, s); nt_r(196, y, t); }
-    y += 16;
-    fmt_ttg(t, p->ttg_user); sprintf(s, "TTG %s at %.1f kn", t, p->kn); tiny(6, y, s);
-    y += 12;
-    fmt_eta(t, p->ttg_final); sprintf(s, "FINAL %.1f nm", p->dtg_final); nt(4, y, s); nt_r(196, y, t);
-    y += 16;
-    fmt_ttg(t, p->ttg_final); sprintf(s, "TTG %s  ETA %s", t, nav_tz_shown() != 0 ? "LT" : "UT"); tiny(6, y, s);
+      if (wn[0]) snprintf(s, sizeof s, "%.7s %.1f nm", wn, p->dtg_user); else sprintf(s, "WP%d %.1f nm", p->user_no, p->dtg_user);
+      nt(4, y, s); nt_r(200, y, t); }
+    y += 16;                                            /* 84 */
+    fmt_eta(t, p->ttg_final); sprintf(s, "FINAL %.1f nm", p->dtg_final); nt(4, y, s); nt_r(200, y, t);
+    y += 17;                                            /* 101: the times to go, the speed */
+    char a1[16], a2[16];
+    fmt_ttg(a1, p->ttg_user); fmt_ttg(a2, p->ttg_final);
+    snprintf(s, sizeof s, "TTG %s / %s at %.1f kn", a1, a2, p->kn);
+    tiny(4, y, s);
   } else if (R) nt(6, y + 18, "5: start the passage");
   /* right: the vessel */
   int X = 214, XR = LCD_X - 4;
   y = TOP + 3;
   src_tag(X, y);
-  if (f->src == SRC_GPS) { sprintf(s, "%d sats", P->g.nused); tiny_r(XR, y + 4, s); }
+  if (P->mob) {                                         /* MOB: on the top row, always in sight */
+    double b, d = nm_brg(f->lat, f->lon, P->mob_lat, P->mob_lon, &b);
+    sprintf(s, "MOB %03.0f" NT_DEG " %.2f", b, d);
+    nt_inv(XR - nt_w(s), y, s);
+  } else if (f->src == SRC_GPS) { sprintf(s, "%d sats", P->g.nused); tiny_r(XR, y + 4, s); }
   y += 18;
   fmt_kn(t, f->sog); nt(X, y, "SOG"); big(XR - big_w(t, 2), y - 1, t, 2);
   y += 30;
@@ -615,11 +625,6 @@ static void draw_nav(void) {
   if (!isnan(f->set)) { sprintf(t, "%03.0f" NT_DEG " %.1f kn", f->set, f->drift); nt(X, y, "SET"); nt_r(XR, y, t); }
   else if (!isnan(f->hdg) && !isnan(f->cog)) { double d = fmod(f->cog - f->hdg + 540.0, 360.0) - 180.0; sprintf(t, "%.1f" NT_DEG " %s", fabs(d), d >= 0 ? "STBD" : "PORT"); nt(X, y, "DRIFT"); nt_r(XR, y, t); }
   y += 16;
-  if (P->mob) {
-    double b, d = nm_brg(f->lat, f->lon, P->mob_lat, P->mob_lon, &b);
-    sprintf(s, "MOB %03.0f" NT_DEG " %.2f", b, d);
-    nt_inv(X + 2, y, s);
-  }
   gfx_rect(206, TOP, 1, 104, 1);
   /* the nearest objects: BRG, distance, CPA in how long (inverse: its zone on the course) */
   ObjNear z[3];
@@ -685,18 +690,24 @@ static void plan_at(const route_t *R, double s, double *lat, double *lon, double
   }
 }
 
-/* the photo (make BOW=photo.jpg, tools/gen_bow.py): the ship's pixels over the sea; none: the drawn bow */
-extern const int BOW_W, BOW_H, BOW_Y;
-extern const unsigned char BOW_INK[], BOW_MASK[];
+/* your vessel's pictures: /NAV47/BOW.BMP (BOW), /NAV47/SHIP.BMP (the CHART); none: the drawn ones */
+static Pic bowpic, shippic;
+static int bow_rc, ship_rc;
+
+int gps_pics_load(char *msg, int n) {
+  pic_free(&bowpic); pic_free(&shippic);
+  bow_rc = pic_load(&bowpic, BOW_FILE, LCD_X, 150);
+  ship_rc = pic_load(&shippic, SHIP_FILE, 64, 160);
+  if (msg) snprintf(msg, (size_t)n, "BOW.BMP %s, SHIP.BMP %s", pic_err(bow_rc), pic_err(ship_rc));
+  return (bow_rc == 1) + (ship_rc == 1);
+}
 
 static void bow_ship(void) {
-  if (BOW_H > 0) {
-    int bpr = BOW_W / 8;
-    for (int y = 0; y < BOW_H && BOW_Y + y <= BOT; y++)
-      for (int x = 0; x < BOW_W; x++) {
-        int k = y * bpr + x / 8, b = 0x80 >> (x % 8);
-        if (BOW_MASK[k] & b) gfx_pixel(x, BOW_Y + y, (BOW_INK[k] & b) ? 1 : 0);
-      }
+  if (bowpic.h) {                                      /* the picture, at the bottom in the middle */
+    int x0 = (LCD_X - bowpic.w) / 2, y0 = BOT + 1 - bowpic.h;
+    for (int y = 0; y < bowpic.h; y++)
+      for (int x = 0; x < bowpic.w; x++)
+        if (pic_get(&bowpic, bowpic.mask, x, y)) gfx_pixel(x0 + x, y0 + y, pic_get(&bowpic, bowpic.ink, x, y));
     return;
   }
   /* the Asiana's foredeck from the helideck: the raked bow, the bulwarks, the windlass, the bow-thruster hatch, the
@@ -846,16 +857,24 @@ static void set_text(int f, char *s) {
 static void draw_set(void) {
   char v[40];
   nav_header("GPS SET");
-  int y = TOP + 3;
-  for (int f = 0; f < S_N; f++) {
+  /* 11 rows of 16 (as SET), scrolled to the field; its help on the last line */
+  const int VIS = 11;
+  static int top;
+  if (P->sel < top) top = P->sel;
+  if (P->sel >= top + VIS) top = P->sel - VIS + 1;
+  int y = TOP + 1;
+  for (int f = top; f < S_N && f < top + VIS; f++, y += 16) {
     set_text(f, v);
     if (P->edit == f) sprintf(v, "%s_", P->ebuf);
     if (f == P->sel) nt_inv(6, y, SNAME[f]); else nt(6, y, SNAME[f]);
-    nt(134, y, v);
-    tiny_r(LCD_X - 2, y + 4, SHELP[f]);
-    y += 14;
+    nt(150, y, v);
   }
-  tiny(2, BOT - LHT + 1, "8 2 field  ENTER switch / edit");
+  if (top > 0) draw_text(&TINY, LCD_X - 10, TOP + 2, SYM_UP, 0);
+  if (top + VIS < S_N) draw_text(&TINY, LCD_X - 10, TOP + 1 + 16 * VIS - 10, SYM_DOWN, 0);
+  char h[64];
+  snprintf(h, sizeof h, "%s: %s", SNAME[P->sel], SHELP[P->sel]);
+  tiny(2, BOT - LHT + 1, h);
+  tiny_r(LCD_X - 2, BOT - LHT + 1, "8 2 field  ENTER switch / edit");
 }
 
 static void set_commit(int f) {
@@ -931,6 +950,18 @@ static void ship_sprite(int x, int y, float ang, uint32_t frame, double rot, int
     for (int side = -1; side <= 1; side += 2)            /* the bow wave */
       gfx_line((int)RX(L / 2 + 1, 0), (int)RY(L / 2 + 1, 0), (int)RX(L / 2 - 6, side * (B / 2 + 3)), (int)RY(L / 2 - 6, side * (B / 2 + 3)), 1);
   }
+  if (shippic.h) {                                      /* SHIP.BMP: bow up, turned and scaled to L px long */
+    float sc = shippic.h / L, R = L * 0.75f;
+    int r = (int)R + 1;
+    for (int dy = -r; dy <= r; dy++)
+      for (int dx = -r; dx <= r; dx++) {
+        float f = dx * sa - dy * ca, q = dx * ca + dy * sa;      /* forward (px), to starboard (px) */
+        int sx = (int)floorf(q * sc + shippic.w / 2.0f), sy = (int)floorf(-f * sc + shippic.h / 2.0f);
+        if (pic_get(&shippic, shippic.mask, sx, sy)) gfx_pixel(x + dx, y + dy, pic_get(&shippic, shippic.ink, sx, sy));
+      }
+    for (int j = (int)(L / 2) + 4; j < (int)(L / 2) + 30; j += 2) gfx_pixel((int)RX(j, 0), (int)RY(j, 0), 1);
+    return;
+  }
   float hf[5] = { L / 2, L / 2 - 9, -L / 2, -L / 2, L / 2 - 9 }, hr[5] = { 0, -B / 2, -B / 2, B / 2, B / 2 };
   float px[5], py[5];
   for (int i = 0; i < 5; i++) { px[i] = RX(hf[i], hr[i]); py[i] = RY(hf[i], hr[i]); }
@@ -979,9 +1010,11 @@ void gps_chart_layer(const map_t *m, uint32_t frame, int follow) {
   if (P->mob) {
     float x, y;
     map_xy(m, P->mob_lat, P->mob_lon, &x, &y);
+    if (y < m->y0 + 8 || y > m->y0 + m->h - 8 || x < m->x0 || x > m->x0 + m->w - 30) goto no_mob;
     gfx_circle((int)x, (int)y, 6, 1); gfx_line((int)x - 4, (int)y - 4, (int)x + 4, (int)y + 4, 1); gfx_line((int)x - 4, (int)y + 4, (int)x + 4, (int)y - 4, 1);
     tiny((int)x + 8, (int)y - 4, "MOB");
   }
+no_mob:
   if (P->anc) {
     float x, y, x2, y2;
     map_xy(m, P->anc_lat, P->anc_lon, &x, &y);
@@ -1015,7 +1048,7 @@ void gps_chart_layer(const map_t *m, uint32_t frame, int follow) {
   /* the box: to the next waypoint */
   char s[40], t[16];
   int bx = 2, by = m->y0 + 2;
-  gfx_rect(bx, by, 128, 54, 0); gfx_frame(bx, by, 128, 54);
+  gfx_rect(bx, by, 140, 54, 0); gfx_frame(bx, by, 140, 54);
   sprintf(s, "%s  %s kn", navfix_src_name(&P->f), (fmt_kn(t, P->f.sog), t)); tiny(bx + 3, by + 2, s);
   if (R && P->p.active && !P->p.done) {
     fmt_deg(t, P->p.brg); sprintf(s, "WP%d BRG %s", P->p.user_no, t); nt(bx + 3, by + 11, s);

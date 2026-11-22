@@ -307,14 +307,14 @@ void obj_chart(const map_t *m) {
       }
       (void)c;
     }
-    if (!on_map(m, x, y)) continue;
+    if (!on_map(m, x, y) || y < m->y0 + 6 || y > m->y0 + m->h - 6) continue;   /* the box: not over the top bar */
     if (!drawn) symbol((int)x, (int)y, o->type);
     if (o->zone > 0) {                                  /* the name, when the zone has room */
       double la, lo;
       float x2, y2;
       off(o->lat, o->lon, 0, o->zone, &la, &lo);
       map_xy(m, la, lo, &x2, &y2);
-      if (fabsf(y2 - y) >= 7) draw_text(&TINY, (int)x + 7, (int)y - 4, o->name, 0);
+      if (fabsf(y2 - y) >= 7 && x + 7 + text_width(&TINY, o->name) < m->x0 + m->w) draw_text(&TINY, (int)x + 7, (int)y - 4, o->name, 0);
     }
   }
 }
@@ -371,6 +371,7 @@ static int box(const View *v, const double c[4][2], double h0, double h1) {
 }
 
 typedef struct { int i; double d; } Far;
+typedef struct { short x0, y0, x1, y1; } Box;
 
 void obj_bow(double lat, double lon, double hdg, int hor, double kper, double foc) {
   View v = { hor, kper, foc, lat, lon, cos(hdg * D2R), sin(hdg * D2R) };
@@ -384,6 +385,8 @@ void obj_bow(double lat, double lon, double hdg, int hor, double kper, double fo
     f[nf].i = i; f[nf].d = d; nf++;
   }
   for (int a = 1; a < nf; a++) for (int b = a; b > 0 && f[b].d > f[b - 1].d; b--) { Far t = f[b]; f[b] = f[b - 1]; f[b - 1] = t; }
+  Box lab[64];
+  int nl = 0;
   for (int k = 0; k < nf; k++) {                       /* the farthest first: the nearer hide them */
     const Obj *o = &O[f[k].i];
     double dl = fmod(o->lon - lon + 540.0, 360.0) - 180.0;
@@ -458,10 +461,21 @@ void obj_bow(double lat, double lon, double hdg, int hor, double kper, double fo
     }
     char s[32];
     snprintf(s, sizeof s, f[k].d < 9.95 ? "%s %.1f" : "%s", o->name, f[k].d);
-    int w = text_width(&TINY, s);
-    if (X - w / 2 > -w && X - w / 2 < LCD_X && ytop - 10 > 16) {
-      gfx_rect(X - w / 2 - 1, ytop - 10, w + 2, 9, 0);
-      draw_text(&TINY, X - w / 2, ytop - 10, s, 0);
+    int w = text_width(&TINY, s), lx = X - w / 2, ly = ytop - 10;
+    if (lx < 1) lx = 1;
+    if (lx + w > LCD_X - 1) lx = LCD_X - 1 - w;
+    for (int tries = 0; tries < 4; tries++) {          /* a name over another: higher up, else left out */
+      int hit = 0;
+      for (int j = 0; j < nl; j++)
+        if (lx < lab[j].x1 && lx + w > lab[j].x0 && ly < lab[j].y1 && ly + 9 > lab[j].y0) { hit = 1; break; }
+      if (!hit) break;
+      ly -= 10;
+      if (tries == 3) ly = 0;
+    }
+    if (ly > 17 && nl < 64) {
+      gfx_rect(lx - 1, ly, w + 2, 9, 0);
+      draw_text(&TINY, lx, ly, s, 0);
+      lab[nl++] = (Box){ (short)(lx - 2), (short)ly, (short)(lx + w + 2), (short)(ly + 9) };
     }
   }
 }

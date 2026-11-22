@@ -22,17 +22,14 @@ TIDE47_TEST ?= $(if $(TIDE47),$(TIDE47),../tide47)
 
 USB ?= sercon
 # the GPS: NMEA, the position (GPS / DR), the passage, the pages, your objects
-GPS_SRC = src/nmea.c src/navfix.c src/passage.c src/gpsui.c src/objects.c src/wpdb.c
-# BOW=photo.jpg: your vessel's bow on the BOW page (tools/gen_bow.py; build/gen only, never in git)
-BOW ?=
-BOW_ARGS ?=
+GPS_SRC = src/nmea.c src/navfix.c src/passage.c src/gpsui.c src/objects.c src/wpdb.c src/bmp.c
 C_INCLUDES += -Idmcp -Isrc -Isrc/usb -Ithird_party/tinyusb/src
 C_SOURCES  += dmcp/sys/pgm_syscalls.c
 ASM_SOURCES = dmcp/startup_pgm.s
 C_SOURCES += src/main.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
              src/c47scr.c src/views.c src/fonts21.c src/ntext.c src/moon47.c src/route.c \
              src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c \
-             $(GPS_SRC) $(BUILD_DIR)/gen/bowimg.c
+             $(GPS_SRC)
 ifeq ($(USB),sercon)
 # the screen through DMCP5 3.58's serial console: DMCP streams the LCD (tools/dm42view.py)
 C_SOURCES += src/sercon.c
@@ -144,11 +141,7 @@ SIM_DEFS = $(if $(filter sercon,$(USB)),,-DSERCON_TINYUSB)
 SIM_SRC = test/sim/sim.c src/main.c src/astro.c src/almdata.c src/gfx.c src/fonts.c src/zones.c src/zonedata.c \
           src/c47scr.c src/views.c src/fonts21.c src/ntext.c src/moon47.c src/route.c $(SIM_USB) \
           src/tide.c src/tidecons.c src/tidedata_pub.c src/tidefile.c $(BUILD_DIR)/gen/tidedata_priv.c \
-          $(GEO47_SRC) src/geo_nav.c src/map47.c $(DPOPS_SRC) $(GPS_SRC) $(BUILD_DIR)/gen/bowimg.c
-$(BUILD_DIR)/gen/bowimg.c: tools/gen_bow.py FORCE
-	@mkdir -p $(BUILD_DIR)/gen
-	@$(PYTHON) tools/gen_bow.py $@.new $(BOW) $(BOW_ARGS) && { cmp -s $@.new $@ && rm $@.new || mv $@.new $@; }
-
+          $(GEO47_SRC) src/geo_nav.c src/map47.c $(DPOPS_SRC) $(GPS_SRC)
 $(BUILD_DIR)/gen/simfont.h: test/sim/gen_simfont.py
 	@mkdir -p $(BUILD_DIR)/gen
 	$(PYTHON) test/sim/gen_simfont.py $@

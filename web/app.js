@@ -896,7 +896,7 @@ function routeTab() {
       <span id="cursor" class="mono"></span>
     </div></div>
     <div class="card" id="bowcard" hidden><h2>Bow view <span class="meta">over the Asiana's bow from the helideck, with the GPS: the route a lane
-      (its edges the XTE limits), the waypoints' flags, your platforms</span></h2><canvas id="bowcv" style="width:100%;border-radius:8px;display:block"></canvas></div>
+      (its edges the XTE limits), the waypoints' flags, your platforms</span></h2><div class="controls" id="bowpics" style="margin-bottom:6px"></div><canvas id="bowcv" style="width:100%;border-radius:8px;display:block"></canvas></div>
     <div class="card" id="plancard"></div>
     </div><div>
     <div class="card" id="livecard"></div>

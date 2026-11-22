@@ -11,6 +11,50 @@ const LIVE = (() => {
   const L = { pos: null, psg: null, trail: [], trailT: 0, alarm: 0, ack: 0, event: 0, eventT: 0, mob: null, near: [],
               routeKey: "", started: false, last: null, dr: null, cur: { e: 0, n: 0, ok: false }, frame: 0, sun: null, sunT: 0 };
   const A = { XTE: 1, ARR: 2, FINAL: 4, ZONE: 8, CPA: 16, LOST: 32, MOB: 64 };
+
+  /* your vessel's pictures (the calculator's BOW.BMP and SHIP.BMP, or a PNG / JPG): kept in this browser. As on the
+     calculator, light pixels joined to the picture's edge and pure magenta are see-through */
+  const PICS = { bow: null, ship: null };
+  function prep(img) {
+    const c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight;
+    const g = c.getContext("2d"); g.drawImage(img, 0, 0);
+    const d = g.getImageData(0, 0, c.width, c.height), p = d.data, W = c.width, H = c.height;
+    const light = i => p[4 * i + 3] > 0 && (p[4 * i] * 30 + p[4 * i + 1] * 59 + p[4 * i + 2] * 11) / 100 >= 128;
+    const seen = new Uint8Array(W * H), st = [];
+    for (let x = 0; x < W; x++) st.push(x, (H - 1) * W + x);
+    for (let y = 0; y < H; y++) st.push(y * W, y * W + W - 1);
+    while (st.length) {
+      const i = st.pop(); if (seen[i] || !light(i)) continue;
+      seen[i] = 1; p[4 * i + 3] = 0;
+      const x = i % W, y = (i / W) | 0;
+      if (x > 0) st.push(i - 1); if (x < W - 1) st.push(i + 1); if (y > 0) st.push(i - W); if (y < H - 1) st.push(i + W);
+    }
+    for (let i = 0; i < W * H; i++) if (p[4 * i] === 255 && p[4 * i + 1] === 0 && p[4 * i + 2] === 255) p[4 * i + 3] = 0;
+    g.putImageData(d, 0, 0);
+    return c;
+  }
+  function loadPic(kind, url) {
+    if (!url) { PICS[kind] = null; return; }
+    const im = new Image();
+    im.onload = () => { PICS[kind] = prep(im); bow(); draw(); };
+    im.src = url;
+  }
+  const saved = store.get("livepics", {});
+  loadPic("bow", saved.bow); loadPic("ship", saved.ship);
+  if (/vesselpics/.test(location.hash)) { loadPic("bow", "../docs/vessel/BOW.BMP"); loadPic("ship", "../docs/vessel/SHIP.BMP"); }   /* tests: the templates */
+  function picsUI() {
+    const el = $("bowpics"); if (!el || el.dataset.on) return;
+    el.dataset.on = 1;
+    el.innerHTML = `<label class="meta">Bow picture <input type="file" id="picbow" accept=".bmp,.BMP,.png,.jpg,.jpeg"></label>
+      <label class="meta">Ship icon (from above, bow up) <input type="file" id="picship" accept=".bmp,.BMP,.png,.jpg,.jpeg"></label>
+      <button class="small" id="picdef">NAV47's own</button>
+      <span class="meta">as the calculator's /NAV47/BOW.BMP and SHIP.BMP (docs/vessel: the templates)</span>`;
+    const take = kind => e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader();
+      r.onload = () => { const v = store.get("livepics", {}); v[kind] = r.result; store.set("livepics", v); loadPic(kind, r.result); };
+      r.readAsDataURL(f); };
+    $("picbow").onchange = take("bow"); $("picship").onchange = take("ship");
+    $("picdef").onclick = () => { store.set("livepics", {}); PICS.bow = PICS.ship = null; bow(); draw(); };
+  }
   const save = () => store.set("live", cfg);
   const nm = (a, b, c, d) => { const q = NAV.inv(a, b, c, d); return { d: q.s / NM, brg: (q.a1 + 360) % 360 }; };
   const deg = v => isFinite(v) ? String(Math.round(((v % 360) + 360) % 360)).padStart(3, "0") + "°" : "–";
@@ -199,9 +243,17 @@ const LIVE = (() => {
         g.strokeStyle = "rgba(255,255,255,0.7)"; g.setLineDash([2, 5]); g.lineWidth = 3;
         g.beginPath(); g.moveTo(sx, sy); g.lineTo(sx - fx * 50, sy - fy * 50); g.stroke(); g.setLineDash([]);
       }
-      const sp = S.route.speed; S.route.speed = pos.sog > 0.3 ? pos.sog : 0.1;
-      drawVessel(pos.lat, pos.lon, h, false, false);
-      S.route.speed = sp;
+      if (PICS.ship) {                                     /* your icon: turned to her heading, her true length (60 px at least) */
+        const im = PICS.ship, k = Lp / im.height;
+        g.save(); g.translate(x, y); g.rotate(Math.atan2(fx, -fy)); g.imageSmoothingEnabled = im.height < Lp / 2 ? false : true;
+        g.drawImage(im, -im.width * k / 2, -Lp / 2, im.width * k, Lp); g.restore();
+        g.strokeStyle = css("--now"); g.lineWidth = 2; g.beginPath(); g.moveTo(x + fx * Lp / 2, y + fy * Lp / 2);
+        const run = Math.max(40, (pos.sog || 0) * NM / 10 * pxPerM(pos.lat)); g.lineTo(x + fx * (Lp / 2 + run), y + fy * (Lp / 2 + run)); g.stroke();
+      } else {
+        const sp = S.route.speed; S.route.speed = pos.sog > 0.3 ? pos.sog : 0.1;
+        drawVessel(pos.lat, pos.lon, h, false, false);
+        S.route.speed = sp;
+      }
     }
     /* the alarm */
     const t = alarmText();
@@ -415,7 +467,12 @@ const LIVE = (() => {
       g.fillStyle = "rgba(0,0,0,0.55)"; g.fillRect(c0[0] - w / 2 - 4, ytop - 22, w + 8, 17);
       g.fillStyle = "#fff"; g.fillText(lab, c0[0] - w / 2, ytop - 9);
     }
-    /* the bow from the helideck */
+    /* the bow from the helideck: your picture (the calculator's 400 px wide: here 900), else NAV47's */
+    if (PICS.bow) {
+      const im = PICS.bow, k = BV.W / 400;
+      g.imageSmoothingEnabled = true;
+      g.drawImage(im, BV.W / 2 - im.width * k / 2, BV.H - im.height * k, im.width * k, im.height * k);
+    } else {
     const S2 = 2.25, tip = [450, 262];
     const P2 = (x, y) => [tip[0] + (x - 200) * S2, tip[1] + (y - 122) * S2];
     g.fillStyle = "#9aa3ab"; g.strokeStyle = "#20262c"; g.lineWidth = 2;
@@ -425,6 +482,7 @@ const LIVE = (() => {
     for (let j = 0; j < 4; j++) { const y = 152 + j * 12, w = (y - 122) * 0.95; const [x1, y1] = P2(200 - w, y), [x2] = P2(200 + w, y); g.beginPath(); g.moveTo(x1, y1); g.lineTo(x2, y1); g.stroke(); }
     { const [X, Y] = P2(200, 134); g.fillStyle = "#20262c"; g.beginPath(); g.arc(X, Y, 8, 0, 2 * Math.PI); g.fill(); }
     { const [X, Y] = P2(188, 176); g.strokeStyle = "#20262c"; g.lineWidth = 2; g.strokeRect(X, Y, 25 * S2, 11 * S2); }
+    }
     /* the numbers */
     const box = (x, y, lines) => {
       g.fillStyle = "rgba(10,20,30,0.7)"; g.fillRect(x, y, 170, 22 * lines.length + 10);
@@ -444,7 +502,7 @@ const LIVE = (() => {
   setInterval(() => {
     if (!window.NAV47_UP || S.tab !== "route") return;
     const bc = $("bowcard");
-    if (bc) bc.hidden = !L.pos;                            /* the Bow view: with a position */
+    if (bc) { bc.hidden = !L.pos; picsUI(); }                            /* the Bow view: with a position */
     if (!L.pos) { if (shown !== "none" && $("livecard")) { card(); shown = "none"; } return; }
     shown = "live";
     bow();
