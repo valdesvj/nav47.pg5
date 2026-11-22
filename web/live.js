@@ -392,20 +392,57 @@ const LIVE = (() => {
     }
     /* the lane: the plan ahead +- the XTE limit, 8 nm */
     if (p && p.active && !p.done && rows.length > 1) {
-      const s0 = rows[p.leg - 1].cum + p.atd * NM, end = rows[rows.length - 1].cum, edge = [[], []], mid = [];
-      for (let i = 0; i < 70; i++) {
-        const s = Math.min(end, s0 + 0.05 * NM * Math.pow(1.075, i)), c = planAt(rows, s);
-        for (const sd of [0, 1]) { const e = NAV.dir(c.lat, c.lon, c.crs + (sd ? 90 : -90), cfg.xte * NM); edge[sd].push(bproj(e.lat, e.lon, 0, hdg)); }
-        mid.push(bproj(c.lat, c.lon, 0, hdg));
-        if (s >= end || s - s0 > 8 * NM) break;
+      /* the waypoints are points of the lane, its corners mitred (the edges offset along the bisector); near a corner
+         the inner edge would fold back, so its mitre point stands for the points there; lines are cut at the bow */
+      const s0 = rows[p.leg - 1].cum + p.atd * NM, end = rows[rows.length - 1].cum, far = Math.min(end, s0 + 8 * NM);
+      const lim = cfg.xte * NM, NEAR = 0.012, sd = [];
+      const corners = [];
+      for (let j = p.leg; j < rows.length - 1; j++) {
+        if (rows[j].cum <= s0 - 3 * lim || rows[j].cum > far) continue;
+        const cin = planAt(rows, rows[j].cum - 1).crs, cout = planAt(rows, rows[j].cum + 1).crs;
+        corners.push({ s: rows[j].cum, half: ((((cout - cin + 540) % 360) - 180) / 2), cin });
       }
+      for (let i = 0; i < 90; i++) {
+        const s = Math.min(far, s0 + 0.05 * NM * Math.pow(1.075, i));
+        for (const c of corners) if (c.s > s0 && c.s <= s && (!sd.length || c.s > sd[sd.length - 1] + 1) && !sd.includes(c.s)) sd.push(c.s);
+        if (!sd.length || s > sd[sd.length - 1] + 1) sd.push(s);
+        if (s >= far) break;
+      }
+      sd.sort((x, y) => x - y);
+      const loc = (la, lo) => { const e = (((lo - pos.lon + 540) % 360) - 180) * Math.cos(pos.lat * D2R) * 60, n = (la - pos.lat) * 60;
+        return [e * Math.sin(hdg * D2R) + n * Math.cos(hdg * D2R), e * Math.cos(hdg * D2R) - n * Math.sin(hdg * D2R)]; };
+      const xy = q => [BV.W / 2 + BV.FOC * q[1] / q[0], BV.HOR + BV.K / q[0]];
+      const edge = [[], []], mid = [];
+      for (const s of sd) {
+        let c = planAt(rows, s), crs = c.crs, l = lim;
+        const use = [true, true];
+        for (const k of corners) {
+          const dc = Math.abs(k.s - s);
+          if (dc < 0.5) { crs = k.cin + k.half; l = lim / Math.max(0.35, Math.cos(k.half * D2R)); }
+          else if (dc < lim * Math.abs(Math.tan(k.half * D2R)) * 1.05 + 1) use[k.half > 0 ? 1 : 0] = false;
+        }
+        for (const side of [0, 1]) if (use[side]) { const e = NAV.dir(c.lat, c.lon, crs + (side ? 90 : -90), l); edge[side].push(loc(e.lat, e.lon)); }
+        mid.push(loc(c.lat, c.lon));
+      }
+      const path = (L2, close) => {                     /* a polyline in the vessel's frame, cut at the bow, into the path */
+        let on = false;
+        for (let i = 0; i + 1 < L2.length; i++) {
+          let a = L2[i], b = L2[i + 1];
+          if (a[0] < NEAR && b[0] < NEAR) { on = false; continue; }
+          if (a[0] < NEAR) { const t = (NEAR - a[0]) / (b[0] - a[0]); a = [NEAR, a[1] + t * (b[1] - a[1])]; on = false; }
+          if (b[0] < NEAR) { const t = (NEAR - b[0]) / (a[0] - b[0]); b = [NEAR, b[1] + t * (a[1] - b[1])]; }
+          const A = xy(a), B = xy(b);
+          if (!on) g.moveTo(A[0], A[1]);
+          g.lineTo(B[0], B[1]); on = true;
+          if (L2[i + 1][0] < NEAR) on = false;
+        }
+      };
       g.fillStyle = "rgba(255,255,255,0.10)"; g.beginPath();
-      const A2 = edge[0].filter(Boolean), B2 = edge[1].filter(Boolean).reverse();
+      const A2 = edge[0].filter(q => q[0] >= NEAR).map(xy), B2 = edge[1].filter(q => q[0] >= NEAR).map(xy).reverse();
       if (A2.length > 1 && B2.length > 1) { A2.concat(B2).forEach((q, i) => i ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1])); g.closePath(); g.fill(); }
       g.strokeStyle = "#ffcf33"; g.lineWidth = 2.2;
-      for (const E of edge) { g.beginPath(); let on = false; for (const q of E) { if (!q) { on = false; continue; } on ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); on = true; } g.stroke(); }
-      g.setLineDash([3, 6]); g.strokeStyle = "rgba(255,255,255,0.7)"; g.lineWidth = 1.5; g.beginPath(); let on = false;
-      for (const q of mid) { if (!q) { on = false; continue; } on ? g.lineTo(q[0], q[1]) : g.moveTo(q[0], q[1]); on = true; } g.stroke(); g.setLineDash([]);
+      for (const E of edge) { g.beginPath(); path(E); g.stroke(); }
+      g.setLineDash([3, 6]); g.strokeStyle = "rgba(255,255,255,0.7)"; g.lineWidth = 1.5; g.beginPath(); path(mid); g.stroke(); g.setLineDash([]);
       /* the waypoints' flags */
       ROUTE.pts.forEach((w, j) => {
         if (!w.user) return;
