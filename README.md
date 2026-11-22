@@ -3,6 +3,10 @@
 **NAV47.pg5** is a native DMCP5 program in C for the SwissMicros **DM42n**. It joins three of the "47"
 projects into one navigation computer:
 
+**Manuals**, with pictures: [the calculator](docs/manual/01-calculator.md), [the GPS and connecting it to a
+serial line](docs/manual/02-gps.md), [the web page](docs/manual/03-web.md), [formulas, accuracy and
+references](docs/manual/04-formulas.md). As PDFs: `make manual` (`build/manual/NAV47-manual.pdf`).
+
 No start menu: it opens on ALMANAC, and the **soft-key bar** (F1-F6, `>>` for the next row, as Chess 47) goes
 everywhere.
 
@@ -42,12 +46,14 @@ synthetic atlas: the real atlas is private.)*
 **HERE** adds the position of SET, **EDIT** (or ENTER) changes it, **DEL** removes it, **UP DOWN** move.
 Each row shows the leg from the waypoint before: **CRS** (true), **DIST** and **CUM** (nm), the total on top.
 
-* **RL**, rhumb line: Mercator sailing with the meridional parts of the WGS84 spheroid (Bowditch:
-  MP = 7915.7045 log tan(45° + φ/2) − 23.0133 sin φ − 0.0514 sin³ φ), parallel sailing on an east-west leg, the
-  shorter way across 180°.
-* **GC**, great circle: the distance on the sphere (1′ = 1 nm) and the **initial** course (ICRS).
+* **RL**, rhumb line: exact on the ellipsoid (the isometric latitude, the meridian arc as a geodesic), parallel
+  sailing on an east-west leg, the shorter way across 180°.
+* **GC**, great circle: the geodesic on the ellipsoid (Karney's algorithms, GeographicLib's C ported in `src/geo47`),
+  the **initial** course (ICRS).
+* **CS**, composite: great circles to and from a limiting latitude, the parallel between (**4 6** the limit).
 
-The route is saved in `/NAV47/ROUTE.TXT` (one `lat lon` per line, degrees), up to 40 waypoints.
+The route is saved in `/NAV47/ROUTE.TXT` (one `lat lon NAME` per line, degrees), up to 100 waypoints. The formulas and
+their accuracy: [docs/manual/04-formulas.md](docs/manual/04-formulas.md).
 
 ## WPTS: the waypoints' list
 

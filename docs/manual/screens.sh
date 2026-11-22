@@ -60,6 +60,7 @@ shot calc_set       F6 F6 F1
 shot calc_files     F6 F6 F2
 shot calc_wpts      F6 F6 F2 F4
 shot calc_dp        F6 F6 F4 WAIT:500
+shot calc_abs       F6 F6 F4 WAIT:500 DOT WAIT:300
 shot gps_fix        $G F1 $(w 25)
 shot gps_sats       $G F1 $(w 20) F2 0
 shot gps_nav        $G F3 $(w 1200)
