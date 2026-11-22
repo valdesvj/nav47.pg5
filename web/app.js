@@ -1140,15 +1140,18 @@ function planCard() {
       <td class="num">${i ? FMT.crs(rows[i - 1].rl) : ""}</td><td class="num">${i ? FMT.nm(w.leg) : ""}</td><td class="num">${i ? FMT.nm(w.cum) : ""}</td>
       <td>${i ? w.kind : ""}</td><td class="num">${FMT.dt(etd + w.cum / NM / R.speed / 24, off)}</td></tr>`; }).join("")}</table></div>
     <div class="controls" style="margin-top:8px"><button id="xcsv">CSV</button><button id="xnmea">NMEA</button><button id="xgpx">GPX</button>
-      <button id="xtxt">ROUTE.TXT</button><button id="xcalc">To the calculator</button></div>
+      <button id="xtxt">ROUTE.TXT</button><button id="xwpt" title="the route's waypoints for the calculator's list: /NAV47/WAYPTS.CSV">WAYPTS.CSV</button><button id="xcalc">To the calculator</button></div>
     <div class="meta">Steer: the rhumb course to the next point. G geodesic, R rhumb, P parallel (composite). ETA at ${R.speed} kn from the departure in Voyage.</div>`;
   $("xcsv").onclick = () => download("PLAN.CSV", planCSV());
   $("xnmea").onclick = () => download("PLAN.NMEA", planNMEA());
   $("xgpx").onclick = () => download("PLAN.GPX", planGPX());
   $("xtxt").onclick = () => download("ROUTE.TXT", routeTxt());
+  $("xwpt").onclick = () => download("WAYPTS.CSV", wayptsCsv());
   $("xcalc").onclick = () => {
     if (ROUTE.pts.length > 100) { alert(`The calculator holds 100 waypoints; this route has ${ROUTE.pts.length} points.`); return; }
-    if (confirm("Send this route to the calculator (its ROUTE.TXT) and open it?")) CALC.putAndRestart("ROUTE.TXT", routeTxt());
+    if (!confirm("Send this route (ROUTE.TXT) and your objects (OBJECTS.CSV) to the calculator and open it?")) return;
+    if (S.objects.length) localStorage.setItem("nav47fs:/simdisk/NAV47/OBJECTS.CSV", objectsCsv());
+    CALC.putAndRestart("ROUTE.TXT", routeTxt());
   };
 }
 function planCSV() {
@@ -1174,11 +1177,20 @@ function planGPX() {
   return `<?xml version="1.0" encoding="UTF-8"?>\n<gpx version="1.1" creator="NAV47" xmlns="http://www.topografix.com/GPX/1/1"><rte><name>NAV47</name>\n` +
     r.map((w, i) => `<rtept lat="${w.lat.toFixed(7)}" lon="${nearLon(w.lon, 0).toFixed(7)}"><name>WP${String(i + 1).padStart(3, "0")}</name></rtept>`).join("\n") + "\n</rte></gpx>\n";
 }
+/* the objects file, for this page and the calculator (/NAV47/OBJECTS.CSV) */
+function objectsCsv() {
+  return "type,name,lat,lon,zone_m,orient,face_m,side_m\n" + S.objects.map(o => [o.type, `"${o.name.replace(/"/g, "'")}"`, o.lat.toFixed(7), o.lon.toFixed(7), o.r,
+    o.orient ?? "", o.orient !== null && o.orient !== undefined ? o.a : "", o.orient !== null && o.orient !== undefined && o.b !== o.a ? o.b : ""].join(",")).join("\n") + "\n";
+}
+/* the route's waypoints as the calculator's waypoints' list (/NAV47/WAYPTS.CSV: name, lat, lon) */
+function wayptsCsv() {
+  return "name,lat,lon\n" + S.route.wps.map((w, i) => `${(w.name || "WP" + String(i + 1).padStart(3, "0")).replace(/[,;"]/g, " ").slice(0, 12).toUpperCase()},${w.lat.toFixed(7)},${nearLon(w.lon, 0).toFixed(7)}`).join("\n") + "\n";
+}
 /* the calculator's ROUTE.TXT: the planned points (round the zones) as its waypoints, its sailing, split, ellipsoid, speed */
 function routeTxt() {
   const R = S.route;
   return `NAV47 ROUTE 1\n${["RL", "GC", "CS"][R.sail]}\nLIM ${R.lim.toFixed(1)}\nSPLIT ${R.split} ${(+R.val).toFixed(3)}\nELL ${R.ell}\nSPEED ${(+R.speed).toFixed(4)}\nETD ${(R.etd || 0).toFixed(6)}\n` +
-    ROUTE.pts.map(p => `${p.lat.toFixed(7)} ${nearLon(p.lon, 0).toFixed(7)}`).join("\n") + "\n";
+    ROUTE.pts.map(p => `${p.lat.toFixed(7)} ${nearLon(p.lon, 0).toFixed(7)}${p.name ? " " + String(p.name).replace(/[\s,;]+/g, " ").trim().slice(0, 12) : ""}`).join("\n") + "\n";
 }
 /* the calculator's ROUTE.TXT into the route: its waypoints, sailing, limit, split, ellipsoid, speed, departure */
 function loadRouteTxt(t) {
@@ -1239,8 +1251,7 @@ function objList() {
     S.view.lat0 = o.lat; S.view.lon0 = o.lon; S.view.k = Math.max(S.view.k, CH.W / (0.15 * D2R)); clampView(); draw(); objList(); });
   $("objload").onchange = e => Promise.all([...e.target.files].map(f => f.text().then(t => parseObjects(t, f.name)))).then(ls => {
     const add = ls.flat(); S.objects.push(...add); alert(`${add.length} objects loaded.`); refresh(); fit(add); draw(); });
-  $("objcsv").onclick = () => download("objects.csv", "type,name,lat,lon,zone_m,orient,face_m,side_m\n" + S.objects.map(o => [o.type, `"${o.name.replace(/"/g, "'")}"`, o.lat.toFixed(7), o.lon.toFixed(7), o.r,
-    o.orient ?? "", o.orient !== null && o.orient !== undefined ? o.a : "", o.orient !== null && o.orient !== undefined && o.b !== o.a ? o.b : ""].join(",")).join("\n") + "\n");
+  $("objcsv").onclick = () => download("objects.csv", objectsCsv());
   $("objex").onclick = exampleField;
   $("objclr").onclick = () => { if (confirm("Forget every object in this browser?")) { S.objects = []; S.route.wps.forEach(w => w.obj = null); refresh(); } };
 }

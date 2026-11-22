@@ -22,7 +22,7 @@ TIDE47_TEST ?= $(if $(TIDE47),$(TIDE47),../tide47)
 
 USB ?= sercon
 # the GPS: NMEA, the position (GPS / DR), the passage, the pages, your objects
-GPS_SRC = src/nmea.c src/navfix.c src/passage.c src/gpsui.c src/objects.c
+GPS_SRC = src/nmea.c src/navfix.c src/passage.c src/gpsui.c src/objects.c src/wpdb.c
 # BOW=photo.jpg: your vessel's bow on the BOW page (tools/gen_bow.py; build/gen only, never in git)
 BOW ?=
 BOW_ARGS ?=

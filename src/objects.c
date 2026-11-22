@@ -56,7 +56,7 @@ static int pos_read(const Tok *tok, int nt, int mins, double *v, char *h) {
   return k == 2;
 }
 
-static int parse_pos(const char *s, double *lat, double *lon) {
+int geo_parse_pos(const char *s, double *lat, double *lon) {
   Tok tok[12];
   int nt = 0;
   while (*s && nt < 12) {
@@ -160,7 +160,7 @@ int obj_parse(const char *text) {
         char ps[64];
         double la, lon;
         snprintf(ps, sizeof ps, "%s %s", ilat < nf ? f[ilat] : "", ilon < nf ? f[ilon] : "");
-        if (parse_pos(ps, &la, &lon)) add(g[0] ? type_of(g[0]) : -1, g[1], la, lon, g[2], g[3], g[4], g[5]);
+        if (geo_parse_pos(ps, &la, &lon)) add(g[0] ? type_of(g[0]) : -1, g[1], la, lon, g[2], g[3], g[4], g[5]);
         continue;
       }
     }
@@ -168,17 +168,17 @@ int obj_parse(const char *text) {
     char ps[96];
     double la, lon;
     int ty = type_of(f[0]);
-    if (ty >= 0 && nf >= 4) { snprintf(ps, sizeof ps, "%s %s", f[0], f[1]); if (parse_pos(ps, &la, &lon)) ty = -1; }
+    if (ty >= 0 && nf >= 4) { snprintf(ps, sizeof ps, "%s %s", f[0], f[1]); if (geo_parse_pos(ps, &la, &lon)) ty = -1; }
     else ty = -1;
     char **r = ty >= 0 ? f + 1 : f;
     int nr = ty >= 0 ? nf - 1 : nf;
     if (nr < 2) continue;
     snprintf(ps, sizeof ps, "%s %s", nr > 1 ? r[1] : "", nr > 2 ? r[2] : "");
     int extra = 3;
-    if (!parse_pos(ps, &la, &lon)) {
+    if (!geo_parse_pos(ps, &la, &lon)) {
       ps[0] = 0;
       for (int i = 1; i < nr; i++) { strncat(ps, r[i], sizeof ps - strlen(ps) - 2); strcat(ps, " "); }
-      if (!parse_pos(ps, &la, &lon)) continue;
+      if (!geo_parse_pos(ps, &la, &lon)) continue;
       extra = nr;
     }
     const char *z = extra < nr ? r[extra] : NULL;

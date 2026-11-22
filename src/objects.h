@@ -20,6 +20,7 @@ typedef struct {
   char   name[21];
 } Obj;
 
+int  geo_parse_pos(const char *s, double *lat, double *lon);   /* "27 12.0N 049 42.0E", "27.2 49.7": 1 = ok */
 int  obj_parse(const char *text);         /* replaces the list: the objects read */
 int  obj_load(void);                      /* OBJ_FILE: the objects read, -1 no file */
 int  obj_count(void);

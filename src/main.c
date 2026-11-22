@@ -32,6 +32,7 @@
 #include "gpsui.h"
 #include "navctx.h"
 #include "objects.h"
+#include "wpdb.h"
 
 #define DIR       "/NAV47"
 #define TIDEDIR   "/NAV47/TIDES"
@@ -45,7 +46,7 @@
 /* ------------------------------------------------------------------ */
 enum { PG_VALM, PG_VSPLIT, PG_VSKY, PG_VALLSKY, PG_VMOON, PG_VANIM, PG_VSKY2,
        PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP, PG_CHART, PG_VOY, PG_ETA, PG_ETAT, PG_DP, PG_DPIN,
-       PG_GFIX, PG_GSATS, PG_GNAV, PG_GBOW, PG_GSET };
+       PG_GFIX, PG_GSATS, PG_GNAV, PG_GBOW, PG_GSET, PG_WPDB };
 #define IS_GPS(p) ((p) >= PG_GFIX && (p) <= PG_GSET)
 #define IS_VIEW(p) ((p) <= PG_VSKY2)
 
@@ -84,6 +85,7 @@ typedef struct {
   int have_ffl;
   char msg[64];
   double wlat[MAXWP], wlon[MAXWP];   /* ROUTE waypoints */
+  char wname[MAXWP][WP_NAME];        /* their names ("": none) */
   int nwp;
   double leg_crs[MAXWP], leg_nm[MAXWP];   /* ROUTE: each leg's course and distance (cache) */
 } Nav;
@@ -986,7 +988,7 @@ static void route_save(void) {
   char *o = b;
   o += sprintf(o, "NAV47 ROUTE 1\n%s\nLIM %.1f\nSPLIT %d %.3f\nELLC %.4f %.9f\nELL %d\nSPEED %.4f\nETD %.6f\n", SAIL_NAME[N->cfg.gc % 3], cs_lim,
                plan_split, plan_val, ellipsoids[ELL_CUSTOM].a, ellipsoids[ELL_CUSTOM].rf, geo_ell_index, voy_kn, voy_etd0);
-  for (int i = 0; i < N->nwp; i++) o += sprintf(o, "%.7f %.7f\n", N->wlat[i], N->wlon[i]);
+  for (int i = 0; i < N->nwp; i++) o += sprintf(o, N->wname[i][0] ? "%.7f %.7f %s\n" : "%.7f %.7f\n", N->wlat[i], N->wlon[i], N->wname[i]);
   sys_disk_write_enable(1);
   check_create_dir(DIR);
   FIL f;
@@ -1018,8 +1020,12 @@ static void route_load(void) {
     else if (sscanf(l, "ELL %d", &m) == 1) geo_set_ellipsoid(m);
     else if (sscanf(l, "SPEED %lf", &v) == 1) { if (v >= 1 && v <= 1000) voy_kn = v; }
     else if (sscanf(l, "ETD %lf", &v) == 1) { voy_etd0 = v > 2400000 ? v : 0; }
-    else if (sscanf(l, "%lf %lf", &a, &b) == 2 && N->nwp < MAXWP && fabs(a) <= 90 && fabs(b) <= 180) {
-      N->wlat[N->nwp] = a; N->wlon[N->nwp] = b; N->nwp++;
+    else if (sscanf(l, "%lf %lf%n", &a, &b, &m) == 2 && N->nwp < MAXWP && fabs(a) <= 90 && fabs(b) <= 180) {
+      N->wlat[N->nwp] = a; N->wlon[N->nwp] = b;
+      const char *nm = l + m;                                 /* "lat lon NAME": the web's names too */
+      while (*nm == ' ' || *nm == ',' || *nm == ';' || *nm == '\t') nm++;
+      snprintf(N->wname[N->nwp], WP_NAME, "%s", (*nm >= '0' && *nm <= '9') || *nm == '-' ? "" : nm);
+      N->nwp++;
     }
     l = strtok(NULL, "\n");
   }
@@ -1032,7 +1038,8 @@ static void route_insert(double lat, double lon) {
   int at = N->nwp ? wp_cur + 1 : 0;
   memmove(&N->wlat[at + 1], &N->wlat[at], sizeof(double) * (size_t)(N->nwp - at));
   memmove(&N->wlon[at + 1], &N->wlon[at], sizeof(double) * (size_t)(N->nwp - at));
-  N->wlat[at] = lat; N->wlon[at] = lon;
+  memmove(&N->wname[at + 1], &N->wname[at], WP_NAME * (size_t)(N->nwp - at));
+  N->wlat[at] = lat; N->wlon[at] = lon; N->wname[at][0] = 0;
   N->nwp++;
   wp_cur = at;
 }
@@ -1042,6 +1049,7 @@ static void route_delete(void) {
   if (!N->nwp) return;
   memmove(&N->wlat[wp_cur], &N->wlat[wp_cur + 1], sizeof(double) * (size_t)(N->nwp - wp_cur - 1));
   memmove(&N->wlon[wp_cur], &N->wlon[wp_cur + 1], sizeof(double) * (size_t)(N->nwp - wp_cur - 1));
+  memmove(&N->wname[wp_cur], &N->wname[wp_cur + 1], WP_NAME * (size_t)(N->nwp - wp_cur - 1));
   N->nwp--;
   if (wp_cur >= N->nwp && wp_cur) wp_cur--;
 }
@@ -1088,7 +1096,8 @@ static void draw_route(void) {
   }
   int vis = 10;
   if (wp_edit >= 0) nt_inv(2, 192, wp_edit ? "LON DDD.MMm  +/- WEST  ENTER" : "LAT DD.MMm  +/- SOUTH  ENTER");
-  else nt(2, 192, N->cfg.gc == 2 ? "4 6 limit 5 cmp R/S plan" : "ENTER edit 5 cmp R/S plan");
+  else if (wp_cur < N->nwp && N->wname[wp_cur][0]) { sprintf(s, "%d %s  1 WPTS 3 save", wp_cur + 1, N->wname[wp_cur]); nt(2, 192, s); }
+  else nt(2, 192, N->cfg.gc == 2 ? "4 6 limit 1 WPTS R/S plan" : "ENTER edit 1 WPTS R/S plan");
   sprintf(s, "%d WP  TOTAL %.1f NM", N->nwp, tot);
   if (wp_edit < 0 || nt_w(s) < 150) nt_r(LCD_X - 2, 192, s);
   if (wp_cur >= N->nwp) wp_cur = N->nwp - 1;
@@ -2331,7 +2340,8 @@ static const char *MENUS[5][6] = {
   { "ADD", "EDIT", "DEL", "RL/GC", "HERE", ">>" },
   { "FIX", "SATS", "NAV", "BOW", "GPSSET", ">>" },
 };
-static const char *FILE_MENU[6] = { "TID", "FLW", "CLEAR", "", "", "BACK" };
+static const char *FILE_MENU[6] = { "TID", "FLW", "CLEAR", "WPTS", "OBJ", "BACK" };
+static int wpdb_back = PG_ROUTE;
 static const char *EDIT_MENU[6] = { "", "", "", "", "", "CANCEL" };
 static const char *PLAN_MENU[6] = { "CSV", "NMEA", "SPLIT", "CMP", "CHART", "BACK" };
 static const char *CMP_MENU[6] = { "ELL-", "ELL+", "EDIT", "PLAN", "CHART", "BACK" };
@@ -2395,6 +2405,19 @@ void nav_beep(void) {
   sys_delay(120);
   stop_buzzer();
 }
+const char *nav_wp_name(int i) { return i >= 0 && i < N->nwp ? N->wname[i] : ""; }
+int nav_here(double *lat, double *lon) {
+  double h;
+  if (gps_live(lat, lon, &h)) return 1;
+  *lat = N->cfg.lat; *lon = N->cfg.lon;
+  return 0;
+}
+void nav_route_insert(double lat, double lon, const char *name) {
+  if (N->nwp >= MAXWP) return;
+  route_insert(lat, lon);
+  snprintf(N->wname[wp_cur], WP_NAME, "%s", name ? name : "");
+  route_save();
+}
 void nav_chart_live(int back) {
   chart_back = PG_GFIX + back; chart_refit = 1; chart_live = 1; chart_follow = 1;
   go(PG_CHART);
@@ -2432,6 +2455,7 @@ static void redraw(void) {
     case PG_INFO: draw_info(); break;
     case PG_PICK: draw_pick(); break;
     case PG_GFIX: case PG_GSATS: case PG_GNAV: case PG_GBOW: case PG_GSET: gps_draw(page - PG_GFIX, anim_frame); break;
+    case PG_WPDB: wpdb_draw(); break;
     }
   if (page != PG_ROUTE && menu_page == 3) menu_page = 0;
   CHART_MENU[4] = chart_live ? "NAV" : "PLAN";
@@ -2439,7 +2463,7 @@ static void redraw(void) {
   MENUS[0][2] = page == PG_VSKY ? "SKY2" : "SKY";
   CHART_MENU[3] = chart_globe ? "MERC" : "GLOBE";
   VOY_MENU[0] = voy_play ? "PAUSE" : "PLAY";
-  lcd_draw_menu_keys(page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0 || (page == PG_DPIN && DP && DP->edit >= 0) || (IS_GPS(page) && gps_editing())) ? EDIT_MENU :
+  lcd_draw_menu_keys(page == PG_WPDB ? (const char **)wpdb_menu() : page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0 || (page == PG_DPIN && DP && DP->edit >= 0) || (IS_GPS(page) && gps_editing())) ? EDIT_MENU :
                      page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : page == PG_VOY ? VOY_MENU : page == PG_ETA ? ETA_MENU : page == PG_ETAT ? ETAT_MENU : page == PG_DP ? DP_MENU : page == PG_DPIN ? DPIN_MENU : MENUS[menu_page]);
   lcd_refresh();
   lcd_refresh_wait();        /* the LCD goes out by DMA: done before the next frame clears the buffer (no flicker) */
@@ -2477,7 +2501,13 @@ static void softkey(int fn) {
       if (N->cfg.tsrc == 2) N->cfg.tsrc = 0;
       strcpy(N->msg, "files cleared (memory is freed at the next start)");
       cfg_save();
-    } else if (fn == 5) go(PG_SET);
+    } else if (fn == 3) { wpdb_back = PG_FILES; wpdb_open(0); go(PG_WPDB); }
+    else if (fn == 4) {
+      int k = obj_load();
+      if (k < 0) strcpy(N->msg, "no /NAV47/OBJECTS.CSV (the web page's objects.csv)");
+      else sprintf(N->msg, "OBJECTS.CSV: %d objects", k);
+    }
+    else if (fn == 5) go(PG_SET);
     return;
   }
   if (page == PG_PLAN) {
@@ -2572,6 +2602,11 @@ static void handle_key(int key) {
     }
   }
   if (IS_GPS(page) && gps_editing()) { gps_key(page - PG_GFIX, key); return; }
+  if (page == PG_WPDB) {
+    int r = wpdb_key(key);
+    if (r == 2) { go(wpdb_back); if (wpdb_back == PG_ROUTE) menu_page = 3; }
+    return;
+  }
   if ((edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0) && key == KEY_F6) key = KEY_EXIT;
   if (edit_field >= 0) { key_edit(key); return; }
   if (wp_edit >= 0) { key_wp(key); return; }
@@ -2654,6 +2689,10 @@ static void handle_key(int key) {
     else if (key == KEY_RUN && N->nwp > 1) { plan_cur = 0; go(PG_PLAN); }
     else if (key == KEY_5 && N->nwp > 1) go(PG_CMP);
     else if (key == KEY_0) chart_open(PG_ROUTE);
+    else if (key == KEY_1) { wpdb_back = PG_ROUTE; wpdb_open(1); go(PG_WPDB); }      /* WPTS: a waypoint from the list */
+    else if (key == KEY_3 && N->nwp) {                                                /* the cursor's waypoint into the list */
+      wpdb_add(N->wname[wp_cur], N->wlat[wp_cur], N->wlon[wp_cur]);
+    }
     else if (key == KEY_4 && N->cfg.gc == 2 && cs_lim > 10) { cs_lim -= 1; route_save(); }
     else if (key == KEY_6 && N->cfg.gc == 2 && cs_lim < 85) { cs_lim += 1; route_save(); }
     break;
@@ -2716,6 +2755,7 @@ void program_main(void) {
   cfg_load();
   route_load();
   obj_load();                     /* /NAV47/OBJECTS.CSV: the platforms and their zones */
+  wpdb_init();                    /* /NAV47/WAYPTS.CSV: the waypoints' list */
   gps_start();
   if (N->cfg.zone < 0 || N->cfg.zone >= NZONES) N->cfg.zone = zone_nearest(N->cfg.tz, ut_now());
   int nf = N->cfg.nfiles;

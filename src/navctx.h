@@ -16,5 +16,6 @@ const struct geod_geodesic *nav_ell(void);
 int    nav_bodies(VBody *b);               /* the views' 8 bodies now, at SET's position (Hc, Zn) */
 void   nav_beep(void);                     /* a short beep */
 void   nav_chart_live(int back);           /* the CHART, live, back to the page given */
+const char *nav_wp_name(int i);            /* ROUTE's waypoint i's name, "" none */
 
 #endif

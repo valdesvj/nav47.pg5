@@ -576,7 +576,9 @@ static void draw_nav(void) {
     if (p->done) nt(4, y, "ARRIVED");
     else {
       int user = R->w[p->leg].flags & WPT_USER;
-      sprintf(s, user ? "TO WP%d" : "TO WP%d (pt %d)", p->user_no, p->leg + 1);
+      const char *wn = nav_wp_name(p->user_no - 1);
+      if (wn[0]) snprintf(s, sizeof s, user ? "TO %s" : "TO %s (pt %d)", wn, p->leg + 1);
+      else sprintf(s, user ? "TO WP%d" : "TO WP%d (pt %d)", p->user_no, p->leg + 1);
       nt_inv(6, y, s);
     }
     y += 18;
@@ -586,7 +588,10 @@ static void draw_nav(void) {
     fmt_deg(t, p->cts); nt(4, y, "CTS"); nt(48, y, t);
     if (!isnan(p->next_crs)) { fmt_deg(t, p->next_crs); nt(110, y, "NEXT"); nt(150, y, t); }
     y += 16;
-    fmt_eta(t, p->ttg_user); sprintf(s, "WP%d %.1f nm", p->user_no, p->dtg_user); nt(4, y, s); nt_r(196, y, t);
+    { const char *wn = nav_wp_name(p->user_no - 1);
+      fmt_eta(t, p->ttg_user);
+      if (wn[0]) snprintf(s, sizeof s, "%.9s %.1f nm", wn, p->dtg_user); else sprintf(s, "WP%d %.1f nm", p->user_no, p->dtg_user);
+      nt(4, y, s); nt_r(196, y, t); }
     y += 16;
     fmt_ttg(t, p->ttg_user); sprintf(s, "TTG %s at %.1f kn", t, p->kn); tiny(6, y, s);
     y += 12;

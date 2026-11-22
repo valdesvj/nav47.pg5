@@ -49,6 +49,18 @@ Each row shows the leg from the waypoint before: **CRS** (true), **DIST** and **
 
 The route is saved in `/NAV47/ROUTE.TXT` (one `lat lon` per line, degrees), up to 40 waypoints.
 
+## WPTS: the waypoints' list
+
+`/NAV47/WAYPTS.CSV` (`name, lat, lon`; up to 250), on its page **WPTS** (FILES **WPTS**, or **1** on ROUTE):
+**ADD** the position now (the GPS's, else SET's) and type its name (HP-42S style: **F1-F6** a group of letters,
+then **F1-F5** the letter; the digits as they are; **←** deletes; **ENTER**, then LAT and LON: ENTER keeps them),
+**EDIT**, **DEL**, **SORT** by name or the nearest (BRG and NM from the vessel), **1** your objects (`*`, from
+OBJECTS.CSV) listed too. **ROUTE** (or ENTER when opened from ROUTE) puts the waypoint into the route after its
+cursor, with its name; **3** on ROUTE saves the cursor's waypoint to the list. The route keeps the names
+(ROUTE.TXT: `lat lon NAME`, as the web page writes them): NAV shows **TO BRAVO**. The web page: Route tab,
+**WAYPTS.CSV** (the route's waypoints for the list); *To the calculator* also sends your objects (OBJECTS.CSV);
+FILES **OBJ** reads OBJECTS.CSV again.
+
 ## DP OPS: station keeping off a platform
 
 **DP** (menu 3) asks: can the vessel hold station a few metres off a platform in today's wind, current and sea? If
@@ -141,8 +153,8 @@ latest, 200 bytes at a time. The web page's **GPS** tab does the same from Chrom
 |---|---|
 | **FIX** | the position (big), the source: **GPS / DGPS / RTK / DR / SET**; 2D / 3D, the satellites used of those seen, PDOP HDOP VDOP, the DGPS station and its age, the error (GST, 1σ), the GPS's UT against the clock; SOG COG, the gyro's HDG, the log's STW. **7** drops the anchor (the anchor watch: its distance and bearing, an alarm outside the radius). **ENTER**: the Sun's bearing by the gyro, typed: the gyro error (the azimuth from the almanac) |
 | **SATS** | the sky: each satellite at its elevation and azimuth, a symbol a system (● GPS ■ GLONASS ◆ Galileo ▲ BeiDou ✕ SBAS ...), filled when used in the fix; the counts used / seen; the signal bars (dB-Hz). **4 6** one system's bars. **0** the Sun, the Moon, the planets and the stars on the same sky |
-| **NAV** | the passage on the plan (ROUTE, PLAN): the active leg, **TO WPn**: BRG, DTG, CTS, the next leg's course; the next user waypoint's distance, **ETA** and TTG, the **final** one's; at SOG (the plan's speed when stopped). SOG (big), COG, HDG, **SET and drift** (the ground vector less the water vector: gyro and log); the **XTE** bar with its limits, STEER PORT / STBD. The next leg at the arrival circle or past the waypoint (AUTO), or by hand. **4 6** the previous / next leg, **5** start on the leg nearest, **0** the live CHART |
-| **BOW** | the view over the Asiana's bow from the helideck: the route a lane to the horizon (its edges the XTE limits), the waypoints' flags, the turn ahead (TURN AHEAD 096°), your platforms and their zones on the sea, the Sun or the Moon at their bearings, the sea coming at her speed |
+| **NAV** | the passage on the plan (ROUTE, PLAN): the active leg, **TO WPn** (or its name): BRG, DTG, CTS, the next leg's course; the next user waypoint's distance, **ETA** and TTG, the **final** one's; at SOG (the plan's speed when stopped). SOG (big), COG, HDG, **SET and drift** (the ground vector less the water vector: gyro and log); your **three nearest objects** (BRG, distance, CPA and in how long; inverse, and the alarm ZONE AHEAD, when the CPA is inside its zone within 30 min); the **XTE** bar with its limits, STEER PORT / STBD. The next leg at the arrival circle or past the waypoint (AUTO), or by hand. **4 6** the previous / next leg, **5** start on the leg nearest, **0** the live CHART |
+| **BOW** | the view over the Asiana's bow from the helideck: the route a lane to the horizon (its edges the XTE limits), the waypoints' flags, the turn ahead (TURN AHEAD 096°), your platforms as jackets and deck modules in perspective (to their outline, seen from 20 m; drawn bigger far off), growing as she closes and passing by, their zones dotted on the sea, the Sun or the Moon at their bearings, the sea coming at her speed |
 | **GPSSET** | NMEA INPUT; POSITION: AUTO (the GPS, DR when the fix is lost), DR ONLY, OFF (SET's); SET FOLLOWS (the GPS's position to SET once a minute: the almanac, the tides AUTO, the zones and HERE follow); UT FROM GPS (the calculator's clock is left alone); DR AFTER (s); the DR's COURSE and SPEED (typed, or the gyro / COG and the log / SOG); the XTE limit, the arrival circle, the next leg AUTO or by hand; the anchor's radius; the alarms; MOB clear |
 
 - **The live CHART** (NAV **0**): the Asiana from above, to scale when the chart is that close (else 40 px), her
