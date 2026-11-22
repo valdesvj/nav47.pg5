@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "nmea.h"
+#include "navfix.h"
 
 static int fails, checks;
 #define CHECK(c) do { checks++; if (!(c)) { fails++; printf("FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); } } while (0)
@@ -65,9 +66,26 @@ static void logfile(const char *path) {
   char l[256];
   int t = 0;
   uint32_t lost_fix_ms = 0;
+  NavFix F;
+  NavFixCfg C = { POS_AUTO, -1, 0, 10 };
+  navfix_init(&F);
   while (fgets(l, sizeof l, f)) {
     if (l[0] == '\n' || l[0] == '\r') {             /* the end of second t */
       uint32_t now = (uint32_t)t * 1000;
+      navfix_update(&F, &G, &C, 0, 0, now + 1);
+      if (t == 10) CHECK(F.src == SRC_GPS && F.q == Q_DGPS && !strcmp(navfix_src_name(&F), "DGPS"));
+      if (t == 200) {                              /* the current: 135, 1.2 kn (SOG / COG to 0.1 in the log) */
+        NEAR(F.set, 135, 4); NEAR(F.drift, 1.2, 0.08);
+      }
+      if (t == 305) CHECK(F.src == SRC_GPS && F.q == Q_NONE);   /* inside the timeout: the last fix held */
+      if (t == 320) {
+        CHECK(F.src == SRC_DR && F.dr_crs_src == 'G' && F.dr_kn_src == 'L');
+        NEAR(F.cog, 45, 1e-9); NEAR(F.sog, 10, 1e-9);
+      }
+      if (t == 395) {                              /* the fix back at 390: the DR was off by the current's run */
+        CHECK(F.src == SRC_GPS);
+        NEAR(F.dr_err_nm, 1.2 * 91 / 3600, 0.01); NEAR(F.dr_err_brg, 135, 15);
+      }
       if (t == 10) {
         CHECK(G.have_fix && nmea_qual(&G) == Q_DGPS && G.dgps_id == 412);
         NEAR(G.dgps_age, 4, 1e-9);

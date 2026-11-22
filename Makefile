@@ -118,8 +118,11 @@ test-usb: | $(BUILD_DIR)
 # NAV47 GPS: src/nmea.c on the PC, on a synthetic log (test/nmea/make_log.py: made-up positions)
 test-gps: | $(BUILD_DIR)
 	$(PYTHON) test/nmea/make_log.py $(BUILD_DIR)/passage.nmea
-	gcc -std=gnu11 -Wall -Wextra -O1 -Isrc -o $(BUILD_DIR)/nmea_test test/nmea_test.c src/nmea.c -lm
+	gcc -std=gnu11 -Wall -Wextra -O1 -Isrc -o $(BUILD_DIR)/nmea_test test/nmea_test.c src/nmea.c src/navfix.c -lm
 	$(BUILD_DIR)/nmea_test $(BUILD_DIR)/passage.nmea
+	gcc -std=gnu11 -Wall -Wextra -O1 -Isrc -I$(GEO47_DIR) -o $(BUILD_DIR)/passage_test test/passage_test.c src/passage.c $(GEO47_SRC) -lm
+	$(BUILD_DIR)/passage_test > $(BUILD_DIR)/passage_out.txt
+	$(PYTHON) test/passage_verify.py $(BUILD_DIR)/passage_out.txt
 
 test:
 	$(PYTHON) test/test_astro.py $(ALMANAC47)
