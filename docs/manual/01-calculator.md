@@ -283,6 +283,8 @@ the Guide's North Sea wind–wave table.
 
 The polar shows the limiting wind from every direction (0 = the bow), intact (solid) and after the worst failure
 (dashed), and today's wind against the DP OPS heading. **8** sets the margin on the weather (0–30 %, 20 % by default).
+**4 6** turn today's wind 10° and **▲ ▼** change it 1 kn (SET's wind, as DP OPS's 7 9 8 2): the marker and its "holds to" move
+at once; back on DP OPS, BEST runs again with it. The polar is computed again only if today's current (e) changes with it.
 **.** or **DNV** goes back. This is the vessel's capability in every direction, not today's set-up at the platform.
 The ABS limits are 1-minute means; SET's wind is a 10-minute mean.
 

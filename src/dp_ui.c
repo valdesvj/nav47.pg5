@@ -348,6 +348,17 @@ void draw_dp(void) {
 }
 
 static int abs_run(void);
+/* SET's wind (DP OPS and ABS SKP use it): its direction ddir degrees, its speed dkn knots; to 10 degrees and 1 kn, saved */
+static void wind_step(int ddir, int dkn) {
+  Cfg *c = &N->cfg;
+  c->wdir = fmod(c->wdir + 360 + ddir, 360);
+  c->wkn = fmin(99, fmax(0, c->wkn + dkn));
+  c->wdir = 10 * floor(c->wdir / 10 + 0.5); if (c->wdir >= 360) c->wdir -= 360;
+  c->wkn = floor(c->wkn + 0.5);
+  cfg_save();
+}
+static int abs_wind;                                         /* the wind changed on ABS SKP: DP OPS again on the way back */
+
 void dp_key(int key) {
   DpS *d = DP;
   if (!d) { if (key == KEY_EXIT) go(PG_VALM); return; }
@@ -356,14 +367,7 @@ void dp_key(int key) {
   else if (key == KEY_UP || key == KEY_DOWN) { step_time(key == KEY_UP ? 1 : -1); d->manual ? dp_eval_here() : dp_best(); }
   else if (key == KEY_5) { toff = 0; dp_best(); }
   else if (key == KEY_7 || key == KEY_9 || key == KEY_8 || key == KEY_2) {   /* the wind: 7 9 its direction, 8 2 its speed */
-    Cfg *c = &N->cfg;
-    if (key == KEY_7) c->wdir = fmod(c->wdir + 350, 360);
-    else if (key == KEY_9) c->wdir = fmod(c->wdir + 10, 360);
-    else if (key == KEY_8) c->wkn = fmin(99, c->wkn + 1);
-    else c->wkn = fmax(0, c->wkn - 1);
-    c->wdir = 10 * floor(c->wdir / 10 + 0.5); if (c->wdir >= 360) c->wdir -= 360;
-    c->wkn = floor(c->wkn + 0.5);
-    cfg_save();
+    wind_step(key == KEY_7 ? -10 : key == KEY_9 ? 10 : 0, key == KEY_8 ? 1 : key == KEY_2 ? -1 : 0);
     d->manual ? dp_eval_here() : dp_best();
   }
   else if (key == KEY_0) d->showfail ^= 1;
@@ -503,13 +507,23 @@ void draw_dpabs(void) {
   draw_text(&TINY, X, y + 3, s, 0); y += LH + 4;
   draw_text(&TINY, X, y, "TODAY: SET's wind, 10-min mean;", 0); y += LH;
   draw_text(&TINY, X, y, "the ABS limits are 1-min means", 0);
-  draw_text(&TINY, 2, MENU_Y - LH, ". or DNV: back to DP OPS   CUR 7  MARGIN 8", 0);
+  draw_text(&TINY, 2, MENU_Y - LH, ". DNV: DP OPS  CUR 7  MARGIN 8  WIND 4 6, UP DOWN", 0);
 }
 
 void dpabs_key(int key) {
   if (key == KEY_7) { abs_cur10 = abs_cur10 < 0 ? 5 : abs_cur10 >= 30 ? -1 : abs_cur10 + 5; if (!abs_run()) go(PG_DP); }   /* today's, 0.5 .. 3 kn */
   else if (key == KEY_8) { abs_margin = abs_margin >= 30 ? 0 : abs_margin + 10; if (!abs_run()) go(PG_DP); }
-  else if (key == KEY_DOT || key == KEY_EXIT) go(PG_DP);
+  else if (key == KEY_4 || key == KEY_6 || key == KEY_UP || key == KEY_DOWN) {   /* today's wind: 4 6 its direction, UP DOWN its speed */
+    float e0 = abs_cur;
+    wind_step(key == KEY_4 ? -10 : key == KEY_6 ? 10 : 0, key == KEY_UP ? 1 : key == KEY_DOWN ? -1 : 0);
+    dp_weather();                                          /* the marker moves; the polar too only if today's current (e) changed */
+    abs_wind = 1;
+    if (abs_cur10 < 0 && abs_current() != e0 && !abs_run()) go(PG_DP);
+  }
+  else if (key == KEY_DOT || key == KEY_EXIT) {
+    go(PG_DP);
+    if (abs_wind) { abs_wind = 0; DP->manual ? dp_eval_here() : dp_best(); }   /* DP OPS with the new wind */
+  }
 }
 
 /* INPUT: the weather (the wind is SET's / FLOW's own), the current (FLOW or typed), the sea (DNV or typed),
