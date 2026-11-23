@@ -437,7 +437,9 @@ function landCrossings(P, exempt) {
 }
 /* every leg of the plan, sampled every ~25 m (or 400 a leg), against every zone near it: exact distances; and land */
 function check(rows, zones, warn) {
-  const out = { min: Infinity, minObj: null, minLeg: 0, hits: [], warn: warn.slice(), land: [] };
+  const out = { min: Infinity, minObj: null, minLeg: 0, hits: [], warn: warn.slice(), land: [],
+                pass: Infinity, passObj: null, passLeg: 0, end: Infinity, endObj: null };   /* pass: the zones passed (R.clear); end: the waypoints' own objects (R.margin) */
+  const own = new Set(S.route.wps.map(w => w.obj).filter(Boolean));
   if (rows.length < 2) return out;
   /* land: for a vessel; a flight (100 kn or more) passes over it */
   out.flight = S.route.speed >= 100;
@@ -465,6 +467,8 @@ function check(rows, zones, warn) {
       for (const [la, lo] of P) { const d = NAV.inv(la, lo, z.lat, z.lon).s; if (d < best) best = d; }
       const c = best - z.r;
       if (c < out.min) { out.min = c; out.minObj = z; out.minLeg = i; }
+      if (own.has(z.id)) { if (c < out.end) { out.end = c; out.endObj = z; } }
+      else if (c < out.pass) { out.pass = c; out.passObj = z; out.passLeg = i; }
       if (c < -0.5) out.hits.push({ leg: i, obj: z, by: -c });
     }
   }
@@ -1139,8 +1143,11 @@ function checkCard() {
   else chips.push(`<span class="chip ok">✓ no leg over land</span>`);
   if (zones.length) {
     if (c.hits.length) chips.push(`<span class="chip warn">⚠ ${c.hits.length} leg${c.hits.length > 1 ? "s" : ""} into a zone</span>`);
-    else if (c.min < Infinity) chips.push(`<span class="chip ${c.min >= Math.min(R.clear, R.margin) - 1 ? "ok" : "warn"}">✓ clear of every zone: the closest ${FMT.m(c.min)} off ${esc(c.minObj.name)} (leg ${c.minLeg})</span>`);
-    else chips.push(`<span class="chip ok">✓ no zone near the route</span>`);
+    else {                                                   /* the zones passed against "pass zones by"; the start / end against "start / end" */
+      if (c.pass < Infinity) chips.push(`<span class="chip ${c.pass >= R.clear - 1 ? "ok" : "warn"}">${c.pass >= R.clear - 1 ? "✓" : "⚠"} passes every zone by ${FMT.m(c.pass)} or more (${esc(c.passObj.name)}, leg ${c.passLeg}; asked ${R.clear} m)</span>`);
+      else chips.push(`<span class="chip ok">✓ no other zone near the route</span>`);
+      if (c.end < Infinity) chips.push(`<span class="chip ${c.end >= R.margin - 1 ? "ok" : "warn"}">start / end ${FMT.m(c.end)} outside ${esc(c.endObj.name)}'s zone (asked ${R.margin} m)</span>`);
+    }
   }
   const det = ROUTE.pts.filter(p => !p.user).length;
   if (det) chips.push(`<span class="chip">${det} turning point${det > 1 ? "s" : ""} round the zones</span>`);
