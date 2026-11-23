@@ -42,7 +42,7 @@ ticon: build/ticon/TICON_3.txt build/ticon/ne_places.geojson
 
 # web-private: the same page with YOUR private tide data compiled in (as make TIDE47=... for the .pg5), for this
 # computer only: build/web-private/ (git-ignored), never web/. Open build/web-private/index.html.
-#   make web-private TIDE47=~/opt/tide47
+#   make web-private TIDE47=~/opt/tide47 [LOCODE=~/opt/unlocode/csv]   (UN/LOCODE's port names: this page only)
 WEBP = build/web-private
 web-private: $(filter-out %tidedata_priv.c,$(SIM_SRC)) web/api.c $(wildcard web/*.js) web/index.html $(BUILD_DIR)/gen/simfont.h build/coast/COAST_C.BIN build/coast/COAST_L.BIN web.mk
 	@test -n "$(TIDE47)" || { echo "make web-private: give TIDE47=~/opt/tide47 (your Tide 47 with its private data)"; exit 1; }
@@ -51,5 +51,6 @@ web-private: $(filter-out %tidedata_priv.c,$(SIM_SRC)) web/api.c $(wildcard web/
 	$(PYTHON) tools/gen_tides.py private "$(TIDE47)" $(WEBP)/tidedata_priv.c
 	EM_CACHE=$(CURDIR)/build/emcache $(EMCC) $(WEB_FLAGS) -o $(WEBP)/nav47.js $(filter-out build/web/tidedata_priv.c,$(WEB_SRC)) $(WEBP)/tidedata_priv.c
 	cp web/index.html $(filter-out web/nav47.js,$(wildcard web/*.js)) $(WEBP)/          # every page script but the public nav47.js
+	@if [ -n "$(LOCODE)" ]; then $(PYTHON) tools/gen_ports.py web/ports.js $(WEBP)/ports.js $(WEBP)/PORTS.CSV --locode "$(LOCODE)"; fi   # UN/LOCODE's names: private only
 	@echo "private page: $(WEBP)/index.html (this computer only: do not publish, do not commit)"
 .PHONY: web-private

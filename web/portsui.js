@@ -18,9 +18,9 @@ const PORTSUI = (() => {
   function ports() {
     /* name: the common one first (Dubai), wpi: the index's (Dubayy), aka: every other name and the UN/LOCODE, searched */
     if (!PT) PT = (typeof PORTS === "string" ? PORTS : "").split("\n").filter(Boolean).map((l, i) => {
-      const [wpi, cc, la, lo, no, aka] = l.split("|"), al = (aka || "").split(";").filter(Boolean);
-      const common = al.find(a => !/^[A-Z]{5}$/.test(a)) || wpi;
-      return { i, name: common, wpi, aka: al, cc, lat: +la, lon: +lo, no: +no, key: [wpi, ...al].join(" ").toLowerCase() };
+      const [wpi, cc, la, lo, no, shown, aka] = l.split("|"), al = (aka || "").split(";").filter(Boolean);
+      const common = shown || wpi;                              /* name|cc|lat|lon|no|shown|searched */
+      return { i, name: common, wpi, aka: al, cc, lat: +la, lon: +lo, no: +no, key: [wpi, common, ...al].join(" ").toLowerCase() };
     });
     return PT;
   }
