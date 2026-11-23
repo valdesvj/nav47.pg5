@@ -6,7 +6,7 @@ the view over the bow and the vessel on the chart. Without a signal it keeps a d
 - [Connecting the GPS or the ship's NMEA](#connecting-the-gps-or-the-ships-nmea)
 - [The GPS pages](#the-gps-pages): FIX, SATS, NAV, BOW, the live CHART, GPSSET
 - [DR: when the fix is lost](#dr-when-the-fix-is-lost)
-- [Alarms, MOB, anchor watch, gyro error](#alarms-mob-anchor-watch-gyro-error)
+- [Alarms, MOB, anchor watch, gyro error](#alarms-mob-anchor-watch-gyro-error) (and the compass's deviation)
 - [Your vessel's pictures](#your-vessels-pictures)
 - [Without any hardware: a log or the demo](#without-any-hardware-a-log-or-the-demo)
 - [Troubleshooting](#troubleshooting)
@@ -183,6 +183,7 @@ With the GPS off there is no tag and the bar is as before.
 | the quality | PDOP, HDOP, VDOP; the DGPS reference station and the age of its corrections; the error estimate (GST, 1σ) |
 | the time | the GPS's UT against the calculator's clock |
 | the input | sentences received, bad checksums, lines lost |
+| **VAR** | the magnetic variation here today (the World Magnetic Model, WMM2025); after a Sun bearing (ENTER), a magnetic compass's **DEV** |
 
 **7** drops the anchor (the anchor watch); **ENTER** takes the Sun's bearing by the gyro (the gyro error); **0** GPSSET.
 
@@ -208,6 +209,7 @@ On the route of ROUTE (PLAN's points):
 | **CTS · NEXT** | the leg's course at the vessel, and the next leg's course |
 | next waypoint · **FINAL** | distance along the plan, and **ETA** |
 | **TTG** | the times to go, at SOG (at the plan's speed when stopped) |
+| **VAR** | the magnetic variation here today (WMM2025), the course to steer and the bearing magnetic: CTS 047°M BRG 043°M |
 | **SOG**, COG, HDG, **SET** | the vessel's motion, and the current (set and drift); her position, small, under SOG |
 | the objects | your three nearest objects: bearing, distance, **CPA** and in how long; inverse when the CPA is inside its zone |
 | **XTE** | the cross-track error and its bar, the limits marked, "STEER PORT / STBD" |
@@ -307,6 +309,13 @@ position; **ENTER** there clears it.
 
 **Gyro error**: on FIX, **ENTER**, then type the Sun's bearing as read on the gyro repeater. NAV47 gives the Sun's
 true azimuth (Zn) and the error: **ERR 1.5° LOW** (the gyro reads low: add) or **HIGH** (subtract).
+
+**Magnetic compass**: the same, with the bearing read on the magnetic compass. The error is then the compass error,
+and the line under it gives the **deviation** for that heading: **DEV = compass error − variation** (east +), the
+variation from the World Magnetic Model (WMM2025, NOAA / NGA, valid 2025–2030; about 0.5° at sea, more near local
+anomalies: the chart's magnetic notes still apply). After 2030 the line says the model has expired: a new
+`WMM.COF` and `python3 tools/gen_wmm.py WMM.COF src/wmmdata.c` give the next one; `make test-wmm` checks it against
+NOAA's test values.
 
 ## Your vessel's pictures
 
