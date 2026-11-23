@@ -22,7 +22,7 @@ TIDE47_TEST ?= $(if $(TIDE47),$(TIDE47),../tide47)
 
 USB ?= sercon
 # the GPS: NMEA, the position (GPS / DR), the passage, the pages, your objects
-GPS_SRC = src/nmea.c src/navfix.c src/passage.c src/gpsui.c src/objects.c src/wpdb.c src/alpha.c src/bmp.c
+GPS_SRC = src/nmea.c src/navfix.c src/passage.c src/gpsui.c src/objects.c src/wpdb.c src/alpha.c src/bmp.c src/wmm.c src/wmmdata.c
 C_INCLUDES += -Idmcp -Isrc -Isrc/usb -Ithird_party/tinyusb/src
 C_SOURCES  += dmcp/sys/pgm_syscalls.c
 ASM_SOURCES = dmcp/startup_pgm.s
@@ -119,6 +119,11 @@ test-usb: | $(BUILD_DIR)
 	$(BUILD_DIR)/usbcon_test
 
 # NAV47 GPS: src/nmea.c on the PC, on a synthetic log (test/nmea/make_log.py: made-up positions)
+# the magnetic variation (src/wmm.c, WMM2025) against NOAA's test values
+test-wmm: | $(BUILD_DIR)
+	gcc -std=gnu11 -O2 -Wall -Wextra -Isrc -o $(BUILD_DIR)/wmm_test test/wmm_test.c src/wmm.c src/wmmdata.c -lm
+	$(BUILD_DIR)/wmm_test test/wmm/WMM2025_TestValues.txt
+
 test-gps: | $(BUILD_DIR)
 	$(PYTHON) test/nmea/make_log.py $(BUILD_DIR)/passage.nmea
 	gcc -std=gnu11 -Wall -Wextra -O1 -Isrc -o $(BUILD_DIR)/nmea_test test/nmea_test.c src/nmea.c src/navfix.c -lm
@@ -170,5 +175,5 @@ clean:
 # the manuals as PDFs: build/manual/ (docs/manual/*.md; the pictures: bash docs/manual/screens.sh)
 manual: ; $(PYTHON) tools/make_manual.py build/manual
 
-.PHONY: both clean all test test-usb data sim check manual FORCE
+.PHONY: both clean all test test-usb test-wmm data sim check manual FORCE
 include web.mk
