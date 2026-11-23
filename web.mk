@@ -10,7 +10,7 @@ WEB_TICON = $(sort $(wildcard build/ticon/T*.TID))
 WEB_FLAGS = -O2 -std=gnu11 -w -ffp-contract=off '-D__packed=__attribute__((__packed__))' '-D__weak=__attribute__((weak))' \
             -DNAV47_SIM -DNAV47_WEB $(SIM_DEFS) -Itest/sim -Isrc -I$(GEO47_DIR) -Isrc/usb -I$(BUILD_DIR)/gen \
             -sASYNCIFY -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=1048576 -sINVOKE_RUN=0 -sSINGLE_FILE=1 \
-            -sENVIRONMENT=web -sEXPORTED_FUNCTIONS=_main,_nav47_key,_malloc,_free,$(WEB_API) -sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall,cwrap,UTF8ToString,HEAPF64,stringToUTF8,lengthBytesUTF8 \
+            -sENVIRONMENT=web -sEXPORTED_FUNCTIONS=_main,_nav47_key,_malloc,_free,$(WEB_API) -sEXPORTED_RUNTIME_METHODS=callMain,FS,ccall,cwrap,UTF8ToString,HEAPF64,HEAP8,stringToUTF8,lengthBytesUTF8 \
             --embed-file build/coast/COAST_C.BIN@/coast/COAST_C.BIN --embed-file build/coast/COAST_L.BIN@/coast/COAST_L.BIN \
             $(foreach f,$(WEB_NOAA),--embed-file $(f)@/noaa/$(notdir $(f))) $(foreach f,$(WEB_TICON),--embed-file $(f)@/ticon/$(notdir $(f)))
 

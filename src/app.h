@@ -87,6 +87,7 @@ typedef struct {
   char msg[64];
   double wlat[MAXWP], wlon[MAXWP];   /* ROUTE waypoints */
   char wname[MAXWP][WP_NAME];        /* their names ("": none) */
+  signed char wsail[MAXWP];          /* the leg arriving at each: 0 the route's sailing, 1 RL, 2 GC, 3 CS */
   int nwp;
   double leg_crs[MAXWP], leg_nm[MAXWP];   /* ROUTE: each leg's course and distance (cache) */
 } Nav;
@@ -181,6 +182,8 @@ void draw_etat(void);
 void etat_key(int key);
 void voy_tick(void);
 void voy_open(int back);
+int  leg_sail(int i);                     /* the sailing of the leg arriving at waypoint i: 0 RL 1 GC 2 CS */
+void leg_sail_cycle(int i);               /* that leg: the route's -> RL -> GC -> CS -> the route's */
 extern char route_name[24];
 int  rlib_active(void);                   /* the routes' library asks (ROUTE: SAVE's name, replace?, NEW?) */
 int  rlib_key(int key);

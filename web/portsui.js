@@ -221,7 +221,7 @@ const PORTSUI = (() => {
         const [x, y, v] = proj(p.lat, p.lon); if (!v || x < -5 || y < -5 || x > CH.W + 5 || y > CH.H + 5) continue;
         if (many) { g.fillRect(x - 1, y - 1, 2, 2); continue; }
         g.beginPath(); g.arc(x, y, 2.5, 0, 2 * Math.PI); g.fill();
-        if (span < 12) placeLabel(p.name, x, y, false);
+        if (span < 12 && S.labels === "all") placeLabel(p.name, x, y, false);
       }
     }
     if (V && V.legs.length) {
@@ -231,7 +231,7 @@ const PORTSUI = (() => {
       for (const l of V.legs) if (!l.none && l.eca) for (const sg of l.eca.segs) polyline(sg);
       g.fillStyle = "#c2410c"; g.font = "bold 12px system-ui";
       const st = P.stops.map(i => L[i]).filter(Boolean);
-      st.forEach((p, k) => { const [x, y, v] = proj(p.lat, p.lon); if (!v) return; g.beginPath(); g.arc(x, y, 5, 0, 2 * Math.PI); g.fill(); placeLabel(`${k + 1} ${p.name}`, x, y, true); });
+      st.forEach((p, k) => { const [x, y, v] = proj(p.lat, p.lon); if (!v) return; g.beginPath(); g.arc(x, y, 5, 0, 2 * Math.PI); g.fill(); if (S.labels !== "off") placeLabel(`${k + 1} ${p.name}`, x, y, true); });
     }
   }
   /* a click on the chart (the move tool, nothing else under it): the nearest port within 8 px joins the voyage */
@@ -257,13 +257,14 @@ const PORTSUI = (() => {
         t.forEach(([lat, lon], q) => {
           if (k && q === 0) return;
           const name = q === 0 ? g.from.name : q === t.length - 1 ? g.to.name : "";
-          wps.push({ lat, lon: nearLon(lon, 0), name: name.slice(0, 20), obj: null });
+          const pv = wps[wps.length - 1], far = pv && NAV.inv(pv.lat, pv.lon, lat, lon).s > 300 * NMm;   /* an ocean leg (> 300 NM) GC, else RL */
+        wps.push({ lat, lon: nearLon(lon, 0), name: name.slice(0, 20), obj: null, sail: pv ? (far ? 1 : 0) : undefined });
         });
       });
       if (wps.length <= 99) break;
     }
     lastTol = tol;
-    S.route.wps = wps; S.route.avoid = false; S.route.sail = 1; S.route.split = 0; S.route.speed = P.kn;
+    S.route.wps = wps; S.route.avoid = false; S.route.sail = 0; S.route.split = 0; S.route.speed = P.kn;
     S.route.name = P.stops.map(i => ports()[i].name).filter(Boolean).join(" - ").slice(0, 40);
     if (P.etd) S.route.etd = P.etd;
     refresh(); fitRoute(); draw();

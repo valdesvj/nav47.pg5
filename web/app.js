@@ -73,11 +73,17 @@ const NAV = {
     for (let i = 0; i < k; i++) r.push([o[2 * i], o[2 * i + 1]]);
     return r;
   },
+  /* each point's leg sailing (pts[i].sail: the leg arriving there; undefined: the route's) into the C's LEGS */
+  setLegs(pts) {
+    const L = Module.HEAP8.subarray(Module._api_legs(), Module._api_legs() + 2048);
+    for (let i = 0; i < 2048; i++) L[i] = i < pts.length && pts[i].sail >= 0 ? pts[i].sail : -1;
+  },
   plan(pts, sail, lim, split, val) {
     if (pts.length < 2) return { rows: [], rc: 0 };
     const p = Module._api_in() >> 3, IN = Module.HEAPF64.subarray(p, p + 4096);
     const n0 = Math.min(pts.length, 2000);
     for (let i = 0; i < n0; i++) { IN[2 * i] = pts[i].lat; IN[2 * i + 1] = pts[i].lon; }
+    NAV.setLegs(pts);
     const n = Module._api_plan(n0, sail, lim, split, val), o = NAV.o(), rows = [];
     for (let i = 0; i < n; i++) {
       const q = o.subarray(10 * i, 10 * i + 10);
@@ -111,12 +117,13 @@ const S = {
   objects: store.get("objects", []),
   view: store.get("view", { mode: "merc", lat0: 30, lon0: 10, k: 220 }),
   lock: store.get("lock", true),
+  labels: store.get("labels", "all"),                       /* the chart's labels: all, your waypoints only, off */
   wpdb: store.get("wpdb", []),                              /* your waypoints' list (as the calculator's WPTS): {name, lat, lon} */
   library: store.get("routes", {}),                         /* your routes by name */                            /* the objects locked: only the waypoints change */
   tool: "move", objType: "platform", sel: null, keepEta: store.get("keepEta", false), etaStep: store.get("etaStep", 0.5), pass: { from: "", to: "" }, showStreams: store.get("streams", false),
 };
 if (S.route.len === 100) S.route.len = 95;                       /* the old default: the Mermaid Asiana is 95 m */
-const save = () => { store.set("lock", S.lock); store.set("wpdb", S.wpdb); store.set("routes", S.library); store.set("route", S.route); store.set("objects", S.objects); store.set("view", S.view); store.set("pos", S.pos); store.set("times", S.times); };
+const save = () => { store.set("labels", S.labels); store.set("lock", S.lock); store.set("wpdb", S.wpdb); store.set("routes", S.library); store.set("route", S.route); store.set("objects", S.objects); store.set("view", S.view); store.set("pos", S.pos); store.set("times", S.times); };
 const zd = () => S.times === "zt" ? Math.round(S.pos[1] / 15) : 0;       /* the times shown: UT or ZT (the DR's zone) */
 const nowJd = () => S.live ? jdOf(Date.now()) : S.jd;
 let uid = Date.now();
@@ -411,8 +418,7 @@ function roundPts(pts, zones, clr, oa, ob) {
   });
 }
 /* does a planned leg, as sailed, keep clr off every zone (its own ends: off the zone itself)? exact distances */
-function legKeeps(pts, zones, clr, oa, ob) {
-  const rhumb = S.route.sail === 0;
+function legKeeps(pts, zones, clr, oa, ob, rhumb) {
   for (let i = 1; i < pts.length; i++) {
     const a = pts[i - 1], b = pts[i], L = NAV.inv(a.lat, a.lon, b.lat, b.lon).s;
     const m = NAV.dir(a.lat, a.lon, NAV.inv(a.lat, a.lon, b.lat, b.lon).a1, L / 2);
@@ -433,6 +439,11 @@ function sailPts(a, b, n, rhumb) {
   for (let i = 0; i <= n; i++) { const p = NAV.rdir(a.lat, a.lon, r.az, r.s * i / n); out.push(p ? [p.lat, p.lon] : [b.lat, b.lon]); }
   return out;
 }
+const SAILS = ["RL", "GC", "CS"];
+/* a leg's sailing chooser: "route" (the route's own, shown), RL, GC, CS */
+const legSel = (attr, i, w) => `<select ${attr}="${i}" title="this leg's sailing (arriving here)"><option value="-1">route (${SAILS[S.route.sail]})</option>${SAILS.map((t, k) => `<option value="${k}" ${w && w.sail === k ? "selected" : ""}>${t}</option>`).join("")}</select>`;
+/* a leg's sailing (the leg arriving at waypoint w): its own (w.sail 0 RL 1 GC 2 CS), else the route's */
+const legSail = w => w && w.sail >= 0 ? w.sail : S.route.sail;
 /* the route: the waypoints round the zones, the plan, the check */
 let ROUTE = { pts: [], plan: { rows: [] }, check: null };
 function compute() {
@@ -455,7 +466,7 @@ function compute() {
             leg = turnsLeg(from, to, zones, clr, M, R.turns, i, warn);
             if (!leg.ok) break;
             leg.pts = roundPts(leg.pts, zones, clr, from.obj, to.obj);
-            if (legKeeps(leg.pts, zones, clr, from.obj, to.obj)) break;
+            if (legKeeps(leg.pts, zones, clr, from.obj, to.obj, legSail(wps[i]) === 0)) break;
           }
           if (leg.ok) { if (clr < R.clear) warn.push(`Leg ${i}: no way with ${R.clear} m clearance; planned with ${clr} m.`); break; }
           if (clr === 0) break;
@@ -466,7 +477,7 @@ function compute() {
         if (k === 0 && pts.length) return;                   /* the joint: already there */
         const w = k === 0 ? wps[i - 1] : k === leg.pts.length - 1 ? wps[i] : null;
         pts.push({ lat: p.lat, lon: p.lon, name: w ? w.name : "", user: !!w, obj: w && w.obj,
-                   off: w && w.obj && R.avoid ? (k === 0 ? "dep" : "arr") : "" });
+                   off: w && w.obj && R.avoid ? (k === 0 ? "dep" : "arr") : "", sail: k ? wps[i].sail : undefined });   /* the leg's own sailing */
       });
       from = { pts: [pts[pts.length - 1]], obj: to.obj, R: to.R };   /* the next leg starts where this one ended */
     }
@@ -541,16 +552,15 @@ function check(rows, zones, warn) {
   const exempt = p => NAV.inv(p[0], p[1], first.lat, first.lon).s < 3000 || NAV.inv(p[0], p[1], last.lat, last.lon).s < 3000 ||
     ports.some(o => NAV.inv(p[0], p[1], o.lat, o.lon).s < 3000);
   for (let i = 1; i < rows.length && !out.flight; i++) {
-    const a = rows[i - 1], b = rows[i], k = rows[i].kind !== "G" && (S.route.sail === 0 || rows[i].kind === "P" || rows[i].kind === "R");
+    const a = rows[i - 1], b = rows[i], k = rows[i].kind !== "G";   /* each leg as it is planned: G a geodesic, else a rhumb line */
     const n = Math.max(2, Math.min(600, Math.ceil(rows[i].leg / 2000)));
     const X = landCrossings(sailPts(a, b, n, k), exempt);
     if (X.length) out.land.push({ leg: i, at: X[0], n: X.length });
   }
   if (!zones.length) return out;
-  const rhumb = S.route.sail === 0;
   for (let i = 1; i < rows.length; i++) {
     const a = rows[i - 1], b = rows[i], len = rows[i].leg;
-    const k = rows[i].kind === "G" ? false : rhumb || rows[i].kind === "P" || rows[i].kind === "R";
+    const k = rows[i].kind !== "G";
     const mid = NAV.inv(a.lat, a.lon, b.lat, b.lon), m = NAV.dir(a.lat, a.lon, mid.a1, mid.s / 2);
     const cand = zones.filter(z => NAV.inv(m.lat, m.lon, z.lat, z.lon).s < len / 2 + z.r + 3000);
     if (!cand.length) continue;
@@ -785,7 +795,7 @@ function drawObj(o, sel) {
       g.fillStyle = "#8a9097"; g.fill(); g.strokeStyle = ink; g.lineWidth = 1.2; g.stroke();
       g.beginPath(); g.moveTo(pc[0][0], pc[0][1]); g.lineTo(pc[1][0], pc[1][1]); g.strokeStyle = "#d63a2a"; g.lineWidth = 3; g.stroke();   /* face 0 */
       if (sel) { g.beginPath(); g.arc(x, y, 11, 0, 2 * Math.PI); g.strokeStyle = css("--accent"); g.lineWidth = 2; g.stroke(); }
-      g.font = "12px system-ui"; g.fillStyle = ink; placeLabel(o.name, x, y, false);
+      g.font = "12px system-ui"; g.fillStyle = ink; if (S.labels === "all") placeLabel(o.name, x, y, false);
       return;
     }
   }
@@ -806,7 +816,7 @@ function drawObj(o, sel) {
     default: g.font = "15px system-ui"; g.textAlign = "center"; g.fillText("⚓", x, y + 5); g.textAlign = "left";
   }
   if (sel) { g.beginPath(); g.arc(x, y, 11, 0, 2 * Math.PI); g.strokeStyle = css("--accent"); g.lineWidth = 2; g.stroke(); }
-  if (rp > 6 || spanDeg() < 1.5) { g.font = "12px system-ui"; g.fillStyle = ink; placeLabel(o.name, x, y, false); }
+  if ((rp > 6 || spanDeg() < 1.5) && S.labels === "all") { g.font = "12px system-ui"; g.fillStyle = ink; placeLabel(o.name, x, y, false); }
 }
 /* the ship (the Mermaid Asiana, as on the calculator) and the plane */
 const SHIP = [0x0000004000, 0x000000E000, 0x0000004000, 0x000000E000, 0x0000004000, 0x000001F000, 0x000003FFFF, 0x000002AB02,
@@ -903,8 +913,9 @@ function draw() {
   const R = S.route, wps = R.wps, rows = ROUTE.plan.rows;
   g.lineWidth = 1.3; g.strokeStyle = css("--soft");
   for (let i = 1; i < wps.length && wps.length < 60; i++) {
-    if (R.sail !== 0) { g.setLineDash([7, 5]); polyline(rhumbLine(wps[i - 1], wps[i])); }
-    if (R.sail !== 1) { g.setLineDash([2, 4]); polyline(geodLine(wps[i - 1], wps[i])); }
+    const ls = legSail(wps[i]);                              /* the sailings this leg is not: faint, to compare */
+    if (ls !== 0) { g.setLineDash([7, 5]); polyline(rhumbLine(wps[i - 1], wps[i])); }
+    if (ls !== 1) { g.setLineDash([2, 4]); polyline(geodLine(wps[i - 1], wps[i])); }
   }
   g.setLineDash([]);
   for (const w of wps) {                                      /* departure / arrival circles */
@@ -934,7 +945,7 @@ function draw() {
   });
   g.fillStyle = css("--ink");                                 /* their numbers: yours first (always shown), then the turns */
   for (const user of [true, false]) ROUTE.pts.forEach((p, i) => {
-    if (!!p.user !== user) return;
+    if (!!p.user !== user || S.labels === "off" || (S.labels === "wps" && !user)) return;   /* the Labels option */
     const [x, y, v] = proj(p.lat, p.lon); if (!v) return;
     placeLabel((i + 1) + (p.name ? " " + p.name : ""), x, y, user);
   });
@@ -1024,6 +1035,7 @@ function routeTab() {
       <button data-tool="wp" title="click: a waypoint; on an object: from / to it">＋ Waypoint</button>
       <button data-tool="obj" title="click: an object of this type" ${S.lock ? "disabled" : ""}>＋ Object</button>
       <select id="objtype" ${S.lock ? "disabled" : ""}>${Object.entries(OBJ).map(([k, v]) => `<option value="${k}">${v.label}${v.r ? " (" + v.r + " m)" : ""}</option>`).join("")}</select>
+      <select id="labels" title="the chart's labels (zoomed out they crowd)"><option value="all">labels: all</option><option value="wps">labels: your waypoints</option><option value="off">labels: off</option></select>
       <button id="lock" class="${S.lock ? "on" : ""}" title="locked: the objects cannot be moved, edited or deleted; the waypoints can">${S.lock ? "🔒 Objects locked" : "🔓 Objects editable"}</button>
       <span style="flex:1"></span>
       <button id="mode">${S.view.mode === "merc" ? "🌍 Globe" : "🗺 Mercator"}</button>
@@ -1065,6 +1077,7 @@ function routeTab() {
   $("streams").classList.toggle("on", !!S.showStreams);
   $("streams").onclick = () => { S.showStreams = !S.showStreams; store.set("streams", S.showStreams); $("streams").classList.toggle("on", S.showStreams); draw(); };
   $("del").onclick = delSel;
+  $("labels").value = S.labels; $("labels").onchange = e => { S.labels = e.target.value; save(); draw(); };
   $("lock").onclick = () => {                               /* in place: the chart and its view stay */
     S.lock = !S.lock; if (S.lock && S.tool === "obj") S.tool = "move";
     const b = $("lock"); b.textContent = S.lock ? "🔒 Objects locked" : "🔓 Objects editable"; b.classList.toggle("on", S.lock);
@@ -1168,7 +1181,7 @@ function tip(x, y) {
 }
 /* a quick redraw while dragging: the plan without the zones; the full plan when the drag ends */
 function quick() {
-  const R = S.route, pts = R.wps.map(w => ({ lat: w.lat, lon: w.lon, user: true, name: w.name }));
+  const R = S.route, pts = R.wps.map(w => ({ lat: w.lat, lon: w.lon, user: true, name: w.name, sail: w.sail }));
   ROUTE = { pts, plan: NAV.plan(pts, R.sail, R.lim, R.split, R.val), check: null };
   draw();
 }
@@ -1225,10 +1238,11 @@ function routeCard() {
       <label ${R.avoid ? "" : "hidden"} title="the most turning points round the zones on each leg (between two of your waypoints): fewer turns, maybe a little longer">turning points <select id="turns"><option value="0">no limit</option>${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(k => `<option value="${k}">at most ${k}</option>`).join("")}</select> a leg</label>
     </div>
     <h3>Waypoints <span class="meta">(click on the chart with ＋ Waypoint; on an object: from / to it)</span></h3>
-    <div class="scroll" style="max-height:260px"><table id="wptab"><tr><th>#</th><th>Name</th><th>Position</th><th>Object</th><th></th></tr>
+    <div class="scroll" style="max-height:260px"><table id="wptab"><tr><th>#</th><th>Name</th><th>Position</th><th>Leg</th><th>Object</th><th></th></tr>
     ${R.wps.map((w, i) => `<tr class="${S.sel && S.sel.t === "w" && S.sel.i === i ? "sel" : ""}"><td>${i + 1}</td>
       <td><input class="name" data-wn="${i}" value="${esc(w.name || "")}"></td>
       <td><input class="pos mono" data-wp="${i}" value="${FMT.pos(w.lat, w.lon)}"></td>
+      <td>${i ? legSel("data-wl", i, w) : ""}</td>
       <td><select data-wo="${i}"><option value="">—</option>${S.objects.map(o => `<option value="${o.id}" ${o.id === w.obj ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></td>
       <td><button class="small" data-up="${i}">↑</button><button class="small" data-dn="${i}">↓</button><button class="small" data-x="${i}">✕</button></td></tr>`).join("")}
     </table></div>
@@ -1261,6 +1275,7 @@ function routeCard() {
   $("turns").value = String(R.turns || 0); $("turns").onchange = e => { R.turns = +e.target.value; upd(); };
   $("clear").onchange = e => { const v = parseFloat(e.target.value); R.clear = Number.isFinite(v) ? Math.max(0, v) : 0; upd(); };
   document.querySelectorAll("[data-wn]").forEach(i => i.onchange = e => { R.wps[+i.dataset.wn].name = e.target.value; upd(); });
+  document.querySelectorAll("#wptab [data-wl]").forEach(i => i.onchange = e => { const v = +e.target.value; if (v >= 0) R.wps[+i.dataset.wl].sail = v; else delete R.wps[+i.dataset.wl].sail; upd(); });
   document.querySelectorAll("[data-wp]").forEach(i => i.onchange = e => { const p = parsePos(e.target.value), w = R.wps[+i.dataset.wp];
     if (p) { w.lat = p[0]; w.lon = p[1]; w.obj = null; } upd(); });
   document.querySelectorAll("[data-wo]").forEach(s => s.onchange = e => { const w = R.wps[+s.dataset.wo], o = S.objects.find(o => o.id === e.target.value);
@@ -1314,16 +1329,33 @@ function planCard() {
   const rows = ROUTE.plan.rows, R = S.route;
   if (rows.length < 2) { el.innerHTML = "<h2>Plan</h2><div class='meta'>No route yet: ＋ Waypoint, then click on the chart (or Example).</div>"; return; }
   const etd = VOY.etd(), off = zd();
-  el.innerHTML = `<h2>Plan</h2><div class="scroll" style="max-height:340px"><table><tr><th>WP</th><th>Name</th><th>Lat</th><th>Lon</th><th class="num">Steer</th><th class="num">Leg NM</th><th class="num">Cum NM</th><th></th><th class="num">ETA ${off ? "ZT" : "UT"}</th></tr>
-    ${rows.map((w, i) => { const p = ROUTE.pts.find(q => Math.abs(q.lat - w.lat) < 1e-9 && Math.abs(q.lon - w.lon) < 1e-9);
-      return `<tr class="${w.flags & 1 ? "" : "dim"}"><td>${i + 1}</td><td>${esc(p && p.name ? p.name + (p.off === "dep" ? " (dep.)" : p.off === "arr" ? " (arr.)" : "") : p && !p.user ? "turn" : "")}</td>
-      <td class="mono">${FMT.lat(w.lat)}</td><td class="mono">${FMT.lon(w.lon)}</td>
+  /* your waypoints' rows (the plan's user points, in order = R.wps): name, position and leg edited here too */
+  let ui = -1;
+  const body = rows.map((w, i) => {
+    const p = ROUTE.pts.find(q => Math.abs(q.lat - w.lat) < 1e-9 && Math.abs(q.lon - w.lon) < 1e-9), mine = !!(w.flags & 1);
+    if (mine) ui++;
+    const k = ui, wp = mine ? R.wps[k] : null, tag = p && p.off === "dep" ? " (dep.)" : p && p.off === "arr" ? " (arr.)" : "";
+    const name = mine && wp ? `<input class="name" data-pn="${k}" value="${esc(wp.name || "")}" style="width:7em">${tag}` : esc(p && !p.user ? "turn" : "split");
+    const pos = mine && wp ? `<td colspan="2"><input class="pos mono" data-pp="${k}" value="${FMT.pos(w.lat, w.lon)}"></td>` : `<td class="mono">${FMT.lat(w.lat)}</td><td class="mono">${FMT.lon(w.lon)}</td>`;
+    return `<tr class="${mine ? "" : "dim"}"><td>${i + 1}</td><td style="white-space:nowrap">${name}</td>${pos}
       <td class="num">${i ? FMT.crs(rows[i - 1].rl) : ""}</td><td class="num">${i ? FMT.nm(w.leg) : ""}</td><td class="num">${i ? FMT.nm(w.cum) : ""}</td>
-      <td>${i ? w.kind : ""}</td><td class="num">${FMT.dt(etd + w.cum / NM / R.speed / 24, off)}</td></tr>`; }).join("")}</table></div>
+      <td>${i ? w.kind : ""}${mine && k > 0 ? " " + legSel("data-pl", k, wp) : ""}${!mine ? ` <button class="small" data-pmk="${i}" title="make this point one of your waypoints (then move or rename it)">✎</button>` : ""}</td>
+      <td class="num">${FMT.dt(etd + w.cum / NM / R.speed / 24, off)}</td></tr>`; }).join("");
+  el.innerHTML = `<h2>Plan</h2><div class="scroll" style="max-height:340px"><table><tr><th>WP</th><th>Name</th><th>Lat</th><th>Lon</th><th class="num">Steer</th><th class="num">Leg NM</th><th class="num">Cum NM</th><th>Sail</th><th class="num">ETA ${off ? "ZT" : "UT"}</th></tr>
+    ${body}</table></div>
     <div class="controls" style="margin-top:8px">${ROUTE.pts.some(p => !p.user) || R.wps.some(w => w.obj) ? `<button id="takeover" class="on" title="the planned points (round the zones) become your waypoints, named, untied from the objects: edit them freely; the planner stops">✎ Take over the plan</button>` : ""}<button id="xcsv">CSV</button><button id="xnmea">NMEA</button><button id="xgpx">GPX</button>
       <button id="xtxt">ROUTE.TXT</button><button id="xwpt" title="the route's waypoints for the calculator's list: /NAV47/WAYPTS.CSV">WAYPTS.CSV</button><button id="xcalc">To the calculator</button></div>
-    <div class="meta">Steer: the rhumb course to the next point. G geodesic, R rhumb, P parallel (composite). ETA at ${R.speed} kn from the departure in Voyage.</div>`;
+    <div class="meta">Steer: the rhumb course to the next point. Sail: G geodesic (great circle), R rhumb line, P parallel (composite); each of your legs its own sailing (the selector: "route" follows the Route card's). ✎ makes a split or turning point one of your waypoints. ETA at ${R.speed} kn from the departure in Voyage.</div>`;
   $("xcsv").onclick = () => download("PLAN.CSV", planCSV());
+  const upd = () => refresh();
+  el.querySelectorAll("[data-pn]").forEach(i => i.onchange = e => { R.wps[+i.dataset.pn].name = e.target.value; upd(); });
+  el.querySelectorAll("[data-pp]").forEach(i => i.onchange = e => { const p = parsePos(e.target.value), w = R.wps[+i.dataset.pp]; if (p) { w.lat = p[0]; w.lon = p[1]; w.obj = null; } upd(); });
+  el.querySelectorAll("[data-pl]").forEach(i => i.onchange = e => { const v = +e.target.value, w = R.wps[+i.dataset.pl]; if (v >= 0) w.sail = v; else delete w.sail; upd(); });
+  el.querySelectorAll("[data-pmk]").forEach(b => b.onclick = () => {     /* a split / turning point into your waypoints, in its leg */
+    const i = +b.dataset.pmk, w = rows[i], at = rows.slice(0, i).filter(r => r.flags & 1).length;
+    const nx = R.wps[at];
+    R.wps.splice(at, 0, { lat: w.lat, lon: w.lon, name: "", obj: null, sail: nx ? nx.sail : undefined });
+    S.sel = { t: "w", i: at }; upd(); });
   $("xnmea").onclick = () => download("PLAN.NMEA", planNMEA());
   $("xgpx").onclick = () => download("PLAN.GPX", planGPX());
   $("xtxt").onclick = () => download("ROUTE.TXT", routeTxt());
@@ -1421,14 +1453,17 @@ function wayptsCsv() {
 function routeTxt() {
   const R = S.route;
   return `NAV47 ROUTE 1\n${R.name ? "NAME " + R.name.replace(/[\r\n]/g, " ").slice(0, 40) + "\n" : ""}${["RL", "GC", "CS"][R.sail]}\nLIM ${R.lim.toFixed(1)}\nSPLIT ${R.split} ${(+R.val).toFixed(3)}\nELL ${R.ell}\nSPEED ${(+R.speed).toFixed(4)}\nETD ${(R.etd || 0).toFixed(6)}\n` +
+    (ROUTE.pts.some(p => p.sail >= 0) ? "LEGS " + ROUTE.pts.map((p, j) => j ? (p.sail >= 0 ? "RGC"[p.sail] : ".") : "").join("") + "\n" : "") +   /* each leg's own sailing */
     ROUTE.pts.map(p => `${p.lat.toFixed(7)} ${nearLon(p.lon, 0).toFixed(7)}${p.name ? " " + String(p.name).replace(/[\s,;]+/g, " ").trim().slice(0, 12) : ""}`).join("\n") + "\n";
 }
 /* the calculator's ROUTE.TXT into the route: its waypoints, sailing, limit, split, ellipsoid, speed, departure */
 function loadRouteTxt(t) {
   const R = S.route, wps = [];
+  let legs = "";
   for (let l of t.replace(/\r/g, "").split("\n")) {
     l = l.trim(); let m;
     if ((m = l.match(/^NAME\s+(.+)/))) R.name = m[1].trim().slice(0, 40);
+    else if ((m = l.match(/^LEGS\s+(\S+)/))) legs = m[1];
     else if (l === "RL") R.sail = 0; else if (l === "GC") R.sail = 1; else if (l === "CS") R.sail = 2;
     else if ((m = l.match(/^LIM\s+(-?[\d.]+)/))) R.lim = Math.max(10, Math.min(85, +m[1]));
     else if ((m = l.match(/^SPLIT\s+(\d)\s+(-?[\d.]+)/))) { R.split = Math.min(3, +m[1]); R.val = +m[2]; }
@@ -1439,6 +1474,7 @@ function loadRouteTxt(t) {
       wps.push({ lat: +m[1], lon: +m[2], name: m[3] ? m[3].trim().replace(/([\s,;]+-?[\d.]+)+$/, "").replace(/^-?[\d.]+$/, "").slice(0, 24) : "", obj: null });   /* extra columns: kept loading */
   }
   if (wps.length < 1) { alert("No waypoints in this file."); return; }
+  wps.forEach((w, j) => { const c = "RGC".indexOf(legs[j - 1] || "."); if (j && c >= 0) w.sail = c; });   /* LEGS: a letter a leg */
   R.wps = wps; VOY.on = false; VOY.t = 0;
   refresh(); fitRoute(); draw();
 }
