@@ -17,35 +17,49 @@ char plan_msg[48];
 /* a CUSTOM ellipsoid NAV47 accepts: an Earth-sized a, and a sphere or f < 0.01 */
 static int ell_ok(double a, double rf) { return a >= 6.0e6 && a <= 7.0e6 && (rf == 0 || rf > 100); }
 
-void route_save(void) {
-  legs_dirty = plan_dirty = 1;
-  if (!sys_disk_ok()) return;
+char route_name[24];                         /* the route's name (ROUTE.TXT's NAME line; a library file's name) */
+
+/* the route (ROUTE.TXT's format) to path: 1 written */
+static int route_write(const char *path) {
+  if (!sys_disk_ok()) return 0;
   char *b = (char *)malloc(128 + 48 * MAXWP);
-  if (!b) return;
+  if (!b) return 0;
   char *o = b;
-  o += sprintf(o, "NAV47 ROUTE 1\n%s\nLIM %.1f\nSPLIT %d %.3f\nELLC %.4f %.9f\nELL %d\nSPEED %.4f\nETD %.6f\n", SAIL_NAME[N->cfg.gc % 3], cs_lim,
+  o += sprintf(o, "NAV47 ROUTE 1\n");
+  if (route_name[0]) o += sprintf(o, "NAME %s\n", route_name);
+  o += sprintf(o, "%s\nLIM %.1f\nSPLIT %d %.3f\nELLC %.4f %.9f\nELL %d\nSPEED %.4f\nETD %.6f\n", SAIL_NAME[N->cfg.gc % 3], cs_lim,
                plan_split, plan_val, ellipsoids[ELL_CUSTOM].a, ellipsoids[ELL_CUSTOM].rf, geo_ell_index, voy_kn, voy_etd0);
   for (int i = 0; i < N->nwp; i++) o += sprintf(o, N->wname[i][0] ? "%.7f %.7f %s\n" : "%.7f %.7f\n", N->wlat[i], N->wlon[i], N->wname[i]);
   sys_disk_write_enable(1);
   check_create_dir(DIR);
   FIL f;
   UINT bw;
-  if (f_open(&f, ROUTEFILE, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK) { f_write(&f, b, (UINT)strlen(b), &bw); f_close(&f); }
+  int ok = 0;
+  if (f_open(&f, path, FA_WRITE | FA_CREATE_ALWAYS) == FR_OK) { ok = f_write(&f, b, (UINT)strlen(b), &bw) == FR_OK && bw == strlen(b); f_close(&f); }
   sys_disk_write_enable(0);
   free(b);
+  return ok;
 }
 
-void route_load(void) {
-  char *t = read_text(ROUTEFILE);
-  if (!t) return;
+void route_save(void) {
+  legs_dirty = plan_dirty = 1;
+  route_write(ROUTEFILE);
+}
+
+/* a route file (ROUTE.TXT's format) into the route: 1 read */
+static int route_load_from(const char *path) {
+  char *t = read_text(path);
+  if (!t) return 0;
   char *l = strtok(t, "\n");
-  N->nwp = 0;
+  N->nwp = 0; route_name[0] = 0;
+  legs_dirty = plan_dirty = 1;
   while (l) {
     double a, b, v;
     int m;
     size_t ln = strlen(l);
     while (ln && (l[ln - 1] == '\r' || l[ln - 1] == ' ' || l[ln - 1] == '\t')) l[--ln] = 0;   /* CR LF files too */
-    if (!strcmp(l, "GC")) N->cfg.gc = 1;
+    if (!strncmp(l, "NAME ", 5)) snprintf(route_name, sizeof route_name, "%s", l + 5);
+    else if (!strcmp(l, "GC")) N->cfg.gc = 1;
     else if (!strcmp(l, "RL")) N->cfg.gc = 0;
     else if (!strcmp(l, "CS")) N->cfg.gc = 2;
     else if (sscanf(l, "LIM %lf", &v) == 1) { if (v >= 10 && v <= 85) cs_lim = v; }
@@ -67,7 +81,10 @@ void route_load(void) {
     l = strtok(NULL, "\n");
   }
   free(t);
+  return 1;
 }
+
+void route_load(void) { route_load_from(ROUTEFILE); }
 
 void route_insert(double lat, double lon) {
   legs_dirty = plan_dirty = 1;
@@ -107,11 +124,92 @@ static void leg(int i, double *crs, double *nm) {   /* geo47: cached, recomputed
   *nm = N->leg_nm[i];
 }
 
+static int plan_dirs(void);
+/* ------------------------------------------------------------------ the routes' library: /NAV47/ROUTES/NAME.TXT */
+static int rl_mode;                          /* 1 SAVE: typing the name, 2 SAVE: replace?, 3 NEW: clear? */
+static Alpha RA;
+static char rl_msg[40];
+static void rl_path(char *p, const char *name) { sprintf(p, "/NAV47/ROUTES/%s.TXT", name); }
+int rlib_active(void) { return rl_mode != 0; }
+
+void rlib_save_start(void) {
+  if (!N->nwp) { strcpy(rl_msg, "no waypoints to save"); return; }
+  char d[9]; int k = 0;                                     /* the name now as a file name: A-Z 0-9 -, 8 */
+  for (const char *c = route_name; *c && k < 8; c++) {
+    char u = (*c >= 'a' && *c <= 'z') ? (char)(*c - 32) : *c;
+    if ((u >= 'A' && u <= 'Z') || (u >= '0' && u <= '9') || u == '-') d[k++] = u;
+  }
+  d[k] = 0;
+  alpha_start(&RA, d, 8, 1); rl_mode = 1; rl_msg[0] = 0;
+}
+void rlib_new_start(void) { rl_mode = 3; rl_msg[0] = 0; }
+
+static void rl_write(void) {
+  char p[40];
+  rl_path(p, RA.buf);
+  if (!route_name[0]) snprintf(route_name, sizeof route_name, "%s", RA.buf);
+  plan_dirs();
+  if (route_write(p)) snprintf(rl_msg, sizeof rl_msg, "saved ROUTES/%s.TXT", RA.buf); else strcpy(rl_msg, "save failed");
+  route_save();
+}
+
+/* ENTER / EXIT and the name's keys while the library asks; 1 used */
+int rlib_key(int key) {
+  if (rl_mode == 1) {
+    int r = alpha_key(&RA, key);
+    if (r == -1) rl_mode = 0;
+    else if (r == 1 && RA.len) {
+      char p[40]; rl_path(p, RA.buf);
+      if (file_exists(p)) rl_mode = 2; else { rl_mode = 0; rl_write(); }
+    }
+    return 1;
+  }
+  int yes = key == KEY_ENTER || key == KEY_F1, no = key == KEY_EXIT || key == KEY_F6;
+  if (rl_mode == 2) { if (yes) { rl_mode = 0; rl_write(); } else if (no) rl_mode = 1; return 1; }
+  if (rl_mode == 3) {
+    if (yes) { N->nwp = 0; route_name[0] = 0; wp_cur = 0; route_save(); strcpy(rl_msg, "a new route"); }
+    if (yes || no) rl_mode = 0;
+    return 1;
+  }
+  return 0;
+}
+
+const char *const *rlib_menu(void) {
+  static const char *YN[6] = { "YES", "", "", "", "", "NO" };
+  return rl_mode == 1 ? alpha_menu(&RA) : YN;
+}
+
+/* LOAD: DMCP's file list of /NAV47/ROUTES; the file chosen becomes the route (and ROUTE.TXT) */
+static int rl_pick(const char *fpath, const char *fname, void *data) {
+  (void)data;
+  if (route_load_from(fpath)) {
+    if (!route_name[0]) { snprintf(route_name, sizeof route_name, "%s", fname); char *d = strrchr(route_name, '.'); if (d) *d = 0; }
+    wp_cur = 0; route_save();
+    snprintf(rl_msg, sizeof rl_msg, "loaded %.30s", fname);
+  } else strcpy(rl_msg, "could not read it");
+  return MRET_EXIT;
+}
+void rlib_load(void) {
+  plan_dirs();
+  file_selection_screen("Load a route", "/NAV47/ROUTES", ".txt", rl_pick, 0, 0, NULL);
+}
+
+/* ROUTE's bottom line while the library asks, or its last word; 1 drawn */
+int rlib_draw(void) {
+  char s[64];
+  if (rl_mode == 1) { sprintf(s, "SAVE AS %s_.TXT", RA.buf); nt_inv(2, 192, s); draw_text(&TINY, 2, 183, alpha_help(&RA), 0); return 1; }
+  if (rl_mode == 2) { sprintf(s, "%s.TXT exists: ENTER replace, EXIT", RA.buf); nt_inv(2, 192, s); return 1; }
+  if (rl_mode == 3) { nt_inv(2, 192, "NEW: ENTER clears the route, EXIT keeps"); return 1; }
+  if (rl_msg[0]) { nt(2, 192, rl_msg); rl_msg[0] = 0; return 1; }
+  return 0;
+}
+
 void draw_route(void) {
   char s[64];
   double tot = 0, crs, nm;
   for (int i = 1; i < N->nwp; i++) { leg(i, &crs, &nm); tot += nm; }
-  if (N->cfg.gc == 2) sprintf(s, "ROUTE CS %.0f", cs_lim); else strcpy(s, N->cfg.gc ? "ROUTE GC" : "ROUTE RL");
+  if (route_name[0]) sprintf(s, "%.10s %s", route_name, SAIL_NAME[N->cfg.gc % 3]);
+  else if (N->cfg.gc == 2) sprintf(s, "ROUTE CS %.0f", cs_lim); else strcpy(s, N->cfg.gc ? "ROUTE GC" : "ROUTE RL");
   header(s);
   int xw = 4 + nt_w("100"), xla = xw + 10 + nt_w("00" NT_DEG "00.00N"), xlo = xla + 12 + nt_w("000" NT_DEG "00.00E"),
       xc = xlo + 12 + nt_w("000" NT_DEG), xd = xc + 12 + nt_w("0000.0"), xcu = xd + 12 + nt_w("00000.0");
@@ -128,15 +226,16 @@ void draw_route(void) {
     nt(4, 136, "  (+/- for S and W)");
     nt(4, 160, "RL rhumb, GC great circle,");
     nt(4, 176, "CS composite (4 6 limit)");
-    nt(4, 192, "0: CHART and GLOBE (you, the coast)");
+    if (!rlib_draw()) nt(4, 192, "0: CHART and GLOBE (you, the coast)");
     return;
   }
   int vis = 10;
-  if (wp_edit >= 0) nt_inv(2, 192, wp_edit ? "LON DDD.MMm  +/- WEST  ENTER" : "LAT DD.MMm  +/- SOUTH  ENTER");
+  if (rlib_draw()) ;
+  else if (wp_edit >= 0) nt_inv(2, 192, wp_edit ? "LON DDD.MMm  +/- WEST  ENTER" : "LAT DD.MMm  +/- SOUTH  ENTER");
   else if (wp_cur < N->nwp && N->wname[wp_cur][0]) { sprintf(s, "%d %s  1 WPTS 3 save", wp_cur + 1, N->wname[wp_cur]); nt(2, 192, s); }
   else nt(2, 192, N->cfg.gc == 2 ? "4 6 limit 1 WPTS R/S plan" : "ENTER edit 1 WPTS R/S plan");
   sprintf(s, "%d WP  TOTAL %.1f NM", N->nwp, tot);
-  if (wp_edit < 0 || nt_w(s) < 150) nt_r(LCD_X - 2, 192, s);
+  if (!rlib_active() && (wp_edit < 0 || nt_w(s) < 150)) nt_r(LCD_X - 2, 192, s);
   if (wp_cur >= N->nwp) wp_cur = N->nwp - 1;
   int top = wp_cur - vis / 2;
   if (top > N->nwp - vis) top = N->nwp - vis;

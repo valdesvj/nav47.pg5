@@ -110,11 +110,13 @@ const S = {
                        store.get("route", {})),
   objects: store.get("objects", []),
   view: store.get("view", { mode: "merc", lat0: 30, lon0: 10, k: 220 }),
-  lock: store.get("lock", true),                            /* the objects locked: only the waypoints change */
+  lock: store.get("lock", true),
+  wpdb: store.get("wpdb", []),                              /* your waypoints' list (as the calculator's WPTS): {name, lat, lon} */
+  library: store.get("routes", {}),                         /* your routes by name */                            /* the objects locked: only the waypoints change */
   tool: "move", objType: "platform", sel: null, keepEta: store.get("keepEta", false), etaStep: store.get("etaStep", 0.5), pass: { from: "", to: "" }, showStreams: store.get("streams", false),
 };
 if (S.route.len === 100) S.route.len = 95;                       /* the old default: the Mermaid Asiana is 95 m */
-const save = () => { store.set("lock", S.lock); store.set("route", S.route); store.set("objects", S.objects); store.set("view", S.view); store.set("pos", S.pos); store.set("times", S.times); };
+const save = () => { store.set("lock", S.lock); store.set("wpdb", S.wpdb); store.set("routes", S.library); store.set("route", S.route); store.set("objects", S.objects); store.set("view", S.view); store.set("pos", S.pos); store.set("times", S.times); };
 const zd = () => S.times === "zt" ? Math.round(S.pos[1] / 15) : 0;       /* the times shown: UT or ZT (the DR's zone) */
 const nowJd = () => S.live ? jdOf(Date.now()) : S.jd;
 let uid = Date.now();
@@ -1023,6 +1025,7 @@ function routeTab() {
     </div><div>
     <div class="card" id="livecard"></div>
     <div class="card" id="routecard"></div>
+    <div class="card" id="wpdbcard"></div>
     <div class="card" id="portcard"></div>
     <div class="card" id="checkcard"></div>
     <div class="card" id="voycard"></div>
@@ -1120,6 +1123,7 @@ function click(x, y) {
   if (S.tool === "move") { S.sel = hit(x, y); if (!S.sel && typeof PORTSUI !== "undefined" && PORTSUI.click(x, y)) return; draw(); objList(); return; }
   if (!p) return;
   if (S.tool === "obj" && S.lock) return;
+  if (S.tool === "wdb") { S.wpdb.push({ name: ("WP" + (S.wpdb.length + 1)).slice(0, 12), lat: p[0], lon: p[1] }); save(); wpdbCard(); return; }
   if (S.tool === "wp") {
     const h = hit(x, y);
     const o = h && h.t === "o" ? S.objects.find(o => o.id === h.id) : null;
@@ -1151,7 +1155,7 @@ function refresh(first) {
   compute();
   ROUTE.ms = performance.now() - t0;
   if (first) fitRoute();
-  save(); draw(); routeCard(); if (typeof PORTSUI !== "undefined") PORTSUI.card(); checkCard(); planCard(); objList(); cmpCard(); voyCard();
+  save(); draw(); routeCard(); wpdbCard(); if (typeof PORTSUI !== "undefined") PORTSUI.card(); checkCard(); planCard(); objList(); cmpCard(); voyCard();
 }
 
 /* a passage between two objects: the route replaced by them, planned round every zone */
@@ -1160,7 +1164,8 @@ function passage(a, b) {
   if (!A || !B || A === B) { alert("Choose two different objects: from and to."); return; }
   S.pass = { from: a, to: b };
   S.route.wps = [{ lat: A.lat, lon: A.lon, name: A.name, obj: A.id }, { lat: B.lat, lon: B.lon, name: B.name, obj: B.id }];
-  S.route.avoid = true; S.route.split = 0;
+  S.route.avoid = true; S.route.split = 0; S.route.taken = null;
+  if (!S.route.name) S.route.name = `${A.name} - ${B.name}`.slice(0, 40);
   VOY.on = false; VOY.t = 0;
   refresh(); fitRoute(); draw();
 }
@@ -1168,7 +1173,14 @@ function routeCard() {
   const R = S.route, el = $("routecard"); if (!el) return;
   const ells = Array.from({ length: Module._api_ell_count() - 1 }, (_, i) => NAV.ell(i));
   const objs = S.objects, opt = sel => objs.map(o => `<option value="${o.id}" ${o.id === sel ? "selected" : ""}>${esc(o.name)} (${OBJ[o.type].label})</option>`).join("");
+  const lib = Object.keys(S.library).sort();
   el.innerHTML = `<h2>Route</h2>
+    <div class="controls" style="margin-bottom:6px"><label>Name <input id="rtname" value="${esc(R.name || "")}" placeholder="the route's name" style="width:14em"></label>
+      <button id="rtkeep" title="keep it in this browser's routes">Save</button>
+      <label>Routes <select id="rtlib"><option value="">—</option>${lib.map(n => `<option value="${esc(n)}">${esc(n)}</option>`).join("")}</select></label>
+      <button id="rtopen" ${lib.length ? "" : "disabled"}>Open</button><button id="rtdel" ${lib.length ? "" : "disabled"}>Delete</button></div>
+    ${R.taken ? `<div class="controls" style="background:#fdf0d5;border-radius:10px;padding:6px 8px;margin-bottom:8px">✎ <b>Your waypoints</b>: the planner is off, edit them freely (the Check still warns of the zones and the land).
+      <button id="replan">Plan round the zones again</button></div>` : ""}
     ${objs.length >= 2 ? `<div class="controls" style="background:var(--chip);border-radius:10px;padding:6px 8px;margin-bottom:8px">
       <b>Passage</b> <label>from <select id="pfrom"><option value="">—</option>${opt(S.pass.from)}</select></label>
       <label>to <select id="pto"><option value="">—</option>${opt(S.pass.to)}</select></label>
@@ -1209,6 +1221,14 @@ function routeCard() {
     $("pgo").onclick = () => passage(S.pass.from, S.pass.to);
   }
   const upd = () => { refresh(); };
+  $("rtname").onchange = e => { R.name = e.target.value.trim().slice(0, 40); save(); };
+  $("rtkeep").onclick = () => { const n = (R.name || "").trim() || prompt("The route's name?", ""); if (!n) return; R.name = n.trim().slice(0, 40);
+    if (S.library[R.name] && !confirm(`Replace the route "${R.name}"?`)) return;
+    S.library[R.name] = JSON.parse(JSON.stringify(R)); save(); routeCard(); };
+  $("rtopen").onclick = () => { const n = $("rtlib").value; if (!n || !S.library[n]) return;
+    S.route = Object.assign(S.route, JSON.parse(JSON.stringify(S.library[n]))); VOY.on = false; refresh(true); };
+  $("rtdel").onclick = () => { const n = $("rtlib").value; if (n && confirm(`Delete the route "${n}" from this browser?`)) { delete S.library[n]; save(); routeCard(); } };
+  if ($("replan")) $("replan").onclick = () => { const t = R.taken; R.taken = null; if (t && t.from && t.to) passage(t.from, t.to); else { R.avoid = true; upd(); } };
   $("sail").onchange = e => { R.sail = +e.target.value; upd(); };
   $("lim").onchange = e => { R.lim = Math.max(10, Math.min(85, +e.target.value || 60)); upd(); };
   $("ell").onchange = e => { R.ell = +e.target.value; upd(); };
@@ -1278,13 +1298,14 @@ function planCard() {
       <td class="mono">${FMT.lat(w.lat)}</td><td class="mono">${FMT.lon(w.lon)}</td>
       <td class="num">${i ? FMT.crs(rows[i - 1].rl) : ""}</td><td class="num">${i ? FMT.nm(w.leg) : ""}</td><td class="num">${i ? FMT.nm(w.cum) : ""}</td>
       <td>${i ? w.kind : ""}</td><td class="num">${FMT.dt(etd + w.cum / NM / R.speed / 24, off)}</td></tr>`; }).join("")}</table></div>
-    <div class="controls" style="margin-top:8px"><button id="xcsv">CSV</button><button id="xnmea">NMEA</button><button id="xgpx">GPX</button>
+    <div class="controls" style="margin-top:8px">${ROUTE.pts.some(p => !p.user) || R.wps.some(w => w.obj) ? `<button id="takeover" class="on" title="the planned points (round the zones) become your waypoints, named, untied from the objects: edit them freely; the planner stops">✎ Take over the plan</button>` : ""}<button id="xcsv">CSV</button><button id="xnmea">NMEA</button><button id="xgpx">GPX</button>
       <button id="xtxt">ROUTE.TXT</button><button id="xwpt" title="the route's waypoints for the calculator's list: /NAV47/WAYPTS.CSV">WAYPTS.CSV</button><button id="xcalc">To the calculator</button></div>
     <div class="meta">Steer: the rhumb course to the next point. G geodesic, R rhumb, P parallel (composite). ETA at ${R.speed} kn from the departure in Voyage.</div>`;
   $("xcsv").onclick = () => download("PLAN.CSV", planCSV());
   $("xnmea").onclick = () => download("PLAN.NMEA", planNMEA());
   $("xgpx").onclick = () => download("PLAN.GPX", planGPX());
   $("xtxt").onclick = () => download("ROUTE.TXT", routeTxt());
+  if ($("takeover")) $("takeover").onclick = takeOver;
   $("xwpt").onclick = () => download("WAYPTS.CSV", wayptsCsv());
   $("xcalc").onclick = () => {
     if (ROUTE.pts.length > 100) { alert(`The calculator holds 100 waypoints; this route has ${ROUTE.pts.length} points.`); return; }
@@ -1321,6 +1342,55 @@ function objectsCsv() {
   return "type,name,lat,lon,zone_m,orient,face_m,side_m\n" + S.objects.map(o => [o.type, `"${o.name.replace(/"/g, "'")}"`, o.lat.toFixed(7), o.lon.toFixed(7), o.r,
     o.orient ?? "", o.orient !== null && o.orient !== undefined ? o.a : "", o.orient !== null && o.orient !== undefined && o.b !== o.a ? o.b : ""].join(",")).join("\n") + "\n";
 }
+/* the plan taken over: its points (to 0.01', round the zones) become your waypoints, the turns named TP1.., untied from
+   the objects; the planner off (the Check still runs), the passage kept so "plan again" can give it back */
+function takeOver() {
+  const R = S.route; let tp = 0;
+  if (!ROUTE.pts.length) return;
+  R.taken = { from: S.pass.from, to: S.pass.to };
+  R.wps = ROUTE.pts.map(p => ({ lat: p.lat, lon: p.lon, name: p.user ? (p.name || "") : "TP" + (++tp), obj: null }));
+  R.avoid = false; S.sel = null; VOY.on = false;
+  refresh();
+}
+/* your waypoints' list (the calculator's WPTS on the web): edit, find, into the route, WAYPTS.CSV in and out */
+let wpdbFind = "";
+function wpdbCard() {
+  const el = $("wpdbcard"); if (!el) return;
+  const L = S.wpdb, f = wpdbFind.toLowerCase(), rows = L.map((w, i) => [w, i]).filter(([w]) => !f || (w.name || "").toLowerCase().includes(f));
+  el.innerHTML = `<h2>Waypoints <span class="meta">${L.length} · your list, as the calculator's WPTS</span></h2>
+    <div class="controls"><input id="wdfind" placeholder="find" value="${esc(wpdbFind)}" style="width:8em">
+      <button data-tool="wdb" title="click on the chart: a point into the list">＋ from the chart</button><button id="wdroute" title="the route's waypoints into the list">＋ the route's</button>
+      <label>Load <input type="file" id="wdload" accept=".csv,.txt"></label><button id="wdsave">WAYPTS.CSV</button><button id="wdcalc">To the calculator</button></div>
+    <div class="scroll" style="max-height:220px;margin-top:6px"><table><tr><th>Name</th><th>Position</th><th></th></tr>
+    ${rows.map(([w, i]) => `<tr><td><input class="name" data-dn2="${i}" value="${esc(w.name || "")}"></td><td><input class="pos mono" data-dp="${i}" value="${FMT.pos(w.lat, w.lon)}"></td>
+      <td style="white-space:nowrap"><button class="small" data-dr="${i}" title="into the route: after the selected waypoint, else at the end">→ route</button><button class="small" data-dx="${i}">✕</button></td></tr>`).join("")}</table></div>`;
+  const upd = () => { save(); wpdbCard(); };
+  $("wdfind").oninput = e => { wpdbFind = e.target.value; const c = e.target.selectionStart; wpdbCard(); const i = $("wdfind"); i.focus(); i.setSelectionRange(c, c); };
+  el.querySelectorAll("[data-tool]").forEach(b => b.onclick = () => { S.tool = b.dataset.tool; tools(); });
+  tools();
+  el.querySelectorAll("[data-dn2]").forEach(i => i.onchange = e => { L[+i.dataset.dn2].name = e.target.value.trim().slice(0, 12); upd(); });
+  el.querySelectorAll("[data-dp]").forEach(i => i.onchange = e => { const p = parsePos(e.target.value); if (p) { L[+i.dataset.dp].lat = p[0]; L[+i.dataset.dp].lon = p[1]; } upd(); });
+  el.querySelectorAll("[data-dx]").forEach(b => b.onclick = () => { L.splice(+b.dataset.dx, 1); upd(); });
+  el.querySelectorAll("[data-dr]").forEach(b => b.onclick = () => { const w = L[+b.dataset.dr], at = S.sel && S.sel.t === "w" ? S.sel.i + 1 : S.route.wps.length;
+    S.route.wps.splice(at, 0, { lat: w.lat, lon: w.lon, name: w.name, obj: null }); S.sel = { t: "w", i: at }; refresh(); });
+  $("wdroute").onclick = () => { for (const w of S.route.wps) if (!L.some(q => Math.abs(q.lat - w.lat) < 1e-7 && Math.abs(q.lon - w.lon) < 1e-7)) L.push({ name: (w.name || "WP" + (L.length + 1)).slice(0, 12), lat: w.lat, lon: w.lon }); upd(); };
+  $("wdload").onchange = e => { const f = e.target.files[0]; if (f) f.text().then(t => { const n = wpdbParse(t); alert(`${n} waypoints loaded.`); upd(); }); };
+  $("wdsave").onclick = () => download("WAYPTS.CSV", wpdbCsv());
+  $("wdcalc").onclick = () => { if (confirm("Send your waypoints' list (WAYPTS.CSV) to the calculator and open it?")) CALC.putAndRestart("WAYPTS.CSV", wpdbCsv()); };
+}
+const wpdbCsv = () => "name,lat,lon\n" + S.wpdb.map(w => `${(w.name || "WP").replace(/[,;"]/g, " ").slice(0, 12)},${w.lat.toFixed(7)},${nearLon(w.lon, 0).toFixed(7)}`).join("\n") + "\n";
+/* WAYPTS.CSV (name, lat, lon; a header row; positions as numbers or 26 30.12N): added to the list, the same name replaced */
+function wpdbParse(t) {
+  let n = 0;
+  for (const l of t.replace(/\r/g, "").split("\n")) {
+    const f = l.split(/[,;\t]/).map(x => x.trim()); if (f.length < 3 || /^name$/i.test(f[0])) continue;
+    const p = parsePos(f[1] + " " + f[2]); if (!p) continue;
+    const name = f[0].slice(0, 12), k = S.wpdb.findIndex(w => w.name === name);
+    if (k >= 0) S.wpdb[k] = { name, lat: p[0], lon: p[1] }; else S.wpdb.push({ name, lat: p[0], lon: p[1] });
+    n++;
+  }
+  return n;
+}
 /* the route's waypoints as the calculator's waypoints' list (/NAV47/WAYPTS.CSV: name, lat, lon) */
 function wayptsCsv() {
   return "name,lat,lon\n" + S.route.wps.map((w, i) => `${(w.name || "WP" + String(i + 1).padStart(3, "0")).replace(/[,;"]/g, " ").slice(0, 12).toUpperCase()},${w.lat.toFixed(7)},${nearLon(w.lon, 0).toFixed(7)}`).join("\n") + "\n";
@@ -1328,7 +1398,7 @@ function wayptsCsv() {
 /* the calculator's ROUTE.TXT: the planned points (round the zones) as its waypoints, its sailing, split, ellipsoid, speed */
 function routeTxt() {
   const R = S.route;
-  return `NAV47 ROUTE 1\n${["RL", "GC", "CS"][R.sail]}\nLIM ${R.lim.toFixed(1)}\nSPLIT ${R.split} ${(+R.val).toFixed(3)}\nELL ${R.ell}\nSPEED ${(+R.speed).toFixed(4)}\nETD ${(R.etd || 0).toFixed(6)}\n` +
+  return `NAV47 ROUTE 1\n${R.name ? "NAME " + R.name.replace(/[\r\n]/g, " ").slice(0, 40) + "\n" : ""}${["RL", "GC", "CS"][R.sail]}\nLIM ${R.lim.toFixed(1)}\nSPLIT ${R.split} ${(+R.val).toFixed(3)}\nELL ${R.ell}\nSPEED ${(+R.speed).toFixed(4)}\nETD ${(R.etd || 0).toFixed(6)}\n` +
     ROUTE.pts.map(p => `${p.lat.toFixed(7)} ${nearLon(p.lon, 0).toFixed(7)}${p.name ? " " + String(p.name).replace(/[\s,;]+/g, " ").trim().slice(0, 12) : ""}`).join("\n") + "\n";
 }
 /* the calculator's ROUTE.TXT into the route: its waypoints, sailing, limit, split, ellipsoid, speed, departure */
@@ -1336,7 +1406,8 @@ function loadRouteTxt(t) {
   const R = S.route, wps = [];
   for (let l of t.replace(/\r/g, "").split("\n")) {
     l = l.trim(); let m;
-    if (l === "RL") R.sail = 0; else if (l === "GC") R.sail = 1; else if (l === "CS") R.sail = 2;
+    if ((m = l.match(/^NAME\s+(.+)/))) R.name = m[1].trim().slice(0, 40);
+    else if (l === "RL") R.sail = 0; else if (l === "GC") R.sail = 1; else if (l === "CS") R.sail = 2;
     else if ((m = l.match(/^LIM\s+(-?[\d.]+)/))) R.lim = Math.max(10, Math.min(85, +m[1]));
     else if ((m = l.match(/^SPLIT\s+(\d)\s+(-?[\d.]+)/))) { R.split = Math.min(3, +m[1]); R.val = +m[2]; }
     else if ((m = l.match(/^ELL\s+(\d+)/))) R.ell = Math.min(+m[1], Module._api_ell_count() - 2);
