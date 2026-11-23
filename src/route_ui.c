@@ -17,6 +17,13 @@ char plan_msg[48];
 /* a CUSTOM ellipsoid NAV47 accepts: an Earth-sized a, and a sphere or f < 0.01 */
 static int ell_ok(double a, double rf) { return a >= 6.0e6 && a <= 7.0e6 && (rf == 0 || rf > 100); }
 
+int leg_sail(int i) { return i > 0 && i < MAXWP && N->wsail[i] ? N->wsail[i] - 1 : N->cfg.gc % 3; }
+void leg_sail_cycle(int i) {
+  if (i <= 0 || i >= N->nwp) return;
+  N->wsail[i] = (signed char)((N->wsail[i] + 1) % 4);
+  route_save();
+}
+
 char route_name[24];                         /* the route's name (ROUTE.TXT's NAME line; a library file's name) */
 
 /* the route (ROUTE.TXT's format) to path: 1 written */
@@ -27,6 +34,13 @@ static int route_write(const char *path) {
   char *o = b;
   o += sprintf(o, "NAV47 ROUTE 1\n");
   if (route_name[0]) o += sprintf(o, "NAME %s\n", route_name);
+  int any = 0;
+  for (int i = 1; i < N->nwp; i++) any |= N->wsail[i];
+  if (any) {                                              /* each leg's own sailing: a letter a leg, . the route's */
+    o += sprintf(o, "LEGS ");
+    for (int i = 1; i < N->nwp; i++) *o++ = ".RGC"[N->wsail[i] & 3];
+    *o++ = '\n'; *o = 0;
+  }
   o += sprintf(o, "%s\nLIM %.1f\nSPLIT %d %.3f\nELLC %.4f %.9f\nELL %d\nSPEED %.4f\nETD %.6f\n", SAIL_NAME[N->cfg.gc % 3], cs_lim,
                plan_split, plan_val, ellipsoids[ELL_CUSTOM].a, ellipsoids[ELL_CUSTOM].rf, geo_ell_index, voy_kn, voy_etd0);
   for (int i = 0; i < N->nwp; i++) o += sprintf(o, N->wname[i][0] ? "%.7f %.7f %s\n" : "%.7f %.7f\n", N->wlat[i], N->wlon[i], N->wname[i]);
@@ -52,6 +66,7 @@ static int route_load_from(const char *path) {
   if (!t) return 0;
   char *l = strtok(t, "\n");
   N->nwp = 0; route_name[0] = 0;
+  memset(N->wsail, 0, sizeof N->wsail);
   legs_dirty = plan_dirty = 1;
   while (l) {
     double a, b, v;
@@ -59,6 +74,9 @@ static int route_load_from(const char *path) {
     size_t ln = strlen(l);
     while (ln && (l[ln - 1] == '\r' || l[ln - 1] == ' ' || l[ln - 1] == '\t')) l[--ln] = 0;   /* CR LF files too */
     if (!strncmp(l, "NAME ", 5)) snprintf(route_name, sizeof route_name, "%s", l + 5);
+    else if (!strncmp(l, "LEGS ", 5)) {                     /* a letter a leg: R G C, . the route's */
+      for (int i = 0; l[5 + i] && i + 1 < MAXWP; i++) { const char *c = strchr(".RGC", l[5 + i]); N->wsail[i + 1] = (signed char)(c ? c - ".RGC" : 0); }
+    }
     else if (!strcmp(l, "GC")) N->cfg.gc = 1;
     else if (!strcmp(l, "RL")) N->cfg.gc = 0;
     else if (!strcmp(l, "CS")) N->cfg.gc = 2;
@@ -93,7 +111,9 @@ void route_insert(double lat, double lon) {
   memmove(&N->wlat[at + 1], &N->wlat[at], sizeof(double) * (size_t)(N->nwp - at));
   memmove(&N->wlon[at + 1], &N->wlon[at], sizeof(double) * (size_t)(N->nwp - at));
   memmove(&N->wname[at + 1], &N->wname[at], WP_NAME * (size_t)(N->nwp - at));
+  memmove(&N->wsail[at + 1], &N->wsail[at], (size_t)(N->nwp - at));
   N->wlat[at] = lat; N->wlon[at] = lon; N->wname[at][0] = 0;
+  N->wsail[at] = at < N->nwp ? N->wsail[at + 1] : 0;   /* the new leg: as the one it splits (inserted inside), else the route's */
   N->nwp++;
   wp_cur = at;
 }
@@ -104,17 +124,19 @@ void route_delete(void) {
   memmove(&N->wlat[wp_cur], &N->wlat[wp_cur + 1], sizeof(double) * (size_t)(N->nwp - wp_cur - 1));
   memmove(&N->wlon[wp_cur], &N->wlon[wp_cur + 1], sizeof(double) * (size_t)(N->nwp - wp_cur - 1));
   memmove(&N->wname[wp_cur], &N->wname[wp_cur + 1], WP_NAME * (size_t)(N->nwp - wp_cur - 1));
+  memmove(&N->wsail[wp_cur], &N->wsail[wp_cur + 1], (size_t)(N->nwp - wp_cur - 1));
   N->nwp--;
   if (wp_cur >= N->nwp && wp_cur) wp_cur--;
 }
 
 static void leg(int i, double *crs, double *nm) {   /* geo47: cached, recomputed on change */
   if (legs_dirty || legs_mode != N->cfg.gc) {
-    for (int k = 1; k < N->nwp; k++) {
-      if (N->cfg.gc == 2)
+    for (int k = 1; k < N->nwp; k++) {                    /* each leg its own sailing */
+      int s = leg_sail(k);
+      if (s == 2)
         geo_leg_cs(N->wlat[k - 1], N->wlon[k - 1], N->wlat[k], N->wlon[k], cs_lim, &N->leg_crs[k], &N->leg_nm[k]);
       else
-        (N->cfg.gc ? leg_gc : leg_rl)(N->wlat[k - 1], N->wlon[k - 1], N->wlat[k], N->wlon[k], &N->leg_crs[k], &N->leg_nm[k]);
+        (s ? leg_gc : leg_rl)(N->wlat[k - 1], N->wlon[k - 1], N->wlat[k], N->wlon[k], &N->leg_crs[k], &N->leg_nm[k]);
     }
     legs_dirty = 0;
     legs_mode = N->cfg.gc;
@@ -233,7 +255,7 @@ void draw_route(void) {
   if (rlib_draw()) ;
   else if (wp_edit >= 0) nt_inv(2, 192, wp_edit ? "LON DDD.MMm  +/- WEST  ENTER" : "LAT DD.MMm  +/- SOUTH  ENTER");
   else if (wp_cur < N->nwp && N->wname[wp_cur][0]) { sprintf(s, "%d %s  1 WPTS 3 save", wp_cur + 1, N->wname[wp_cur]); nt(2, 192, s); }
-  else nt(2, 192, N->cfg.gc == 2 ? "4 6 limit 1 WPTS R/S plan" : "ENTER edit 1 WPTS R/S plan");
+  else nt(2, 192, N->cfg.gc == 2 ? "4 6 limit 1 WPTS sh RL/GC leg" : "ENTER edit 1 WPTS sh RL/GC leg");
   sprintf(s, "%d WP  TOTAL %.1f NM", N->nwp, tot);
   if (!rlib_active() && (wp_edit < 0 || nt_w(s) < 150)) nt_r(LCD_X - 2, 192, s);
   if (wp_cur >= N->nwp) wp_cur = N->nwp - 1;
@@ -259,7 +281,7 @@ void draw_route(void) {
     if (i > 0) {
       leg(i, &crs, &nm);
       cum += nm;
-      sprintf(s, "%03.0f" NT_DEG, fmod(floor(crs + 0.5), 360.0)); nt_r(xc, y, s);
+      sprintf(s, "%03.0f" NT_DEG "%c", fmod(floor(crs + 0.5), 360.0), (N->wsail[i] ? "RGC" : "rgc")[leg_sail(i)]); nt_r(xc + nt_w("G"), y, s);   /* the leg's sailing: own capital, the route's small */
       sprintf(s, "%.1f", nm); nt_r(xd, y, s);
       sprintf(s, "%.1f", cum); nt_r(xcu, y, s);
     }
@@ -305,7 +327,7 @@ void plan_build(void) {
   plan_rc = ROUTE_OK;
   for (int i = 1; i < N->nwp; i++) {
     int rc = route_add_leg(&geo_route, N->wlat[0], N->wlon[0], N->wlat[i], N->wlon[i],
-                           (sail_t)sail[N->cfg.gc % 3], cs_lim, (split_t)plan_split, v);
+                           (sail_t)sail[leg_sail(i)], cs_lim, (split_t)plan_split, v);   /* each leg its own sailing */
     if (rc == ROUTE_ELIMIT || rc == ROUTE_ECOMP)           /* this leg cannot be CS: sail it GC */
       rc = route_add_leg(&geo_route, 0, 0, N->wlat[i], N->wlon[i], SAIL_GEOD, 0, (split_t)plan_split, v);
     if (rc != ROUTE_OK && plan_rc == ROUTE_OK) plan_rc = rc;
@@ -669,8 +691,9 @@ void draw_chart(void) {
   }
   if (route) {
     for (int i = 1; i < N->nwp; i++) {                   /* the other sailings, for comparison */
-      if (gc != 0) map_seg(&chart_m, N->wlat[i - 1], N->wlon[i - 1], N->wlat[i], N->wlon[i], MAP_DASH);
-      if (gc != 1) map_geod(&chart_m, &geo_ell, N->wlat[i - 1], N->wlon[i - 1], N->wlat[i], N->wlon[i], MAP_DOT);
+      int ls = leg_sail(i);                               /* the sailings this leg is not */
+      if (ls != 0) map_seg(&chart_m, N->wlat[i - 1], N->wlon[i - 1], N->wlat[i], N->wlon[i], MAP_DASH);
+      if (ls != 1) map_geod(&chart_m, &geo_ell, N->wlat[i - 1], N->wlon[i - 1], N->wlat[i], N->wlon[i], MAP_DOT);
     }
     for (int i = 1; i < R->n; i++) {                     /* the plan: thick */
       const wpt_t *a = &R->w[i - 1], *b = &R->w[i];

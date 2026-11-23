@@ -64,13 +64,17 @@ K int api_geod_pts(double la1, double lo1, double la2, double lo2, int n) {
 /* the plan: IN holds nwp (lat, lon) pairs; sail 0 RL 1 GC 2 CS; split 0 none 1 every val NM 2 val legs 3 meridians.
  * OUT: 10 a waypoint: lat lon leg_m cum_m crs_in crs_out rl_crs rl_m kind flags. Returns the waypoints, < 0 an error */
 static route_t *R;
+/* each leg's own sailing (the leg arriving at point i): -1 the route's, else 0 RL 1 GC 2 CS; the page fills it */
+static signed char LEGS[2048];
+K signed char *api_legs(void) { return LEGS; }
 static int build_plan(route_t *r, int nwp, int sail, double lim, int split, double val) {
   static const sail_t S[3] = { SAIL_RHUMB, SAIL_GEOD, SAIL_COMPOSITE };
   double v = split == SPLIT_DIST ? val * 1852.0 : val;
   route_init(r, &G);
   int rc0 = ROUTE_OK;
   for (int i = 1; i < nwp; i++) {
-    int rc = route_add_leg(r, IN[0], IN[1], IN[2 * i], IN[2 * i + 1], S[sail % 3], lim, (split_t)split, v);
+    int s = i < (int)sizeof LEGS && LEGS[i] >= 0 ? LEGS[i] : sail;
+    int rc = route_add_leg(r, IN[0], IN[1], IN[2 * i], IN[2 * i + 1], S[s % 3], lim, (split_t)split, v);
     if (rc == ROUTE_ELIMIT || rc == ROUTE_ECOMP)
       rc = route_add_leg(r, 0, 0, IN[2 * i], IN[2 * i + 1], SAIL_GEOD, 0, (split_t)split, v);
     if (rc != ROUTE_OK && rc0 == ROUTE_OK) rc0 = rc;

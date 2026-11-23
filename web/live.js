@@ -75,12 +75,13 @@ const LIVE = (() => {
   /* ---------------------------------------------------------------- the plan monitored: the Route tab's */
   function syncPlan() {
     const R = S.route, pts = ROUTE.pts;
-    const key = JSON.stringify([pts.map(p => [p.lat.toFixed(6), p.lon.toFixed(6)]), R.sail, R.lim, R.split, R.val]);
+    const key = JSON.stringify([pts.map(p => [p.lat.toFixed(6), p.lon.toFixed(6), p.sail]), R.sail, R.lim, R.split, R.val]);
     if (key === L.routeKey) return pts.length >= 2;
     L.routeKey = key;
     if (pts.length < 2) return false;
     const p = Module._api_in() >> 3, IN = Module.HEAPF64.subarray(p, p + 4096);
     pts.slice(0, 2000).forEach((q, i) => { IN[2 * i] = q.lat; IN[2 * i + 1] = q.lon; });
+    NAV.setLegs(pts);                                       /* each leg's own sailing */
     Module._api_psg_plan(Math.min(pts.length, 2000), R.sail, R.lim, [0, 1, 2, 3][R.split], R.val);
     L.started = false;
     return true;

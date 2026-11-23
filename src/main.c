@@ -763,6 +763,7 @@ static void handle_key(int key) {
     shift = 0;
     if (key == KEY_EXIT) { cfg_save(); SET_ST(STAT_PGM_END); return; }
     if (key == KEY_ENTER && page == PG_PLAN) { plan_msg[0] = 0; plan_nmea(); return; }
+    if (key == KEY_F4 && page == PG_ROUTE && menu_page == 3) { leg_sail_cycle(wp_cur); return; }   /* SHIFT RL/GC: the cursor's leg */
     if (key == KEY_0) {
       static const uint8_t mid[] = { MI_SET_TIME, MI_SET_DATE, MI_BEEP_MUTE, MI_SLOW_AUTOREP, MI_MSC, MI_SYSTEM_ENTER, 0 };
       static const smenu_t MID = { "NAV47 Setup", mid, NULL, NULL };

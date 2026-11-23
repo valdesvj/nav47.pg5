@@ -150,7 +150,7 @@ TIDE keeps the station's own time zone, as a printed tide table does.
 
 ![ROUTE](img/calc_route.png)
 
-Your waypoints (up to 100), their positions to 0.01′ (as the web page plans them; type 26.3012 for 26°30.12′), and each leg from the one before: **CRS** (true), **DIST** and **CUM** in nautical miles,
+Your waypoints (up to 100), their positions to 0.01′ (as the web page plans them; type 26.3012 for 26°30.12′), and each leg from the one before, with its sailing after the course (R rhumb, G great circle, C composite; a capital when the leg has its own, small when it follows the route's RL/GC; **SHIFT RL/GC** cycles the cursor's leg: the route's, RL, GC, CS): **CRS** (true), **DIST** and **CUM** in nautical miles,
 the total at the bottom. The name of the waypoint under the cursor shows at the bottom left.
 
 | Key | Does |
