@@ -16,8 +16,11 @@ const PORTSUI = (() => {
   /* ---------------------------------------------------------------- the data, decoded once */
   let PT = null, NET = null;
   function ports() {
+    /* name: the common one first (Dubai), wpi: the index's (Dubayy), aka: every other name and the UN/LOCODE, searched */
     if (!PT) PT = (typeof PORTS === "string" ? PORTS : "").split("\n").filter(Boolean).map((l, i) => {
-      const [name, cc, la, lo, no] = l.split("|"); return { i, name, cc, lat: +la, lon: +lo, no: +no };
+      const [wpi, cc, la, lo, no, aka] = l.split("|"), al = (aka || "").split(";").filter(Boolean);
+      const common = al.find(a => !/^[A-Z]{5}$/.test(a)) || wpi;
+      return { i, name: common, wpi, aka: al, cc, lat: +la, lon: +lo, no: +no, key: [wpi, ...al].join(" ").toLowerCase() };
     });
     return PT;
   }
@@ -131,7 +134,8 @@ const PORTSUI = (() => {
     if (!net()) { el.innerHTML = "<h2>Port to port</h2><div class='meta'>The sea lanes are not loaded (web/sealanes.js).</div>"; return; }
     compute();
     const L = ports(), f = find.trim().toLowerCase();
-    const hits = f.length >= 2 ? L.filter(p => p.name.toLowerCase().includes(f) || (p.cc || "").toLowerCase() === f).slice(0, 12) : [];
+    const hits = f.length >= 2 ? L.filter(p => p.key.includes(f) || (p.cc || "").toLowerCase() === f).slice(0, 12) : [];
+    const also = p => p.wpi !== p.name ? ` <span class="meta">(${esc(p.wpi)})</span>` : "";
     const etd = P.etd || (S.live ? Date.now() / 864e5 + 2440587.5 : S.jd), off = S.times === "zt" ? Math.round(S.pos[1] / 15) : 0;
     let t = etd, fuel = 0, rows = "", ecaM = 0, ecaT = 0, approx = false;
     V.legs.forEach((g, k) => {
@@ -149,12 +153,12 @@ const PORTSUI = (() => {
     });
     const sea = V.m / NMm / P.kn / 24;
     el.innerHTML = `<h2>Port to port <span class="meta">the sea lanes between the world's ports: for planning, not for navigation</span></h2>
-      <div class="controls"><input id="pfind" placeholder="find a port (2 letters or more; a country code: SA)" value="${esc(find)}" style="width:20em">
+      <div class="controls"><input id="pfind" placeholder="find a port: Dubai, Dubayy, AEDXB; a country: SA" value="${esc(find)}" style="width:20em">
         <label><input type="checkbox" id="player" ${P.layer ? "checked" : ""}> ports on the chart</label>
         <button id="pcsv" title="the world's ports for the calculator: /NAV47/PORTS.CSV (its CHART shows them)">PORTS.CSV</button></div>
-      ${hits.length ? `<div class="chips" style="margin-top:4px">${hits.map(p => `<button class="small" data-padd="${p.i}" title="${p.lat.toFixed(3)}, ${p.lon.toFixed(3)}">＋ ${esc(p.name)} <span class="meta">${esc(p.cc)}</span></button>`).join("")}</div>` : ""}
+      ${hits.length ? `<div class="chips" style="margin-top:4px">${hits.map(p => `<button class="small" data-padd="${p.i}" title="${p.lat.toFixed(3)}, ${p.lon.toFixed(3)}">＋ ${esc(p.name)}${also(p)} <span class="meta">${esc(p.cc)}</span></button>`).join("")}</div>` : ""}
       <table style="margin-top:6px"><tr><th>#</th><th>Port</th><th class="num">days in port</th><th></th></tr>
-      ${P.stops.map((i, k) => `<tr><td>${k + 1}</td><td>${esc(L[i] ? L[i].name : "?")} <span class="meta">${esc(L[i] ? L[i].cc : "")}</span></td>
+      ${P.stops.map((i, k) => `<tr><td>${k + 1}</td><td>${L[i] ? esc(L[i].name) + also(L[i]) : "?"} <span class="meta">${esc(L[i] ? L[i].cc : "")}</span></td>
         <td class="num">${k && k < P.stops.length - 1 ? `<input class="num" style="width:4em" type="number" min="0" step="0.5" data-pdays="${k}" value="${(P.stops_days || {})[k] || 0}">` : ""}</td>
         <td style="white-space:nowrap"><button class="small" data-pup="${k}">↑</button><button class="small" data-pdn="${k}">↓</button><button class="small" data-px="${k}">✕</button></td></tr>`).join("")}</table>
       <div class="controls" style="margin-top:6px"><label>Speed <input class="num" id="pkn" type="number" min="1" step="0.5" value="${P.kn}"> kn</label>
