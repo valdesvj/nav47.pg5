@@ -110,12 +110,20 @@ static void dp_save_plat(void) {
   free(b);
 }
 
+/* a key while BEST or ABS SKP computes: stop (the key is used up, it does nothing else) */
+static int dp_key_stop(void) {
+  if (key_empty()) return 0;
+  while (!key_empty()) key_pop();
+  dp_abort = 1;
+  return 1;
+}
+
 static void dp_busy(int n, int tot) {
-  if (n % 8 && n != tot) return;
-  char s[32];
-  sprintf(s, "computing %d / %d", n, tot);
+  if (dp_key_stop() || (n % 8 && n != tot)) return;
+  char s[40];
+  sprintf(s, "computing %d / %d  any key: stop", n, tot);
   gfx_rect(206, 150, 194, 16, 0);
-  nt(206, 150, s);
+  draw_text(&TINY, 206, 154, s, 0);
   lcd_refresh();
 }
 
@@ -123,8 +131,15 @@ static void dp_busy(int n, int tot) {
 static void dp_best(void) {
   dp_weather();
   dp_abort = 0;
+  if (strstr(DP->msg, "stopped")) DP->msg[0] = 0;          /* a stop's note: gone with the next run */
   dpo_best(&DP->v, &DP->p, &DP->w, 5, &DP->r, dp_busy);
   DP->face = DP->r.face; DP->hdg = DP->r.hdg; DP->manual = 0;
+  if (dp_abort) {                                          /* stopped: the best of the headings tried, no wind limit */
+    DP->limw = -1;
+    snprintf(DP->msg, sizeof DP->msg, "BEST stopped");
+    dp_abort = 0;
+    return;
+  }
   DP->limw = dpo_limit_wind(&DP->v, &DP->p, &DP->w, DP->face, DP->hdg);
 }
 
@@ -331,7 +346,7 @@ void draw_dp(void) {
   else draw_text(&TINY, 2, MENU_Y - LH, ". ABS SKP", 0);
 }
 
-static void abs_run(void);
+static int abs_run(void);
 void dp_key(int key) {
   DpS *d = DP;
   if (!d) { if (key == KEY_EXIT) go(PG_VALM); return; }
@@ -353,7 +368,7 @@ void dp_key(int key) {
   else if (key == KEY_0) d->showfail ^= 1;
   else if (key == KEY_3) d->tonnes ^= 1;                       /* the bars: % of full thrust or tonnes */
   else if (key == KEY_1) { d->p.par ^= 1; dp_save_plat(); dp_best(); }   /* side to: parallel to the face, or within TOL */
-  else if (key == KEY_DOT) { abs_run(); go(PG_DPABS); }      /* ABS SKP: the vessel's capability, every direction */
+  else if (key == KEY_DOT) { if (abs_run()) go(PG_DPABS); }  /* ABS SKP: the vessel's capability, every direction */
   else if (key == KEY_EXIT) go(PG_VALM);
 }
 
@@ -386,16 +401,18 @@ static float abs_current(void) {
 }
 
 static void abs_busy(int n, int tot) {
-  if (n % 12 && n != tot) return;
+  if (dp_key_stop() || (n % 12 && n != tot)) return;
   char s[40];
   sprintf(s, "ABS SKP: %d of %d", n, tot);
   gfx_rect(0, 100, LCD_X, 18, 0);
   nt_c(LCD_X / 2, 100, s);
+  nt_c(LCD_X / 2, 124, "any key: stop");
   lcd_refresh();
 }
 
-static void abs_run(void) {
-  if (!ABS && !(ABS = (AbsResult *)malloc(sizeof *ABS))) return;
+/* 1: a result to show; 0: no memory, or stopped by a key (DP OPS says so) */
+static int abs_run(void) {
+  if (!ABS && !(ABS = (AbsResult *)malloc(sizeof *ABS))) { abs_have = 0; return 0; }
   dp_weather();
   abs_cur = abs_current();
   lcd_clear_buf();
@@ -404,6 +421,9 @@ static void abs_run(void) {
   lcd_refresh();
   dp_abort = 0;
   abs_have = dpo_abs(&DP->v, abs_cur, abs_margin / 100.0f, ABS, abs_busy);   /* dp_abs's steps, the copy on the heap */
+  if (dp_abort) { abs_have = 0; snprintf(DP->msg, sizeof DP->msg, "ABS stopped"); }
+  dp_abort = 0;
+  return abs_have;
 }
 
 /* the limiting wind at a direction (degrees from the bow), between the 10-degree ones */
@@ -486,8 +506,8 @@ void draw_dpabs(void) {
 }
 
 void dpabs_key(int key) {
-  if (key == KEY_7) { abs_cur10 = abs_cur10 < 0 ? 5 : abs_cur10 >= 30 ? -1 : abs_cur10 + 5; abs_run(); }   /* today's, 0.5 .. 3 kn */
-  else if (key == KEY_8) { abs_margin = abs_margin >= 30 ? 0 : abs_margin + 10; abs_run(); }
+  if (key == KEY_7) { abs_cur10 = abs_cur10 < 0 ? 5 : abs_cur10 >= 30 ? -1 : abs_cur10 + 5; if (!abs_run()) go(PG_DP); }   /* today's, 0.5 .. 3 kn */
+  else if (key == KEY_8) { abs_margin = abs_margin >= 30 ? 0 : abs_margin + 10; if (!abs_run()) go(PG_DP); }
   else if (key == KEY_DOT || key == KEY_EXIT) go(PG_DP);
 }
 
