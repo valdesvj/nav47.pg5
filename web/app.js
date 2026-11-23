@@ -260,7 +260,9 @@ function loadCoast(which) {
  * shortest way is found among the polygons' corners (visibility graph, Dijkstra), from every start to every end
  * (a leg from or to an object starts or ends on a circle its zone + the margin out, the side found by the search),
  * then pulled tight. The legs are checked afterwards on the real sailing (rhumb or geodesic) with exact distances. */
-const AV = { M: 0.015, NV: 16, NC: 48 };
+const AV = { MS: [0.002, 0.006, 0.015, 0.04], NV: 32, NC: 48 };   /* MS: the zones' margins tried, tight first (checked exactly) */
+/* the zones: every object with a zone (a 0 m zone: none) */
+const zonesOf = () => S.objects.filter(o => o.r > 0);
 function aePlane(lat0, lon0) {
   return {
     fwd(la, lo) { const r = NAV.inv(lat0, lon0, la, lo), a = r.a1 * D2R; return [r.s * Math.sin(a), r.s * Math.cos(a)]; },
@@ -291,7 +293,7 @@ function ends(w) {
   }
   return { pts: [{ lat: w.lat, lon: w.lon }], obj: o, R: 0 };
 }
-function avoidLeg(As, Bs, zones, clr) {
+function avoidLeg(As, Bs, zones, clr, M) {
   const a0 = As.pts[0], b0 = Bs.pts[0];
   const ab = NAV.inv(a0.lat, a0.lon, b0.lat, b0.lon), mid = NAV.dir(a0.lat, a0.lon, ab.a1, ab.s / 2);
   const ae = aePlane(mid.lat, mid.lon), L = ab.s;
@@ -301,7 +303,10 @@ function avoidLeg(As, Bs, zones, clr) {
     if (d < L / 2 + z.r + 8000) {
       /* the leg's own objects (it starts or ends on their circles): the zone itself; the others: zone + clearance */
       const own = z === As.obj || z === Bs.obj, [x, y] = ae.fwd(z.lat, z.lon);
-      near.push({ z, x, y, r: (z.r + (own ? 0 : clr)) * (1 + AV.M) + 1 });
+      /* the leg's own end: its zone, a little out, but inside the ring it starts / ends on (start / end 0 m: on the zone) */
+      const ring = Math.min(z === As.obj && As.R > 0 ? As.R : Infinity, z === Bs.obj && Bs.R > 0 ? Bs.R : Infinity);
+      const r = own ? Math.min(z.r * (1 + M) + 0.5, ring - 0.05) : (z.r + clr) * (1 + M) + 0.5;
+      if (r > 0.05 && !(own && z.r <= 0)) near.push({ z, x, y, r });
     }
   }
   const inside = (x, y, set) => set.some(z => (x - z.x) ** 2 + (y - z.y) ** 2 < z.r * z.r - 1e-6);
@@ -317,7 +322,7 @@ function avoidLeg(As, Bs, zones, clr) {
     const nodes = [];
     A.forEach(p => nodes.push({ x: p[0], y: p[1], t: 1 }));
     B.forEach(p => nodes.push({ x: p[0], y: p[1], t: 2 }));
-    const rv = 1 / Math.cos(Math.PI / AV.NV) * (1 + 0.004);
+    const rv = 1 / Math.cos(Math.PI / AV.NV) * (1 + 0.001);
     for (const z of act)
       for (let i = 0; i < AV.NV; i++) {
         const a = (i + 0.5) * 2 * Math.PI / AV.NV, x = z.x + z.r * rv * Math.sin(a), y = z.y + z.r * rv * Math.cos(a);
@@ -361,6 +366,22 @@ function avoidLeg(As, Bs, zones, clr) {
   }
   return { ok: true, pts: tight.map(p => { const [la, lo] = ae.inv(p.x, p.y); return { lat: la, lon: lo, t: p.t }; }) };
 }
+/* does a planned leg, as sailed, keep clr off every zone (its own ends: off the zone itself)? exact distances */
+function legKeeps(pts, zones, clr, oa, ob) {
+  const rhumb = S.route.sail === 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i], L = NAV.inv(a.lat, a.lon, b.lat, b.lon).s;
+    const m = NAV.dir(a.lat, a.lon, NAV.inv(a.lat, a.lon, b.lat, b.lon).a1, L / 2);
+    const cand = zones.filter(z => NAV.inv(m.lat, m.lon, z.lat, z.lon).s < L / 2 + z.r + clr + 200);
+    if (!cand.length) continue;
+    const P = sailPts(a, b, Math.max(2, Math.min(800, Math.ceil(L / 10))), rhumb);
+    for (const z of cand) {
+      const need = z.r + (z === oa || z === ob ? 0 : clr) - 0.5;
+      for (const [la, lo] of P) if (NAV.inv(la, lo, z.lat, z.lon).s < need) return false;
+    }
+  }
+  return true;
+}
 /* points along a leg as it is sailed: the rhumb line or the geodesic */
 function sailPts(a, b, n, rhumb) {
   if (!rhumb) return NAV.geodPts(a.lat, a.lon, b.lat, b.lon, n);
@@ -371,7 +392,7 @@ function sailPts(a, b, n, rhumb) {
 /* the route: the waypoints round the zones, the plan, the check */
 let ROUTE = { pts: [], plan: { rows: [] }, check: null };
 function compute() {
-  const R = S.route, wps = R.wps, zones = S.objects.filter(o => o.r > 0);
+  const R = S.route, wps = R.wps, zones = zonesOf();
   const e = NAV.ell(R.ell); NAV.setEll(e.a, e.rf);
   const pts = [], warn = [];
   if (wps.length >= 2) {
@@ -384,7 +405,8 @@ function compute() {
         if (to.wide) warn.push(`${esc(to.obj.name)}: its ${R.margin} m ring is inside other zones; the route ends ${Math.round(to.R - to.obj.r)} m outside its zone.`);
         if (i === 1 && from.wide) warn.push(`${esc(from.obj.name)}: its ${R.margin} m ring is inside other zones; the route starts ${Math.round(from.R - from.obj.r)} m outside its zone.`);
         for (const clr of [R.clear, R.clear / 2, 0]) {
-          leg = avoidLeg(from, to, zones, clr);
+          /* tight margins first; the leg checked with exact distances as sailed; wider until it keeps clr */
+          for (const M of AV.MS) { leg = avoidLeg(from, to, zones, clr, M); if (!leg.ok || legKeeps(leg.pts, zones, clr, from.obj, to.obj)) break; }
           if (leg.ok) { if (clr < R.clear) warn.push(`Leg ${i}: no way with ${R.clear} m clearance; planned with ${clr} m.`); break; }
           if (clr === 0) break;
         }
@@ -437,7 +459,9 @@ function landCrossings(P, exempt) {
 }
 /* every leg of the plan, sampled every ~25 m (or 400 a leg), against every zone near it: exact distances; and land */
 function check(rows, zones, warn) {
-  const out = { min: Infinity, minObj: null, minLeg: 0, hits: [], warn: warn.slice(), land: [] };
+  const out = { min: Infinity, minObj: null, minLeg: 0, hits: [], warn: warn.slice(), land: [],
+                pass: Infinity, passObj: null, passLeg: 0, end: Infinity, endObj: null };   /* pass: the zones passed (R.clear); end: the waypoints' own objects (R.margin) */
+  const own = new Set(S.route.wps.map(w => w.obj).filter(Boolean));
   if (rows.length < 2) return out;
   /* land: for a vessel; a flight (100 kn or more) passes over it */
   out.flight = S.route.speed >= 100;
@@ -465,6 +489,8 @@ function check(rows, zones, warn) {
       for (const [la, lo] of P) { const d = NAV.inv(la, lo, z.lat, z.lon).s; if (d < best) best = d; }
       const c = best - z.r;
       if (c < out.min) { out.min = c; out.minObj = z; out.minLeg = i; }
+      if (own.has(z.id)) { if (c < out.end) { out.end = c; out.endObj = z; } }
+      else if (c < out.pass) { out.pass = c; out.passObj = z; out.passLeg = i; }
       if (c < -0.5) out.hits.push({ leg: i, obj: z, by: -c });
     }
   }
@@ -543,15 +569,38 @@ function fitRoute() {
 }
 
 /* drawing helpers */
+/* a line through (lat, lon) points. Mercator: the longitude kept continuous along the line (across 180° it goes on
+   off the edge, no jump), so no segment is dropped however long it is on the screen (zoomed in: a leg's two ends far
+   outside). Each segment clipped to the canvas (Liang-Barsky): millions of pixels off it, a canvas may drop the line. */
+function clipSeg(x0, y0, x1, y1) {
+  const M = 40, dx = x1 - x0, dy = y1 - y0;
+  let t0 = 0, t1 = 1;
+  for (const [p, q] of [[-dx, x0 + M], [dx, CH.W + M - x0], [-dy, y0 + M], [dy, CH.H + M - y0]]) {
+    if (p === 0) { if (q < 0) return null; continue; }
+    const r = q / p;
+    if (p < 0) { if (r > t1) return null; if (r > t0) t0 = r; } else { if (r < t0) return null; if (r < t1) t1 = r; }
+  }
+  return [x0 + t0 * dx, y0 + t0 * dy, x0 + t1 * dx, y0 + t1 * dy, t0 === 0];
+}
 function polyline(pts, style) {
-  const g = CH.g;
+  const g = CH.g, V = S.view, merc = V.mode === "merc", cx = CH.W / 2, cy = CH.H / 2, ps0 = merc ? psi(V.lat0) : 0;
   g.beginPath();
-  let pen = false, px = 0, py = 0;
-  for (const [la, lo] of pts) {
-    const [x, y, v] = proj(la, lo);
-    if (!v || (pen && Math.abs(x - px) > CH.W * 0.7)) { pen = false; if (!v) continue; }
-    if (!pen) { g.moveTo(x, y); pen = true; } else g.lineTo(x, y);
-    px = x; py = y;
+  let prev = null, plo = null, at = null;                   /* prev: the last point (x, y); at: where the pen is */
+  for (const [la, lo0] of pts) {
+    let x, y, v = true;
+    if (merc) {
+      const lo = plo === null ? nearLon(lo0, V.lon0) : nearLon(lo0, plo); plo = lo;
+      x = cx + V.k * (lo - V.lon0) * D2R; y = cy - V.k * (psi(la) - ps0);
+    } else [x, y, v] = proj(la, lo0);
+    if (!v) { prev = null; at = null; continue; }            /* the globe's far side: the line breaks */
+    if (prev) {
+      const c = clipSeg(prev[0], prev[1], x, y);
+      if (c) {
+        if (!at || !c[4] || at[0] !== c[0] || at[1] !== c[1]) g.moveTo(c[0], c[1]);
+        g.lineTo(c[2], c[3]); at = [c[2], c[3]];
+      } else at = null;
+    }
+    prev = [x, y];
   }
   if (style) style(g);
   g.stroke();
@@ -1058,7 +1107,7 @@ function routeCard() {
     <div class="controls" style="margin-top:6px">
       <label><input type="checkbox" id="avoid" ${R.avoid ? "checked" : ""}> keep out of the zones</label>
       <label ${R.avoid ? "" : "hidden"}>pass zones by ≥ <input class="num" id="clear" type="number" min="0" step="10" value="${R.clear}"> m</label>
-      <label ${R.avoid ? "" : "hidden"}>start / end <input class="num" id="margin" type="number" min="10" step="10" value="${R.margin}"> m outside the object's zone</label>
+      <label ${R.avoid ? "" : "hidden"}>start / end <input class="num" id="margin" type="number" min="0" step="10" value="${R.margin}"> m outside the object's zone</label>
     </div>
     <h3>Waypoints <span class="meta">(click on the chart with ＋ Waypoint; on an object: from / to it)</span></h3>
     <div class="scroll" style="max-height:260px"><table id="wptab"><tr><th>#</th><th>Name</th><th>Position</th><th>Object</th><th></th></tr>
@@ -1085,8 +1134,8 @@ function routeCard() {
   $("split").onchange = e => { R.split = +e.target.value; R.val = [0, 100, 4, 10][R.split]; upd(); };
   $("splitv").onchange = e => { R.val = Math.max(0, +e.target.value || 0); upd(); };
   $("avoid").onchange = e => { R.avoid = e.target.checked; upd(); };
-  $("margin").onchange = e => { R.margin = Math.max(10, +e.target.value || 50); upd(); };
-  $("clear").onchange = e => { R.clear = Math.max(0, +e.target.value || 0); upd(); };
+  $("margin").onchange = e => { const v = parseFloat(e.target.value); R.margin = Number.isFinite(v) ? Math.max(0, v) : 50; upd(); };
+  $("clear").onchange = e => { const v = parseFloat(e.target.value); R.clear = Number.isFinite(v) ? Math.max(0, v) : 0; upd(); };
   document.querySelectorAll("[data-wn]").forEach(i => i.onchange = e => { R.wps[+i.dataset.wn].name = e.target.value; upd(); });
   document.querySelectorAll("[data-wp]").forEach(i => i.onchange = e => { const p = parsePos(e.target.value), w = R.wps[+i.dataset.wp];
     if (p) { w.lat = p[0]; w.lon = p[1]; w.obj = null; } upd(); });
@@ -1109,15 +1158,18 @@ function checkCard() {
   const el = $("checkcard"); if (!el) return;
   const rows = ROUTE.plan.rows, c = ROUTE.check, R = S.route;
   if (rows.length < 2) { el.innerHTML = `<h2>Check</h2><div class="meta">Two waypoints or more make a route.</div>`; return; }
-  const zones = S.objects.filter(o => o.r > 0);
+  const zones = zonesOf();
   const chips = [`<span class="chip">${FMT.nm(rows[rows.length - 1].cum)} NM</span>`, `<span class="chip">${ROUTE.pts.length} points, ${rows.length} with the split</span>`];
   if (c.flight) chips.push(`<span class="chip">✈ a flight (${R.speed} kn): over land allowed</span>`);
   else if (c.land.length) chips.unshift(`<span class="chip warn">⛔ ${c.land.length} leg${c.land.length > 1 ? "s" : ""} over land</span>`);
   else chips.push(`<span class="chip ok">✓ no leg over land</span>`);
   if (zones.length) {
     if (c.hits.length) chips.push(`<span class="chip warn">⚠ ${c.hits.length} leg${c.hits.length > 1 ? "s" : ""} into a zone</span>`);
-    else if (c.min < Infinity) chips.push(`<span class="chip ${c.min >= Math.min(R.clear, R.margin) - 1 ? "ok" : "warn"}">✓ clear of every zone: the closest ${FMT.m(c.min)} off ${esc(c.minObj.name)} (leg ${c.minLeg})</span>`);
-    else chips.push(`<span class="chip ok">✓ no zone near the route</span>`);
+    else {                                                   /* the zones passed against "pass zones by"; the start / end against "start / end" */
+      if (c.pass < Infinity) chips.push(`<span class="chip ${c.pass >= R.clear - 1 ? "ok" : "warn"}">${c.pass >= R.clear - 1 ? "✓" : "⚠"} passes every zone by ${FMT.m(c.pass)} or more (${esc(c.passObj.name)}, leg ${c.passLeg}; asked ${R.clear} m)</span>`);
+      else chips.push(`<span class="chip ok">✓ no other zone near the route</span>`);
+      if (c.end < Infinity) chips.push(`<span class="chip ${c.end >= R.margin - 1 ? "ok" : "warn"}">start / end ${FMT.m(c.end)} outside ${esc(c.endObj.name)}'s zone (asked ${R.margin} m)</span>`);
+    }
   }
   const det = ROUTE.pts.filter(p => !p.user).length;
   if (det) chips.push(`<span class="chip">${det} turning point${det > 1 ? "s" : ""} round the zones</span>`);
