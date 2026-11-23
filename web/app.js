@@ -483,6 +483,28 @@ function segX(ax, ay, bx, by, cx, cy, dx, dy) {
   const t = ((cx - ax) * (dy - cy) - (cy - ay) * (dx - cx)) / d, u = ((cx - ax) * (by - ay) - (cy - ay) * (bx - ax)) / d;
   return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : null;
 }
+/* the ship canals: water for a ship, land on the coastline map. Their centrelines [lat, lon] and the half-width (km) of
+   the corridor where a crossing of the coastline is not land (the locks, the lakes, the entrances) */
+const CANALS = [
+  { name: "Suez", km: 5, line: [[31.30, 32.31], [31.00, 32.32], [30.77, 32.32], [30.58, 32.31], [30.42, 32.35], [30.32, 32.39],
+                               [30.22, 32.45], [30.13, 32.52], [29.93, 32.56], [29.88, 32.56]] },
+  { name: "Panama", km: 5, line: [[9.40, -79.92], [9.27, -79.92], [9.25, -79.90], [9.20, -79.84], [9.13, -79.75], [9.12, -79.69],
+                                 [9.05, -79.65], [9.02, -79.61], [8.99, -79.59], [8.95, -79.57], [8.88, -79.52]] },
+  { name: "Kiel", km: 3, line: [[53.89, 9.14], [54.01, 9.27], [54.13, 9.40], [54.30, 9.68], [54.33, 9.90], [54.37, 10.14]] },
+  { name: "Corinth", km: 1.5, line: [[37.945, 22.96], [37.915, 23.00]] },
+  { name: "Nieuwe Waterweg", km: 3, line: [[51.985, 4.03], [51.95, 4.15], [51.905, 4.35], [51.90, 4.49]] },   /* to Rotterdam */
+];
+/* a point in a canal's corridor: its name, else "" */
+function inCanal(lat, lon) {
+  for (const c of CANALS) {
+    const k = Math.cos(lat * D2R) * 111.32, L = c.line;
+    for (let i = 1; i < L.length; i++) {
+      const ax = (L[i - 1][1] - lon) * k, ay = (L[i - 1][0] - lat) * 110.57, bx = (L[i][1] - lon) * k, by = (L[i][0] - lat) * 110.57;
+      if (segDist(0, 0, ax, ay, bx, by) < c.km) return c.name;
+    }
+  }
+  return "";
+}
 function landCrossings(P, exempt) {
   const polys = loadCoast("L"), out = [];
   for (let i = 1; i < P.length; i++) {
@@ -500,7 +522,7 @@ function landCrossings(P, exempt) {
           const t = segX(o1, a1, o2, a2, x1, y1, x2, y2);
           if (t === null) continue;
           const p = [a1 + (a2 - a1) * t, nearLon(o1 + (o2 - o1) * t, 0)];
-          if (!exempt(p)) out.push(p);
+          if (!exempt(p) && !inCanal(p[0], p[1])) out.push(p);   /* the canals are water */
         }
       }
     }

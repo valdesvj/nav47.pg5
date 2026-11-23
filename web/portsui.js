@@ -67,8 +67,20 @@ const PORTSUI = (() => {
     return { m: dist[b], nodes, passes: [...passes] };
   }
   /* port to port: the lanes between their nearest nodes, joined to the ports by straight legs; the points [lat, lon] */
+  /* the node a port joins the lanes at: the nearest whose straight link is not over land (a port up a river, behind a
+     headland), of the 40 nearest; else the nearest */
+  const joinCache = {};
+  function join(P) {
+    const k = P.lat + "," + P.lon; if (k in joinCache) return joinCache[k];
+    const N = net(), c = Math.cos(P.lat * Math.PI / 180), d = [];
+    for (let i = 0; i < N.n; i++) { let dl = Math.abs(N.lon[i] - P.lon); if (dl > 180) dl = 360 - dl; d.push([(N.lat[i] - P.lat) ** 2 + (dl * c) ** 2, i]); }
+    d.sort((x, y) => x[0] - y[0]);
+    let best = d[0][1];
+    for (const [, i] of d.slice(0, 40)) if (!overLand([P.lat, P.lon], [N.lat[i], N.lon[i]])) { best = i; break; }
+    return (joinCache[k] = best);
+  }
   function leg(A, B, use) {
-    const a = nearest(A.lat, A.lon), b = nearest(B.lat, B.lon), N = net();
+    const a = join(A), b = join(B), N = net();
     const r = a === b ? { m: 0, nodes: [a], passes: [] } : shortest(a, b, use);
     if (!r) return null;
     const pts = [[A.lat, A.lon], ...r.nodes.map(v => [N.lat[v], N.lon[v]]), [B.lat, B.lon]];
