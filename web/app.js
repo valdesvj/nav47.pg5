@@ -543,15 +543,38 @@ function fitRoute() {
 }
 
 /* drawing helpers */
+/* a line through (lat, lon) points. Mercator: the longitude kept continuous along the line (across 180° it goes on
+   off the edge, no jump), so no segment is dropped however long it is on the screen (zoomed in: a leg's two ends far
+   outside). Each segment clipped to the canvas (Liang-Barsky): millions of pixels off it, a canvas may drop the line. */
+function clipSeg(x0, y0, x1, y1) {
+  const M = 40, dx = x1 - x0, dy = y1 - y0;
+  let t0 = 0, t1 = 1;
+  for (const [p, q] of [[-dx, x0 + M], [dx, CH.W + M - x0], [-dy, y0 + M], [dy, CH.H + M - y0]]) {
+    if (p === 0) { if (q < 0) return null; continue; }
+    const r = q / p;
+    if (p < 0) { if (r > t1) return null; if (r > t0) t0 = r; } else { if (r < t0) return null; if (r < t1) t1 = r; }
+  }
+  return [x0 + t0 * dx, y0 + t0 * dy, x0 + t1 * dx, y0 + t1 * dy, t0 === 0];
+}
 function polyline(pts, style) {
-  const g = CH.g;
+  const g = CH.g, V = S.view, merc = V.mode === "merc", cx = CH.W / 2, cy = CH.H / 2, ps0 = merc ? psi(V.lat0) : 0;
   g.beginPath();
-  let pen = false, px = 0, py = 0;
-  for (const [la, lo] of pts) {
-    const [x, y, v] = proj(la, lo);
-    if (!v || (pen && Math.abs(x - px) > CH.W * 0.7)) { pen = false; if (!v) continue; }
-    if (!pen) { g.moveTo(x, y); pen = true; } else g.lineTo(x, y);
-    px = x; py = y;
+  let prev = null, plo = null, at = null;                   /* prev: the last point (x, y); at: where the pen is */
+  for (const [la, lo0] of pts) {
+    let x, y, v = true;
+    if (merc) {
+      const lo = plo === null ? nearLon(lo0, V.lon0) : nearLon(lo0, plo); plo = lo;
+      x = cx + V.k * (lo - V.lon0) * D2R; y = cy - V.k * (psi(la) - ps0);
+    } else [x, y, v] = proj(la, lo0);
+    if (!v) { prev = null; at = null; continue; }            /* the globe's far side: the line breaks */
+    if (prev) {
+      const c = clipSeg(prev[0], prev[1], x, y);
+      if (c) {
+        if (!at || !c[4] || at[0] !== c[0] || at[1] !== c[1]) g.moveTo(c[0], c[1]);
+        g.lineTo(c[2], c[3]); at = [c[2], c[3]];
+      } else at = null;
+    }
+    prev = [x, y];
   }
   if (style) style(g);
   g.stroke();
