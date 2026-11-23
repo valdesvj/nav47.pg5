@@ -239,9 +239,16 @@ static void fill(void) {
     else pending = parse_key(t);
   }
 }
-int key_empty(void) { fill(); return pending < 0; }
-int key_pop(void) { fill(); int k = pending; pending = -1; return k; }
-void wait_for_key_press(void) { if (key_empty()) exit(0); key_pop(); }
+/* as DMCP: each key a press, then its release (0) */
+static int released;
+int key_empty(void) { if (released) return 0; fill(); return pending < 0; }
+int key_pop(void) {
+  if (released) { released = 0; return 0; }
+  fill(); int k = pending; pending = -1;
+  if (k > 0 && k != 77) released = 1;
+  return k;
+}
+void wait_for_key_press(void) { while (!key_empty() && key_pop() <= 0) ; if (key_empty()) exit(0); key_pop(); }
 void sys_sleep(void) { if (idle) { idle = 0; return; } if (key_empty()) { fprintf(stderr, "script done\n"); exit(0); } }
 #endif
 
