@@ -109,10 +109,11 @@ const S = {
                        store.get("route", {})),
   objects: store.get("objects", []),
   view: store.get("view", { mode: "merc", lat0: 30, lon0: 10, k: 220 }),
+  lock: store.get("lock", true),                            /* the objects locked: only the waypoints change */
   tool: "move", objType: "platform", sel: null, keepEta: store.get("keepEta", false), etaStep: store.get("etaStep", 0.5), pass: { from: "", to: "" }, showStreams: store.get("streams", false),
 };
 if (S.route.len === 100) S.route.len = 95;                       /* the old default: the Mermaid Asiana is 95 m */
-const save = () => { store.set("route", S.route); store.set("objects", S.objects); store.set("view", S.view); store.set("pos", S.pos); store.set("times", S.times); };
+const save = () => { store.set("lock", S.lock); store.set("route", S.route); store.set("objects", S.objects); store.set("view", S.view); store.set("pos", S.pos); store.set("times", S.times); };
 const zd = () => S.times === "zt" ? Math.round(S.pos[1] / 15) : 0;       /* the times shown: UT or ZT (the DR's zone) */
 const nowJd = () => S.live ? jdOf(Date.now()) : S.jd;
 let uid = Date.now();
@@ -927,8 +928,9 @@ function routeTab() {
     <div class="card"><div class="tools">
       <button data-tool="move" title="drag the chart, drag a waypoint or an object, click to select">✋ Move</button>
       <button data-tool="wp" title="click: a waypoint; on an object: from / to it">＋ Waypoint</button>
-      <button data-tool="obj" title="click: an object of this type">＋ Object</button>
-      <select id="objtype">${Object.entries(OBJ).map(([k, v]) => `<option value="${k}">${v.label}${v.r ? " (" + v.r + " m)" : ""}</option>`).join("")}</select>
+      <button data-tool="obj" title="click: an object of this type" ${S.lock ? "disabled" : ""}>＋ Object</button>
+      <select id="objtype" ${S.lock ? "disabled" : ""}>${Object.entries(OBJ).map(([k, v]) => `<option value="${k}">${v.label}${v.r ? " (" + v.r + " m)" : ""}</option>`).join("")}</select>
+      <button id="lock" class="${S.lock ? "on" : ""}" title="locked: the objects cannot be moved, edited or deleted; the waypoints can">${S.lock ? "🔒 Objects locked" : "🔓 Objects editable"}</button>
       <span style="flex:1"></span>
       <button id="mode">${S.view.mode === "merc" ? "🌍 Globe" : "🗺 Mercator"}</button>
       <button id="streams" title="the tidal streams at the time shown (NOAA's stations, yours, your FLOW atlas)">〰 Streams</button>
@@ -967,6 +969,12 @@ function routeTab() {
   $("streams").classList.toggle("on", !!S.showStreams);
   $("streams").onclick = () => { S.showStreams = !S.showStreams; store.set("streams", S.showStreams); $("streams").classList.toggle("on", S.showStreams); draw(); };
   $("del").onclick = delSel;
+  $("lock").onclick = () => {                               /* in place: the chart and its view stay */
+    S.lock = !S.lock; if (S.lock && S.tool === "obj") S.tool = "move";
+    const b = $("lock"); b.textContent = S.lock ? "🔒 Objects locked" : "🔓 Objects editable"; b.classList.toggle("on", S.lock);
+    el.querySelector('[data-tool="obj"]').disabled = S.lock; $("objtype").disabled = S.lock;
+    tools(); save(); objList();
+  };
   chartEvents();
   tools();
   new ResizeObserver(resize).observe(CH.cv);
@@ -974,7 +982,7 @@ function routeTab() {
 }
 function tools() { document.querySelectorAll("[data-tool]").forEach(b => b.classList.toggle("on", b.dataset.tool === S.tool)); if (CH.cv) CH.cv.style.cursor = S.tool === "move" ? "grab" : "crosshair"; }
 function delSel() {
-  if (!S.sel) return;
+  if (!S.sel || (S.sel.t === "o" && S.lock)) return;        /* locked: objects are not deleted */
   if (S.sel.t === "w") S.route.wps.splice(S.sel.i, 1);
   else { S.objects = S.objects.filter(o => o.id !== S.sel.id); S.route.wps.forEach(w => { if (w.obj === S.sel.id) w.obj = null; }); }
   S.sel = null; refresh();
@@ -991,7 +999,7 @@ function chartEvents() {
   cv.addEventListener("pointerdown", e => {
     cv.setPointerCapture(e.pointerId);
     const [x, y] = xy(e), h = S.tool === "move" ? hit(x, y) : null;
-    down = { x, y, moved: false, h, lat0: S.view.lat0, lon0: S.view.lon0, p0: psi(S.view.lat0) };
+    down = { x, y, moved: false, h: h && h.t === "o" && S.lock ? null : h, lat0: S.view.lat0, lon0: S.view.lon0, p0: psi(S.view.lat0) };   /* locked: an object is not dragged, the chart pans */
     if (h) S.sel = h;
   });
   cv.addEventListener("pointermove", e => {
@@ -1040,6 +1048,7 @@ function click(x, y) {
   const p = unproj(x, y);
   if (S.tool === "move") { S.sel = hit(x, y); draw(); objList(); return; }
   if (!p) return;
+  if (S.tool === "obj" && S.lock) return;
   if (S.tool === "wp") {
     const h = hit(x, y);
     const o = h && h.t === "o" ? S.objects.find(o => o.id === h.id) : null;
@@ -1274,17 +1283,18 @@ function download(name, text) {
 
 function objList() {
   const el = $("objcard"); if (!el) return;
-  el.innerHTML = `<h2>Objects <span class="meta">${S.objects.length}</span></h2>
-    <div class="controls"><label>Load <input type="file" id="objload" accept=".csv,.txt,.json,.geojson,.gpx,.kml" multiple></label>
-      <button id="objcsv">Save CSV</button><button id="objex">Example field</button><button id="objclr">Forget all</button></div>
+  const L = S.lock ? "disabled" : "";
+  el.innerHTML = `<h2>Objects <span class="meta">${S.objects.length}${S.lock ? " · 🔒 locked: unlock on the chart's toolbar to change them" : ""}</span></h2>
+    <div class="controls"><label>Load <input type="file" id="objload" accept=".csv,.txt,.json,.geojson,.gpx,.kml" multiple ${L}></label>
+      <button id="objcsv">Save CSV</button><button id="objex" ${L}>Example field</button><button id="objclr" ${L}>Forget all</button></div>
     <div class="scroll" style="max-height:300px;margin-top:6px"><table><tr><th>Type</th><th>Name</th><th>Position</th><th class="num">Zone m</th><th title="the bearing face 0 looks to, and its size: 40 (a square) or 40x30 (face 0 x the other side); empty: a symbol">Face° · size m</th><th></th></tr>
     ${S.objects.map(o => `<tr class="click ${S.sel && S.sel.t === "o" && S.sel.id === o.id ? "sel" : ""}" data-oid="${o.id}">
-      <td><select data-ot="${o.id}">${Object.entries(OBJ).map(([k, v]) => `<option value="${k}" ${k === o.type ? "selected" : ""}>${v.label}</option>`).join("")}</select></td>
-      <td><input class="name" data-on="${o.id}" value="${esc(o.name)}"></td>
-      <td><input class="pos mono" data-op="${o.id}" value="${FMT.pos(o.lat, o.lon)}"></td>
-      <td><input class="num" style="width:4.5em" type="number" min="0" step="10" data-or="${o.id}" value="${o.r}"></td>
-      <td style="white-space:nowrap"><input class="num" style="width:3.6em" data-oo="${o.id}" value="${o.orient ?? ""}" placeholder="—"><input class="mono" style="width:4.6em" data-os="${o.id}" value="${o.orient !== null && o.orient !== undefined ? (o.a === o.b ? o.a : o.a + "x" + o.b) : ""}" placeholder="${PLAT_SIZE}"></td>
-      <td style="white-space:nowrap"><button class="small ${S.pass.from === o.id ? "on" : ""}" data-pf="${o.id}" title="the passage from it">From</button><button class="small ${S.pass.to === o.id ? "on" : ""}" data-pt="${o.id}" title="the passage to it">To</button><button class="small" data-ofrom="${o.id}" title="a waypoint at it (added to the route)">＋WP</button><button class="small" data-ox="${o.id}">✕</button></td></tr>`).join("")}</table></div>
+      <td><select data-ot="${o.id}" ${L}>${Object.entries(OBJ).map(([k, v]) => `<option value="${k}" ${k === o.type ? "selected" : ""}>${v.label}</option>`).join("")}</select></td>
+      <td><input class="name" data-on="${o.id}" value="${esc(o.name)}" ${L}></td>
+      <td><input class="pos mono" data-op="${o.id}" value="${FMT.pos(o.lat, o.lon)}" ${L}></td>
+      <td><input class="num" style="width:4.5em" type="number" min="0" step="10" data-or="${o.id}" value="${o.r}" ${L}></td>
+      <td style="white-space:nowrap"><input class="num" style="width:3.6em" data-oo="${o.id}" value="${o.orient ?? ""}" placeholder="—" ${L}><input class="mono" style="width:4.6em" data-os="${o.id}" ${L} value="${o.orient !== null && o.orient !== undefined ? (o.a === o.b ? o.a : o.a + "x" + o.b) : ""}" placeholder="${PLAT_SIZE}"></td>
+      <td style="white-space:nowrap"><button class="small ${S.pass.from === o.id ? "on" : ""}" data-pf="${o.id}" title="the passage from it">From</button><button class="small ${S.pass.to === o.id ? "on" : ""}" data-pt="${o.id}" title="the passage to it">To</button><button class="small" data-ofrom="${o.id}" title="a waypoint at it (added to the route)">＋WP</button>${S.lock ? "" : `<button class="small" data-ox="${o.id}">✕</button>`}</td></tr>`).join("")}</table></div>
     <div class="meta">Load a CSV (<span class="mono">type, name, lat, lon[, zone m[, orient[, face m[, side m]]]]</span> or <span class="mono">name, lat, lon</span>; positions as
       27.2 or 27 12.0N; a header row may name the columns; extra columns are ignored). A platform with an orientation (the bearing its face 0 looks to)
       is drawn to scale: one length a square, two a rectangle (face 0, the other side), none ${PLAT_SIZE} m. GeoJSON, GPX or KML points too. They stay in this browser, never sent anywhere.</div>`;
