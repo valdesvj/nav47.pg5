@@ -33,6 +33,8 @@
 #define TRAIL  240
 #define LHT    9                          /* the tiny font's line */
 
+/* an XTE in nm: 2 decimals under 10 nm (the limits are tenths), 1 above (an ocean leg: 1496.9) */
+static void fmt_xte(char *s, double v) { double a = fabs(v); sprintf(s, a < 10 ? "%.2f" : "%.1f", a); }
 enum { A_XTE = 1, A_ARR = 2, A_FINAL = 4, A_ANCHOR = 8, A_LOST = 16, A_MOB = 32, A_ZONE = 64, A_CPA = 128 };
 enum { S_INPUT, S_MODE, S_FOLLOW, S_UT, S_TIMEOUT, S_DRCRS, S_DRKN, S_XTE, S_ARR, S_ADV, S_ANCR, S_ALARMS, S_MOB, S_N };
 
@@ -226,7 +228,7 @@ const char *gps_alarm_text(void) {
   else if (a & A_ZONE) snprintf(s, sizeof s, "IN THE ZONE: %s", P->zone_name);
   else if (a & A_ANCHOR) strcpy(s, "ANCHOR DRAGGING");
   else if (a & A_CPA) snprintf(s, sizeof s, "ZONE AHEAD: %s %.0f min", P->cpa_name, P->cpa_min);
-  else if (a & A_XTE) sprintf(s, "OFF TRACK %.2f nm %s", fabs(P->p.xte), P->p.xte >= 0 ? "R" : "L");
+  else if (a & A_XTE) { char x[16]; fmt_xte(x, P->p.xte); sprintf(s, "OFF TRACK %s nm %s", x, P->p.xte >= 0 ? "R" : "L"); }
   else if (a & A_FINAL) strcpy(s, "ARRIVED: THE FINAL WAYPOINT");
   else if (a & A_ARR) sprintf(s, "WAYPOINT: NOW TO WP%d", P->p.user_no);
   else if (a & A_LOST) strcpy(s, "NO FIX: DEAD RECKONING");
@@ -236,6 +238,12 @@ const char *gps_alarm_text(void) {
 
 /* ------------------------------------------------------------------ drawing helpers */
 static void tiny(int x, int y, const char *s) { draw_text(&TINY, x, y, s, 0); }
+/* a line on the chart, no box: white behind its own text only, so the chart shows round it and nothing sticks out */
+static void chart_line(int x, int y, const char *s, int big) {
+  int w = big ? nt_w(s) : text_width(&TINY, s);
+  gfx_rect(x - 2, y - 1, w + 4, big ? 16 : 10, 0);
+  if (big) nt(x, y, s); else draw_text(&TINY, x, y, s, 0);
+}
 static void tiny_r(int x, int y, const char *s) { draw_text_r(&TINY, x, y, s, 0); }
 
 /* F21 scaled: the big digits */
@@ -929,7 +937,7 @@ static void draw_bow(uint32_t frame) {
     fmt_pos(a, f->lat, 1); tiny(6, BY + 33, a);
     fmt_pos(b, f->lon, 0); tiny(LCD_X - 102, BY + 33, b); }
   if (R && p->active && !p->done) {
-    sprintf(s, "XTE %.2f%s", fabs(p->xte), p->xte >= 0 ? "R" : "L"); nt(6, BY + 1, s);
+    { char x[16]; fmt_xte(x, p->xte); sprintf(s, "XTE %s%s", x, p->xte >= 0 ? "R" : "L"); nt(6, BY + 1, s); }
     fmt_deg(t, p->cts); sprintf(s, "CTS %s", t); nt(6, BY + 17, s);
   } else if (R && !p->done) { nt(6, BY + 1, "the route:"); nt(6, BY + 17, "NAV 5 start"); }
   else { nt(6, BY + 1, R ? "ARRIVED" : "no route"); fmt_deg(t, f->cog); sprintf(s, "COG %s", t); nt(6, BY + 17, s); }
@@ -1166,18 +1174,17 @@ no_mob:
   map_xy(m, P->f.lat + 95.0 / 110574, P->f.lon, &nx, &ny);
   float L = hypotf(nx - x, ny - y);
   ship_sprite((int)lroundf(x), (int)lroundf(y), ang, frame, P->rot, !isnan(P->f.sog) && P->f.sog > 0.5, L < 40 ? 40 : L > 160 ? 160 : L);
-  /* the box: to the next waypoint */
-  char s[40], t[16];
-  int bx = 2, by = m->y0 + 2;
-  gfx_rect(bx, by, 140, 54, 0); gfx_frame(bx, by, 140, 54);
-  sprintf(s, "%s  %s kn", navfix_src_name(&P->f), (fmt_kn(t, P->f.sog), t)); tiny(bx + 3, by + 2, s);
+  /* to the next waypoint: the lines without a box, each on its own white (distances to 0.1 nm) */
+  char s[48], t[16], xs[16];
+  int bx = 4, by = m->y0 + 3;
+  sprintf(s, "%s  %s kn", navfix_src_name(&P->f), (fmt_kn(t, P->f.sog), t)); chart_line(bx, by, s, 0);
   if (R && P->p.active && !P->p.done) {
-    fmt_deg(t, P->p.brg); sprintf(s, "WP%d BRG %s", P->p.user_no, t); nt(bx + 3, by + 11, s);
-    fmt_eta(t, P->p.ttg_user); sprintf(s, "%.2f nm %s", P->p.dtg_user, t); nt(bx + 3, by + 26, s);
-    sprintf(s, "XTE %.2f%s  FINAL %.0f nm", fabs(P->p.xte), P->p.xte >= 0 ? "R" : "L", P->p.dtg_final); tiny(bx + 3, by + 43, s);
+    fmt_deg(t, P->p.brg); sprintf(s, "WP%d BRG %s", P->p.user_no, t); chart_line(bx, by + 11, s, 1);
+    fmt_eta(t, P->p.ttg_user); sprintf(s, "%.1f nm %s", P->p.dtg_user, t); chart_line(bx, by + 27, s, 1);
+    fmt_xte(xs, P->p.xte); sprintf(s, "XTE %s%s  FINAL %.1f nm", xs, P->p.xte >= 0 ? "R" : "L", P->p.dtg_final); chart_line(bx, by + 44, s, 0);
   } else {
-    fmt_deg(t, P->f.cog); sprintf(s, "COG %s", t); nt(bx + 3, by + 11, s);
-    fmt_deg(t, P->f.hdg); sprintf(s, "HDG %s", t); nt(bx + 3, by + 26, s);
+    fmt_deg(t, P->f.cog); sprintf(s, "COG %s", t); chart_line(bx, by + 11, s, 1);
+    fmt_deg(t, P->f.hdg); sprintf(s, "HDG %s", t); chart_line(bx, by + 27, s, 1);
   }
   const char *a = gps_alarm_text();
   if (a) { int w = nt_w(a); lcd_fill_rect((uint32_t)(LCD_X / 2 - w / 2 - 4), (uint32_t)(m->y0 + m->h - 18), (uint32_t)(w + 8), 16, 1); nt_inv(LCD_X / 2 - w / 2, m->y0 + m->h - 18, a); }
