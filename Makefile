@@ -22,7 +22,7 @@ TIDE47_TEST ?= $(if $(TIDE47),$(TIDE47),../tide47)
 
 USB ?= sercon
 # the GPS: NMEA, the position (GPS / DR), the passage, the pages, your objects
-GPS_SRC = src/nmea.c src/navfix.c src/passage.c src/gpsui.c src/objects.c src/wpdb.c src/alpha.c src/bmp.c src/wmm.c src/wmmdata.c
+GPS_SRC = src/nmea.c src/navfix.c src/passage.c src/gpsui.c src/objects.c src/wpdb.c src/alpha.c src/bmp.c src/ports.c src/wmm.c src/wmmdata.c
 C_INCLUDES += -Idmcp -Isrc -Isrc/usb -Ithird_party/tinyusb/src
 C_SOURCES  += dmcp/sys/pgm_syscalls.c
 ASM_SOURCES = dmcp/startup_pgm.s

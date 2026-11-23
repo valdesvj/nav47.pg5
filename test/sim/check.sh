@@ -27,6 +27,9 @@ good = "platform,Alpha,%.6f,%.6f,500,40,60,40\nbuoy,B7,%.6f,%.6f,50\n" % (b[0] +
 bad = [",".join(["X" * 15] * 12), ",".join(["Y" * 600] * 30), "platform," + ",".join(["9" * 15] * 11), ",,,,,,,,,,,,,,,,", "N,26,30"]
 open(w + "/simdisk/NAV47/OBJECTS.CSV", "w").write(good + "\n".join(bad) + "\n")
 open(w + "/simdisk/NAV47/WAYPTS.CSV", "w").write("name,lat,lon\nSTART,%.7f,%.7f\n" % a + ",".join(["Z" * 15] * 12) + "\n")
+# the world's ports (the web's PORTS.CSV): good lines near the route, and lines that must be skipped safely
+open(w + "/simdisk/NAV47/PORTS.CSV", "w").write("name,lat,lon,country\nNear Port,%.5f,%.5f,SA\nFar Port,%.5f,%.5f,SA\n" % (a[0] + 0.01, a[1] - 0.02, b[0], b[1] + 0.05)
+    + "A Very Long Port Name Beyond Anything,%.5f,%.5f,XX\n" % (c[0], c[1]) + "No Comma Line\n,,,\nBad,999,999,X\n" + "x" * 300 + ",1,2\n\n")
 open(w + "/simdisk/NAV47/NAV47.CFG", "w").write("NAV47 CFG 1\nLAT 26.3\nLON 50.3\nTZ 3\nLIVE 1\nLT 1\nGPS 1 0 1 1 10 -1 0 1\nPSG 0.250 0.200 1 80\n")
 PY
 w() { for i in $(seq "$1"); do printf "WAIT:1000 "; done; }

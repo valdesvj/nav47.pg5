@@ -681,6 +681,7 @@ void draw_chart(void) {
     if (plan_cur < R->n) map_mark(&chart_m, R->w[plan_cur].lat, R->w[plan_cur].lon, 2);
   }
   if (!vessel) map_mark(&chart_m, N->cfg.lat, N->cfg.lon, 3);         /* you (SET's position) */
+  ports_chart(&chart_m);                                  /* the world's ports (PORTS.CSV), under your objects */
   if (chart_live) gps_chart_layer(&chart_m, anim_frame, chart_follow);
   else obj_chart(&chart_m);
   map_space(&chart_m);

@@ -200,7 +200,7 @@ the ETA at the voyage speed. **SPLIT** divides the legs (every so many NM, into 
 | | |
 |---|---|
 | ![CHART](img/calc_chart.png) | ![VOYAGE](img/calc_voyage.png) |
-| **CHART**: Mercator or the globe (**0**), the coastline (`COAST_C.BIN` / `COAST_L.BIN` on the disk), the plan thick, the other sailings dashed and dotted, your platforms with their zones. **8 2 4 6** pan, **7 9** zoom, **5** fit. **R/S**: VOYAGE. | **VOYAGE**: the plan sailed at the voyage speed on a globe that follows the vessel: departure, arrival, gone, to go, run, DTG, course, position. **R/S** play, **4 6** step, **+ −** the speed, **1 3** the departure one hour earlier / later, **ENTER** type the speed, **0** ETA. |
+| **CHART**: Mercator or the globe (**0**), the coastline (`COAST_C.BIN` / `COAST_L.BIN` on the disk), the plan thick, the other sailings dashed and dotted, your platforms with their zones, the world's ports (`/NAV47/PORTS.CSV`, from the web page's Port to port card: a small square, the names when few are in view). **8 2 4 6** pan, **7 9** zoom, **5** fit. **R/S**: VOYAGE. | **VOYAGE**: the plan sailed at the voyage speed on a globe that follows the vessel: departure, arrival, gone, to go, run, DTG, course, position. **R/S** play, **4 6** step, **+ −** the speed, **1 3** the departure one hour earlier / later, **ENTER** type the speed, **0** ETA. |
 
 ### ETA
 
