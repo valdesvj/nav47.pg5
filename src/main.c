@@ -166,11 +166,12 @@ static void draw_zones(void) {
 /* ------------------------------------------------------------------ */
 /*  SET                                                               */
 /* ------------------------------------------------------------------ */
-enum { F_LAT, F_LON, F_TZ, F_LT, F_LIVE, F_DATE, F_TIME, F_WDIR, F_WKN, F_COUNT };
+enum { F_LAT, F_LON, F_TZ, F_LT, F_LIVE, F_DATE, F_TIME, F_DUT1, F_WDIR, F_WKN, F_COUNT };
 static const char *FNAME[F_COUNT] = { "LATITUDE", "LONGITUDE", "CLOCK TZ", "SHOW TIMES", "TIME", "DATE (UT)", "TIME (UT)",
-                                      "WIND FROM", "WIND KN" };
+                                      "DUT1", "WIND FROM", "WIND KN" };
 static const char *FHELP[F_COUNT] = { "DD.MMm, +/- south", "DDD.MMm, +/- west", "clock - UT, hours",
-                                      "ENTER, or +/- on any page", "ENTER switches", "YYYY.MMDD", "HH.MM", "degrees true", "knots" };
+                                      "ENTER, or +/- on any page", "ENTER switches", "YYYY.MMDD", "HH.MM",
+                                      "UT1-UTC s, web: Almanac", "degrees true", "knots" };
 
 static void field_text(int f, char *s) {
   Cfg *c = &N->cfg;
@@ -185,6 +186,7 @@ static void field_text(int f, char *s) {
   case F_LIVE: strcpy(s, c->live ? "LIVE clock" : "FIXED"); break;
   case F_DATE: sprintf(s, "%04d-%02d-%02d", y, m, d); break;
   case F_TIME: { int mi = (int)floor(h * 60); sprintf(s, "%02d:%02d", mi / 60, mi % 60); break; }
+  case F_DUT1: sprintf(s, "%+.2f s", c->dut1); break;
   case F_WDIR: sprintf(s, "%03.0f" SYM_DEG, c->wdir); break;
   case F_WKN: sprintf(s, "%.0f kn", c->wkn); break;
   }
@@ -215,6 +217,7 @@ static void field_commit(int f) {
     if (hh >= 0 && hh < 24) c->fixed_jd = jd_ymd(y, m, d, hh);
     break;
   }
+  case F_DUT1: if (fabs(v) <= 0.9) c->dut1 = v; break;   /* |UT1 - UTC| < 0.9 s by definition */
   case F_WDIR: if (v >= 0 && v <= 360) c->wdir = v; break;
   case F_WKN: if (v >= 0 && v < 100) c->wkn = v; break;
   }
@@ -238,7 +241,7 @@ static void draw_set(void) {
     if (f == sel_field) nt_inv(6, y, FNAME[f]); else nt(6, y, FNAME[f]);
     nt(140, y, v);
     draw_text_r(&TINY, LCD_X - 2, y + 5, FHELP[f], 0);
-    y += N->cfg.live ? 20 : 19;
+    y += N->cfg.live ? 20 : 17;
   }
   draw_text(&TINY, 2, MENU_Y - LH, "As Almanac 47: 26.30 = 26" SYM_DEG "30'. Fixed time: date and UT (live off)", 0);
 }
@@ -323,6 +326,7 @@ void cfg_save(void) {
                c->lat, c->lon, c->tz, c->live, c->fixed_jd, c->wdir, c->wkn, c->tsrc, c->treg, c->tst, c->tauto, c->zone, c->city,
                c->south, c->gc, c->lt);
   o += sprintf(o, "DPWX %d %d %.1f %.2f %.1f %.1f %.1f\n", c->dcauto, c->dsauto, c->dcset, c->dckn, c->dsfrom, c->dhs, c->dtp);
+  o += sprintf(o, "DUT1 %.3f\n", c->dut1);
   for (int i = 0; i < c->nfiles; i++) o += sprintf(o, "FILE %s\n", c->files[i]);
   gps_cfg_write(o);
   sys_disk_write_enable(1);
@@ -355,6 +359,7 @@ static void cfg_load(void) {
     else if (!strncmp(l, "SOUTH ", 6)) c->south = atoi(l + 6);
     else if (!strncmp(l, "GC ", 3)) c->gc = atoi(l + 3);
     else if (!strncmp(l, "LT ", 3)) c->lt = atoi(l + 3) != 0;
+    else if (!strncmp(l, "DUT1 ", 5)) { double v = atof(l + 5); if (fabs(v) <= 0.9) c->dut1 = v; }
     else if (!strncmp(l, "DPWX ", 5)) sscanf(l + 5, "%d %d %lf %lf %lf %lf %lf", &c->dcauto, &c->dsauto, &c->dcset, &c->dckn, &c->dsfrom, &c->dhs, &c->dtp);
     else if (!strncmp(l, "FILE ", 5) && c->nfiles < 4) { strncpy(c->files[c->nfiles], l + 5, 39); c->files[c->nfiles++][39] = 0; }
     else gps_cfg_line(l);
@@ -484,7 +489,8 @@ static const char *ABS_MENU[6] = { "DNV", "CUR", "MARGIN", "", "", "BACK" };
 /* the views' almanac at the current time (computed again only when the time or the position changes) */
 static void view_almanac_now(void) {
   double j = ut_now();
-  if (!N->valid || N->vjd != j || N->al.lat != N->cfg.lat || N->al.lon != N->cfg.lon || N->al.tz != show_tz()) {
+  if (!N->valid || N->vjd != j || N->al.lat != N->cfg.lat || N->al.lon != N->cfg.lon || N->al.tz != show_tz() || view_dut1 != N->cfg.dut1) {
+    view_dut1 = N->cfg.dut1;                              /* SET DUT1: the almanac at UT1 */
     al_compute(&N->al, j, N->cfg.lat, N->cfg.lon, show_tz());
     N->vjd = j;
     N->valid = 1;

@@ -20,6 +20,7 @@ typedef struct {                     /* c47screen.py Almanac: one JD and positio
 
 typedef struct { int id; double gha, dec, hc, zn; } VBody;   /* id 0 Sun, -1 Moon, -2..-5 planets, n star */
 
+extern double view_dut1;   /* UT1 - UTC, seconds: al_compute takes UTC, computes at UT1 (0: the clock as UT1) */
 void al_compute(Al *al, double j, double lat, double lon, double tz);   /* tz: the shown time - UT, hours */
 int  vbodies(Al *al, VBody *out);                             /* the 8 bodies of the views */
 

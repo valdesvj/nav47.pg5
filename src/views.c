@@ -25,15 +25,20 @@ static const char *const PNAME[5] = { "", "VENUS", "MARS", "JUPITER", "SATURN" }
 static long ipd(double x) { return (long)x; }
 
 /* ---------------------------------------------------------------- the Almanac (c47screen.py) */
+double view_dut1;                                          /* UT1 - UTC, seconds (SET DUT1): the clock is UTC */
+
+/* j: UTC (the clock). The astronomy at UT1 = UTC + DUT1; the Sun's events from 0 h UTC (that instant in UT1), so their
+   hours are UTC hours */
 void al_compute(Al *al, double j, double lat, double lon, double tz) {
   al->j = j; al->lat = lat; al->lon = lon; al->tz = tz;
+  const double du = view_dut1 / 86400.0;
   double j0 = day0(j + tz / 24.0) - tz / 24.0;           /* 0 h of the shown day (UT or local): its Sun events */
-  al->times[0] = sun_event(j0, lat, lon, EV_NTWA);
-  al->times[1] = sun_event(j0, lat, lon, EV_RISE);
-  al->times[2] = sun_event(j0, lat, lon, EV_TRAN);
-  al->times[3] = sun_event(j0, lat, lon, EV_SET);
-  al->times[4] = sun_event(j0, lat, lon, EV_NTWP);
-  sun_at(&al->sun, j);
+  al->times[0] = sun_event(j0 + du, lat, lon, EV_NTWA);
+  al->times[1] = sun_event(j0 + du, lat, lon, EV_RISE);
+  al->times[2] = sun_event(j0 + du, lat, lon, EV_TRAN);
+  al->times[3] = sun_event(j0 + du, lat, lon, EV_SET);
+  al->times[4] = sun_event(j0 + du, lat, lon, EV_NTWP);
+  sun_at(&al->sun, j + du);
   moon_phase(&al->sun, &al->illum, &al->age);
   moon_pos(&al->sun, &al->moon[0], &al->moon[1], &al->moon[2], &al->moon[3]);
   for (int p = 1; p <= 4; p++) {                                   /* PLN3 */
@@ -396,7 +401,7 @@ void view_anim(Al *al, int frames, double step, int upto) {
   if (upto >= frames) upto = frames - 1;
   double j = al->j;
   for (int k = 0; k <= upto; k++) {
-    j = al->j + k * step / 24;
+    j = al->j + k * step / 24 + view_dut1 / 86400.0;
     double g, d;
     sun_fast(j, &g, &d);
     int xs, ys, xm, ym;

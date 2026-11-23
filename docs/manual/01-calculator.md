@@ -225,7 +225,12 @@ calculator (the IANA rules), and the cities of that zone.
 | | |
 |---|---|
 | ![SET](img/calc_set.png) | ![FILES](img/calc_files.png) |
-| **SET**: your position, the clock's zone, UT or local times, LIVE or FIXED time, the wind (for FLOW and DP). **8 2** a field, **ENTER** edit. | **FILES**: load tide stations (**TID**) and a FLOW atlas (**FLW**) from `/NAV47/TIDES/`; **CLEAR** forgets them; **WPTS** your waypoints; **LOAD** reads your files in `/NAV47/` again. |
+| **SET**: your position, the clock's zone, UT or local times, LIVE or FIXED time, **DUT1**, the wind (for FLOW and DP). **8 2** a field, **ENTER** edit. | **FILES**: load tide stations (**TID**) and a FLOW atlas (**FLW**) from `/NAV47/TIDES/`; **CLEAR** forgets them; **WPTS** your waypoints; **LOAD** reads your files in `/NAV47/` again. |
+
+**DUT1** (UT1 − UTC, seconds, −0.9 to +0.9): the clock is UTC, and the almanac is computed at UT1 = UTC + DUT1
+(0.1 s moves every GHA 1.5″). Get today's value on the web page's Almanac tab (**From IERS**) and type it here;
+the time signals broadcast it to 0.1 s. Sights timed by GPS or a UTC clock: the IERS value. To check against the
+Nautical Almanac at a tabulated time: 0, since its argument is already UT1.
 
 **INFO**: about the program, the data compiled in, the USB state. **USB**: the calculator's screen on your
 computer (`python3 tools/dm42view.py`), and the serial console the GPS uses.

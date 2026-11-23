@@ -64,6 +64,7 @@ typedef struct {
   int    lt;                /* the screens' times: 1 local (the clock TZ; a tide station's own zone), 0 UT */
   int    dcauto, dsauto;    /* DP OPS: the current from FLOW, the sea from the wind (DNV); else typed: */
   double dcset, dckn, dsfrom, dhs, dtp;
+  double dut1;              /* UT1 - UTC, seconds (IERS; the web page gets it): the almanac at UT1 */
 } Cfg;
 
 typedef struct { int src, reg, st; } Row;
