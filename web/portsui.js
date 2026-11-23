@@ -135,7 +135,7 @@ const PORTSUI = (() => {
     compute();
     const L = ports(), f = find.trim().toLowerCase();
     const hits = f.length >= 2 ? L.filter(p => p.key.includes(f) || (p.cc || "").toLowerCase() === f).slice(0, 12) : [];
-    const also = p => p.wpi !== p.name ? ` <span class="meta">(${esc(p.wpi)})</span>` : "";
+    const also = p => p.wpi.toLowerCase().includes(p.name.toLowerCase()) ? "" : ` <span class="meta">(${esc(p.wpi)})</span>`;   /* Dubai (Dubayy); not Mumbai (Mumbai (Bombay)) */
     const etd = P.etd || (S.live ? Date.now() / 864e5 + 2440587.5 : S.jd), off = S.times === "zt" ? Math.round(S.pos[1] / 15) : 0;
     let t = etd, fuel = 0, rows = "", ecaM = 0, ecaT = 0, approx = false;
     V.legs.forEach((g, k) => {

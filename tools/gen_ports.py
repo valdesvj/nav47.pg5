@@ -4,8 +4,9 @@
 
     python3 tools/gen_ports.py UpdatedPub150.csv web/ports.js build/ports/PORTS.CSV   (msi.nga.mil: Publications, WPI)
     python3 tools/gen_ports.py wpi.json ...      (the same index as JSON: INDEX_NO PORT_NAME COUNTRY LATITUDE LONGITUDE)
-Each port's other names, searched and shown: tools/port_aliases.csv (the common English names, NAV47's own list) and,
-from NGA's CSV, its Alternate Port Name and UN/LOCODE (Dubai: "Dubayy", also "AEDXB").
+Each port's other names: tools/port_aliases.csv (the common English names, NAV47's own list: shown and searched);
+tools/wpi_alternates.csv (Pub. 150's index: alternate and former names, searched); from NGA's CSV, its Alternate Port
+Name and UN/LOCODE (searched).
     python3 tools/gen_ports.py web/ports.js OUT.js OUT.csv --locode DIR    (the PRIVATE page only: make web-private
         LOCODE=DIR) the UN/LOCODE release's csv/ (UNECE: its terms forbid redistribution, so never into web/): each
         port the 4 nearest UN/LOCODE ports of its country within 10 km, their names and codes added (searched, not shown).
@@ -39,6 +40,11 @@ else:
 alias = {}                                         # (WPI name, country) -> the common names
 for d in csv.DictReader(l for l in open(os.path.join(HERE, "port_aliases.csv")) if not l.startswith("#")):
     alias.setdefault((d["wpi"].strip().lower(), d["country"].strip().upper()), []).append(d["common"].strip())
+nga_alt = {}                                       # index number -> NGA's alternate and former names (Pub. 150's index)
+fa = os.path.join(HERE, "wpi_alternates.csv")
+if os.path.exists(fa):
+    for d in csv.DictReader(l for l in open(fa) if not l.startswith("#")):
+        nga_alt.setdefault(int(d["index_no"]), []).append(d["name"].strip())
 ports = []
 for no, name, cc, la, lo, alt, loc in rows:
     try: la, lo = float(la), float(lo)
@@ -50,6 +56,8 @@ for no, name, cc, la, lo, alt, loc in rows:
     disp = aka[0] if aka else ""
     if src.lower().endswith(".js"):                     # already its names: "shown|searched"
         disp, al = (alt or "|").split("|", 1); aka = [a for a in al.split(";") if a]; alt = ""
+    for a in nga_alt.get(int(no) if str(no or "").strip().isdigit() else -1, []):   # NGA's alternate and former names (searched)
+        if a.lower() != name.lower() and a not in aka: aka.append(a)
     for a in re.split(r"[;,/]", alt or ""):             # NGA's alternate names
         a = re.sub(r"\s+", " ", a.strip()).title()
         if a and a.lower() != name.lower() and a not in aka: aka.append(a)
