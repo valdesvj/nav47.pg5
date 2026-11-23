@@ -11,10 +11,12 @@ const DPTAB = (() => {
   const KEY = "nav47web:dp", VKEY = "nav47web:dpv";
   const D0 = { name: "EXAMPLE PQ", lat: null, lon: null, shape: "rect", len: 40, wid: 30, orient: 30, height: 45, solid: false,
                face: -1, side: 1, par: true, standoff: 10, mincl: 5, tol: 30, smin: 30, slen: 5, loa: 95, lims: "TUN 30",
-               wfrom: 330, wkn: 25, cauto: true, cset: 135, ckn: 1.0, sauto: true, vfrom: 330, hs: 2, tp: 7, hdg: null };
+               wfrom: 330, wkn: 25, cauto: true, cset: 135, ckn: 1.0, sauto: true, vfrom: 330, hs: 2, tp: 7, hdg: null,
+               acur: -1, amargin: 20 };                    /* ABS SKP: the current (-1 today's, 0.5 .. 3 kn), the margin % */
   let P = Object.assign({}, D0, JSON.parse(localStorage.getItem(KEY) || "{}"));
   let VES = localStorage.getItem(VKEY) || "";
   let res = null, sweep = [], limw = null, csrc = "", err = "", quick = [];
+  let ABS = { key: "", r: null, ms: 0 };                     /* ABS SKP: computed once a vessel / current / margin */
   /* the set-ups compared at a click: [side, parallel, label] */
   const SETUPS = [[1, true, "Starboard side to, parallel"], [2, true, "Port side to, parallel"], [0, false, "Stern to"], [3, false, "Bow to"]];
   const setupName = () => P.side === 1 || P.side === 2 ? `${SIDE_T[P.side]}, ${P.par ? "parallel to the face" : `within ±${P.tol}° of parallel`}` : `${SIDE_T[P.side]}, ±${P.tol}°`;
@@ -81,6 +83,40 @@ const DPTAB = (() => {
     res.wx = wx;
     const n = Module._api_dp_sweep(res.face), o = N().o();
     sweep = Array.from({ length: n }, (_, i) => ({ h: o[3 * i], rank: o[3 * i + 1], worst: o[3 * i + 2] }));
+  }
+
+  /* ABS SKP (the ABS DPS Guide, Section 9) as the calculator's: the current today's (to half a knot, 0.5 .. 3) or chosen */
+  const absCur = () => P.acur >= 0 ? +P.acur : Math.min(3, Math.max(0.5, Math.round((res && res.wx ? res.wx.ckn : 1) * 2) / 2));
+  function absCompute() {
+    const cur = absCur(), key = [platText(), VES, cur, P.amargin].join("|");
+    if (ABS.key === key) return;
+    const t0 = performance.now(), ok = Module._api_dp_abs(cur, P.amargin / 100), o = N().o();
+    ABS = { key, ms: performance.now() - t0, r: ok ? { a: o[0], b: o[1], c: o[2], d: o[3], bt: o[4], ct: o[5], dg: o[6], cur,
+      intact: Array.from(o.subarray(10, 46)), worst: Array.from(o.subarray(50, 86)) } : null };
+  }
+  const skp = p => p < 0 || p > 100.5 ? "-" : String(Math.round(p));
+  const absAt = (w, rel) => { rel = ((rel % 360) + 360) % 360; const h = Math.floor(rel / 10) % 36, k = (h + 1) % 36, f = (rel - h * 10) / 10; return w[h] + f * (w[k] - w[h]); };
+  /* the polar: 0 the bow up, the limiting 1-min wind (m/s) from each direction, rings 10 .. 40; today's wind its arrow */
+  function absPolar(cv, A, rel) {
+    const b = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+    cv.width = b.width * dpr; cv.height = b.height * dpr;
+    const g = cv.getContext("2d"); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const W = b.width, H = b.height, cx = W / 2, cy = H / 2, R = Math.min(W, H) / 2 - 22, D = Math.PI / 180;
+    g.fillStyle = "#f7f8fa"; g.fillRect(0, 0, W, H);
+    g.strokeStyle = "#c9ced3"; g.fillStyle = "#6b7480"; g.font = "11px system-ui"; g.lineWidth = 1;
+    for (let k = 1; k <= 4; k++) { g.beginPath(); g.arc(cx, cy, R * k / 4, 0, 2 * Math.PI); g.stroke(); g.fillText(k * 10 + " m/s", cx + 3, cy - R * k / 4 + 12); }
+    for (let a = 0; a < 360; a += 30) { g.beginPath(); g.moveTo(cx, cy); g.lineTo(cx + R * Math.sin(a * D), cy - R * Math.cos(a * D)); g.stroke();
+      g.fillText(String(a).padStart(3, "0"), cx + (R + 12) * Math.sin(a * D) - 9, cy - (R + 12) * Math.cos(a * D) + 4); }
+    const curve = (w, dash, col) => { g.beginPath(); g.setLineDash(dash); g.strokeStyle = col; g.lineWidth = 2.5;
+      for (let a = 0; a <= 360; a += 2.5) { const r = Math.min(40, absAt(w, a)) / 40 * R, x = cx + r * Math.sin(a * D), y = cy - r * Math.cos(a * D); a ? g.lineTo(x, y) : g.moveTo(x, y); }
+      g.stroke(); g.setLineDash([]); };
+    curve(A.intact, [], "#1f5fa8"); curve(A.worst, [7, 5], "#d63a2a");
+    g.fillStyle = "#1b2129"; g.beginPath(); g.moveTo(cx, cy - 16); g.lineTo(cx + 5, cy - 8); g.lineTo(cx + 5, cy + 12); g.lineTo(cx - 5, cy + 12); g.lineTo(cx - 5, cy - 8); g.closePath(); g.fill();
+    if (rel !== null) {                                        /* today's wind: from its direction off the bow */
+      const x0 = cx + (R + 4) * Math.sin(rel * D), y0 = cy - (R + 4) * Math.cos(rel * D), x1 = cx + (R - 34) * Math.sin(rel * D), y1 = cy - (R - 34) * Math.cos(rel * D);
+      g.strokeStyle = "#2e8b57"; g.lineWidth = 3; g.beginPath(); g.moveTo(x0, y0); g.lineTo(x1, y1); g.stroke();
+      g.fillStyle = "#2e8b57"; g.beginPath(); g.arc(x1, y1, 4, 0, 2 * Math.PI); g.fill();
+    }
   }
 
   /* the picture: north up, metres; the lee shaded, the platform hatched, its working face thick, the vessel, its
@@ -286,6 +322,27 @@ const DPTAB = (() => {
         <textarea id="dp_ves" spellcheck="false" style="width:100%;height:220px;font:12px ui-monospace,monospace">${esc(VES || N().str(Module._api_dp_example_vessel()))}</textarea>
         <div class="controls"><button class="small" id="dp_vapply">Apply</button><label>Load <input type="file" id="dp_vfile" accept=".dpv,.txt"></label>
          <button class="small" id="dp_vex">The example</button></div></details></div>
+      ${res ? (() => { absCompute(); const A = ABS.r; if (!A) return `<div class="card"><h2>ABS SKP</h2><div class="meta">No result (no memory?).</div></div>`;
+        const V2 = vessel(), tn = i => esc((V2.thr[i] || {}).name || "?"), rel = ((+P.wfrom - res.hdg) % 360 + 360) % 360;
+        return `<div class="card"><h2>ABS SKP <span class="meta">the vessel's station keeping, every direction (ABS DPS Guide, Section 9)</span></h2>
+        <div style="display:grid;grid-template-columns:minmax(200px,0.8fr) minmax(290px,1.2fr);gap:10px;align-items:start">
+         <canvas id="dp_abscv" style="width:100%;aspect-ratio:1;border-radius:8px"></canvas>
+         <div><div class="mono" style="font-size:17px;font-weight:700;background:#1b2129;color:#fff;padding:4px 8px;border-radius:6px;display:inline-block">SKP(${skp(A.a)}, ${skp(A.b)}, ${skp(A.c)}, ${skp(A.d)}, ${A.cur.toFixed(1)}, NS)</div>
+          <table style="margin-top:6px;font-size:13px;width:100%">
+           <tr><td>a</td><td>intact</td><td class="num">${skp(A.a)} %</td></tr>
+           <tr><td>b</td><td>least effective thruster lost (${tn(A.bt)})</td><td class="num">${skp(A.b)} %</td></tr>
+           <tr><td>c</td><td>most effective thruster lost (${tn(A.ct)})</td><td class="num">${skp(A.c)} %</td></tr>
+           <tr><td>d</td><td>${A.d >= 0 ? `worst failure: group ${A.dg} lost` : "worst failure: no groups"}</td><td class="num">${skp(A.d)} %</td></tr>
+           <tr><td>e</td><td>current</td><td class="num">${A.cur.toFixed(1)} kn</td></tr>
+           <tr><td>f</td><td>the North Sea wind-wave table</td><td class="num">NS</td></tr></table>
+          <div class="controls" style="margin-top:6px"><label>Current <select id="dp_acur"><option value="-1">today's (${absCur().toFixed(1)} kn)</option>
+            ${[0.5, 1, 1.5, 2, 2.5, 3].map(c => `<option value="${c}">${c.toFixed(1)} kn</option>`).join("")}</select></label>
+           <label>Margin <select id="dp_amargin">${[0, 10, 20, 30].map(m => `<option value="${m}">${m} %</option>`).join("")}</select></label></div>
+          <div style="margin-top:6px;font-size:13px"><span style="color:#1f5fa8;font-weight:700">━━</span> intact &nbsp; <span style="color:#d63a2a;font-weight:700">╍╍</span> after the worst failure &nbsp; <span style="color:#2e8b57;font-weight:700">●━</span> today's wind</div>
+          <div style="margin-top:4px;font-size:13px">Today ${String(Math.round(+P.wfrom)).padStart(3, "0")}° ${Math.round(+P.wkn)} kn, heading ${String(Math.round(res.hdg)).padStart(3, "0")}°: from ${String(Math.round(rel)).padStart(3, "0")}° off the bow
+           she holds to <b>${absAt(A.intact, rel).toFixed(0)}</b> m/s intact, <b>${absAt(A.worst, rel).toFixed(0)}</b> m/s after the worst failure.</div>
+          <div class="meta" style="margin-top:4px">The ABS limits are 1-minute mean winds (m/s); today's wind is a 10-minute mean (kn). SKP: the % of the year
+           (the North Sea table, Table 1) the vessel holds station, with ${P.amargin} % margin on the weather. (${Math.round(ABS.ms)} ms)</div></div></div></div>`; })() : ""}
       <div class="card"><h2>To the calculator</h2>
        <div class="controls"><button id="dp_tocalc">Send to the Calculator tab</button><button id="dp_savep">Save DPOPS.TXT</button><button id="dp_savev">Save VESSEL.DPV</button></div>
        <div class="meta">Copy both to /NAV47/ on the DM42n; DP OPS (menu 3, DP) reads them (LOAD reads them again). The wind, the current and
@@ -297,6 +354,8 @@ const DPTAB = (() => {
       redundancy group is lost. Static: no position excursions, no thruster wash on the platform, no current shelter. Planning, not operations: check against the vessel's DP FMEA, ASOG and capability plots.</div>`;
     el.querySelectorAll("details").forEach((d, i) => { if (open[i]) d.open = true; });
     if (res) picture(document.getElementById("dpcv"), V);
+    const acv = document.getElementById("dp_abscv");
+    if (acv && ABS.r) absPolar(acv, ABS.r, ((+P.wfrom - res.hdg) % 360 + 360) % 360);
     bind();
   }
   function bind() {
@@ -331,6 +390,8 @@ const DPTAB = (() => {
     $("vapply").onclick = () => { VES = $("ves").value; localStorage.setItem(VKEY, VES); render(true); };
     $("vex").onclick = () => { VES = ""; localStorage.removeItem(VKEY); render(true); };
     on("vfile", e => { const f = e.target.files[0]; if (f) f.text().then(t => { VES = t.replace(/\r/g, ""); localStorage.setItem(VKEY, VES); render(true); }); });
+    if ($("acur")) { $("acur").value = String(P.acur); on("acur", e => { P.acur = +e.target.value; save(); render(); }); }
+    if ($("amargin")) { $("amargin").value = String(P.amargin); on("amargin", e => { P.amargin = +e.target.value; save(); render(); }); }
     $("savep").onclick = () => APP.download("DPOPS.TXT", platText());
     $("savev").onclick = () => APP.download("VESSEL.DPV", VES || N().str(Module._api_dp_example_vessel()));
     $("tocalc").onclick = () => {

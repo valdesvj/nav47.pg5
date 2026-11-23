@@ -77,7 +77,9 @@ field's route 30 times faster).
 
 **Flow**: your FLOW atlas (`.FLW`) as the calculator's T&F: the stream at the DR from HW−6 to HW+6. **Weather**
 (online, when you switch it on): the forecast hour by hour, rain radar and satellite clouds, with your route. **DP**:
-the platform for DP OPS (`DPOPS.TXT` for the calculator).
+the platform for DP OPS (`DPOPS.TXT` for the calculator), and the vessel's **ABS SKP** (the ABS DPS Guide, Section 9): the
+polar of the limiting 1-minute wind intact and after the worst failure, SKP(a, b, c, d, e, NS), the current and the
+margin chosen; the same C as the calculator's ABS SKP page, the same numbers.
 
 ## Calculator
 

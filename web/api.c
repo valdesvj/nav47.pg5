@@ -354,6 +354,18 @@ static void dp_out(void) {
 K int api_dp_best(void) { dp_abort = 0; int n = dpo_best(&DV, &DPP, &DW, 5, &DR, NULL); dp_out(); return n; }
 K void api_dp_eval(int face, double hdg) { dpo_eval(&DV, &DPP, &DW, face & 3, (float)hdg, &DR); dp_out(); }
 K double api_dp_limit(void) { return dpo_limit_wind(&DV, &DPP, &DW, DR.face, DR.hdg); }
+/* ABS SKP (the ABS DPS Guide, Section 9), as the calculator's DP OPS key .: the vessel's capability every direction.
+   OUT: a, b, c, d (SKP %; d < 0 no groups), b_thr, c_thr, d_grp, solves, then the limiting 1-min wind (m/s) from
+   each 10 degrees off the bow: intact [10..45], after the worst failure [50..85]; 0 no memory */
+K int api_dp_abs(double cur_kn, double margin) {
+  static AbsResult R;
+  dp_abort = 0;
+  if (!dpo_abs(&DV, (float)cur_kn, (float)margin, &R, NULL)) return 0;
+  OUT[0] = R.a; OUT[1] = R.b; OUT[2] = R.c; OUT[3] = R.d; OUT[4] = R.b_thr; OUT[5] = R.c_thr; OUT[6] = R.d_grp; OUT[7] = R.solves;
+  const float *w = R.d >= 0 ? R.group[R.d_grp] : R.single[R.c_thr];     /* the worst failure: a group, else a thruster */
+  for (int h = 0; h < NHEAD; h++) { OUT[10 + h] = R.intact[h]; OUT[50 + h] = w[h]; }
+  return 1;
+}
 /* each heading the side allows on a face (every 5 degrees): OUT [heading, rank, worst] x n; n */
 K int api_dp_sweep(int face) {
   int n = 0;
