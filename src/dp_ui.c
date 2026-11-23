@@ -110,12 +110,13 @@ static void dp_save_plat(void) {
   free(b);
 }
 
-/* a key while BEST or ABS SKP computes: stop (the key is used up, it does nothing else) */
+/* a key pressed while BEST or ABS SKP computes: stop (the key is used up, it does nothing else). Only a press: DMCP
+   queues a release (0) after each key, and the one of the key that started the run comes in while it runs */
 static int dp_key_stop(void) {
-  if (key_empty()) return 0;
-  while (!key_empty()) key_pop();
-  dp_abort = 1;
-  return 1;
+  int stop = 0;
+  while (!key_empty()) { int k = key_pop(); if (k > 0 && k != USBVIEW_KEY_REDRAW) stop = 1; }
+  if (stop) dp_abort = 1;
+  return stop;
 }
 
 static void dp_busy(int n, int tot) {
