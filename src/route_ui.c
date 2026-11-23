@@ -113,11 +113,11 @@ void draw_route(void) {
   for (int i = 1; i < N->nwp; i++) { leg(i, &crs, &nm); tot += nm; }
   if (N->cfg.gc == 2) sprintf(s, "ROUTE CS %.0f", cs_lim); else strcpy(s, N->cfg.gc ? "ROUTE GC" : "ROUTE RL");
   header(s);
-  int xw = 4 + nt_w("100"), xla = xw + 10 + nt_w("00" NT_DEG "00.0N"), xlo = xla + 12 + nt_w("000" NT_DEG "00.0E"),
+  int xw = 4 + nt_w("100"), xla = xw + 10 + nt_w("00" NT_DEG "00.00N"), xlo = xla + 12 + nt_w("000" NT_DEG "00.00E"),
       xc = xlo + 12 + nt_w("000" NT_DEG), xd = xc + 12 + nt_w("0000.0"), xcu = xd + 12 + nt_w("00000.0");
   int e = (396 - xcu) / 5;
   if (e > 0) { xla += e; xlo += 2 * e; xc += 3 * e; xd += 4 * e; xcu += 5 * e; }
-  nt_r(xw, 16, "WP"); nt_c(xla - nt_w("00" NT_DEG "00.0N") / 2, 16, "LAT"); nt_c(xlo - nt_w("000" NT_DEG "00.0E") / 2, 16, "LON");
+  nt_r(xw, 16, "WP"); nt_c(xla - nt_w("00" NT_DEG "00.00N") / 2, 16, "LAT"); nt_c(xlo - nt_w("000" NT_DEG "00.00E") / 2, 16, "LON");
   nt_r(xc, 16, N->cfg.gc ? "ICRS" : "CRS"); nt_r(xd, 16, "DIST"); nt_r(xcu, 16, "CUM");
   if (!N->nwp) {
     nt(4, 48, "No waypoints yet.");
@@ -150,13 +150,13 @@ void draw_route(void) {
     if (i == wp_cur && wp_edit >= 0) {
       if (wp_edit == 0) { sprintf(s, "%s_", ebuf); nt_r(xla, y, s); }
       else {
-        fmt_dmn(s, wp_lat, 2, wp_lat < 0 ? 'S' : 'N'); nt_r(xla, y, s);
+        fmt_dmn2(s, wp_lat, 2, wp_lat < 0 ? 'S' : 'N'); nt_r(xla, y, s);
         sprintf(s, "%s_", ebuf); nt_r(xlo, y, s);
       }
       continue;
     }
-    fmt_dmn(s, N->wlat[i], 2, N->wlat[i] < 0 ? 'S' : 'N'); nt_r(xla, y, s);
-    fmt_dmn(s, N->wlon[i], 3, N->wlon[i] < 0 ? 'W' : 'E'); nt_r(xlo, y, s);
+    fmt_dmn2(s, N->wlat[i], 2, N->wlat[i] < 0 ? 'S' : 'N'); nt_r(xla, y, s);
+    fmt_dmn2(s, N->wlon[i], 3, N->wlon[i] < 0 ? 'W' : 'E'); nt_r(xlo, y, s);
     if (i > 0) {
       leg(i, &crs, &nm);
       cum += nm;
@@ -225,12 +225,12 @@ void draw_plan(void) {
   if (plan_split == SPLIT_NONE) sprintf(s, "PLAN %s", SAIL_NAME[N->cfg.gc % 3]);
   else sprintf(s, "PLAN %s %g %s", SAIL_NAME[N->cfg.gc % 3], plan_val, SPL[plan_split]);
   header(s);
-  int xw = 6 + nt_w("*000"), xla = xw + 10 + nt_w("00" NT_DEG "00.0N"), xlo = xla + 12 + nt_w("000" NT_DEG "00.0E"),
+  int xw = 6 + nt_w("*000"), xla = xw + 10 + nt_w("00" NT_DEG "00.00N"), xlo = xla + 12 + nt_w("000" NT_DEG "00.00E"),
       xc = xlo + 12 + nt_w("000" NT_DEG), xd = xc + 12 + nt_w("0000.0"), xcu = xd + 12 + nt_w("00000.0"),
       xk = xcu + 8 + nt_w("P");
   int e = (396 - xk) / 6;
   if (e > 0) { xla += e; xlo += 2 * e; xc += 3 * e; xd += 4 * e; xcu += 5 * e; xk += 6 * e; }
-  nt_r(xw, 16, "WP"); nt_c(xla - nt_w("00" NT_DEG "00.0N") / 2, 16, "LAT"); nt_c(xlo - nt_w("000" NT_DEG "00.0E") / 2, 16, "LON");
+  nt_r(xw, 16, "WP"); nt_c(xla - nt_w("00" NT_DEG "00.00N") / 2, 16, "LAT"); nt_c(xlo - nt_w("000" NT_DEG "00.00E") / 2, 16, "LON");
   nt_r(xc, 16, "STEER"); nt_r(xd, 16, "LEG"); nt_r(xcu, 16, "CUM");
   if (R->n < 2 && N->nwp >= 2) plan_build();             /* once more, from the start */
   if (R->n < 2) {
@@ -249,8 +249,8 @@ void draw_plan(void) {
     int y = 32 + NT_ROW * (i - top);
     sprintf(s, "%s%d", (w->flags & WPT_USER) ? "*" : "", i + 1);
     if (i == plan_cur) nt_inv(xw - nt_w(s), y, s); else nt_r(xw, y, s);
-    fmt_dmn(s, w->lat, 2, w->lat < 0 ? 'S' : 'N'); nt_r(xla, y, s);
-    fmt_dmn(s, w->lon, 3, w->lon < 0 ? 'W' : 'E'); nt_r(xlo, y, s);
+    fmt_dmn2(s, w->lat, 2, w->lat < 0 ? 'S' : 'N'); nt_r(xla, y, s);
+    fmt_dmn2(s, w->lon, 3, w->lon < 0 ? 'W' : 'E'); nt_r(xlo, y, s);
     if (i > 0) {
       sprintf(s, "%03.0f" NT_DEG, fmod(floor(R->w[i - 1].rl_crs + 0.5), 360.0)); nt_r(xc, y, s);
       sprintf(s, "%.1f", w->leg_m / NM); nt_r(xd, y, s);
@@ -360,9 +360,9 @@ void draw_cmp(void) {
   header(s);
   cmp_ell_line();
   y = 32;  nt(4, y, "FROM");
-  fmt_dmn(t, la1, 2, la1 < 0 ? 'S' : 'N'); nt_r(xg, y, t); fmt_dmn(t, lo1, 3, lo1 < 0 ? 'W' : 'E'); nt_r(xr, y, t);
+  fmt_dmn2(t, la1, 2, la1 < 0 ? 'S' : 'N'); nt_r(xg, y, t); fmt_dmn2(t, lo1, 3, lo1 < 0 ? 'W' : 'E'); nt_r(xr, y, t);
   y = 48;  nt(4, y, "TO");
-  fmt_dmn(t, la2, 2, la2 < 0 ? 'S' : 'N'); nt_r(xg, y, t); fmt_dmn(t, lo2, 3, lo2 < 0 ? 'W' : 'E'); nt_r(xr, y, t);
+  fmt_dmn2(t, la2, 2, la2 < 0 ? 'S' : 'N'); nt_r(xg, y, t); fmt_dmn2(t, lo2, 3, lo2 < 0 ? 'W' : 'E'); nt_r(xr, y, t);
   y = 72;  nt_r(xg, y, "GEODESIC"); nt_r(xr, y, "RHUMB");
   y = 88;  nt(4, y, "DIST NM");
   sprintf(t, "%.1f", sg / NM); nt_r(xg, y, t); sprintf(t, "%.1f", sr / NM); nt_r(xr, y, t);
@@ -375,7 +375,7 @@ void draw_cmp(void) {
   y = 136; nt(4, y, "GC SAVES");
   sprintf(t, "%.1f NM  %.1f%%", (sr - sg) / NM, sr > 0 ? 100.0 * (sr - sg) / sr : 0.0); nt_r(xr, y, t);
   y = 152; nt(4, y, in ? "VERTEX" : "VERTEX (off leg)");
-  fmt_dmn(t, latv, 2, latv < 0 ? 'S' : 'N'); nt_r(xg, y, t); fmt_dmn(t, lonv, 3, lonv < 0 ? 'W' : 'E'); nt_r(xr, y, t);
+  fmt_dmn2(t, latv, 2, latv < 0 ? 'S' : 'N'); nt_r(xg, y, t); fmt_dmn2(t, lonv, 3, lonv < 0 ? 'W' : 'E'); nt_r(xr, y, t);
   y = 168;
   if (in && fabs(latv) > cs_lim) {
     double cc, cn;
@@ -719,9 +719,9 @@ void draw_voy(void) {
   sprintf(t, "%.1f", sd / NM); nt(X, y, "RUN NM"); nt_r(XR, y, t); y += 16;
   sprintf(t, "%.1f", (tot - sd) / NM); nt(X, y, "DTG NM"); nt_r(XR, y, t); y += 16;
   sprintf(t, "%03.0f" NT_DEG "  %.4g kn", crs, voy_kn); nt(X, y, "CRS"); nt_r(XR, y, t); y += 16;
-  fmt_dmn(t, lat, 2, lat < 0 ? 'S' : 'N'); nt_r(XR, y, t); y += 16;
+  fmt_dmn2(t, lat, 2, lat < 0 ? 'S' : 'N'); nt_r(XR, y, t); y += 16;
   double lo = fmod(lon + 540.0, 360.0) - 180;
-  fmt_dmn(t, lo, 3, lo < 0 ? 'W' : 'E'); nt_r(XR, y, t); y += 16;
+  fmt_dmn2(t, lo, 3, lo < 0 ? 'W' : 'E'); nt_r(XR, y, t); y += 16;
   int pw = XR - X, px = (int)((double)pw * voy_step / VOY_STEPS);            /* the progress */
   gfx_frame(X, y + 2, pw, 8); gfx_rect(X, y + 2, px, 8, 1);
   if (voy_step >= VOY_STEPS) strcpy(s, plane ? "LANDED  R/S again" : "ARRIVED  R/S again");

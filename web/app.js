@@ -8,13 +8,14 @@ const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;",
 
 /* ---------------------------------------------------------------- formats */
 const FMT = {
-  dm(v, w) {                                                  /* 47°43.7′ */
-    let a = Math.abs(v), d = Math.floor(a), m = Math.round((a - d) * 600) / 10;
+  dm(v, w, dec = 1) {                                         /* 47°43.7′ (an angle); positions dec 2: 26°30.12′ */
+    const f = 10 ** dec;
+    let a = Math.abs(v), d = Math.floor(a), m = Math.round((a - d) * 60 * f) / f;
     if (m >= 60) { d++; m = 0; }
-    return String(d).padStart(w || 0, "0") + "°" + m.toFixed(1).padStart(4, "0") + "′";
+    return String(d).padStart(w || 0, "0") + "°" + m.toFixed(dec).padStart(3 + dec, "0") + "′";
   },
-  lat: v => FMT.dm(v, 2) + (v < 0 ? "S" : "N"),
-  lon(v) { v = ((v + 540) % 360) - 180; return FMT.dm(v, 3) + (v < 0 ? "W" : "E"); },
+  lat: v => FMT.dm(v, 2, 2) + (v < 0 ? "S" : "N"),
+  lon(v) { v = ((v + 540) % 360) - 180; return FMT.dm(v, 3, 2) + (v < 0 ? "W" : "E"); },
   pos: (la, lo) => FMT.lat(la) + " " + FMT.lon(lo),
   crs: v => String(Math.round(((v % 360) + 360) % 360) % 360).padStart(3, "0") + "°",
   nm: m => (m / NM).toFixed(1),
@@ -105,7 +106,7 @@ const S = {
   live: true, jd: jdOf(Date.now()),
   pos: store.get("pos", [26 + 30 / 60, 50 + 10 / 60]),
   times: store.get("times", "ut") === "ut" ? "ut" : "zt",
-  route: Object.assign({ wps: [], sail: 1, lim: 60, split: 0, val: 10, ell: 0, avoid: true, speed: 12, etd: null, margin: 50, clear: 50, len: 95 },
+  route: Object.assign({ wps: [], sail: 1, lim: 60, split: 0, val: 10, ell: 0, avoid: true, speed: 12, etd: null, margin: 50, clear: 50, len: 95, turns: 0 },
                        store.get("route", {})),
   objects: store.get("objects", []),
   view: store.get("view", { mode: "merc", lat0: 30, lon0: 10, k: 220 }),
@@ -294,7 +295,7 @@ function ends(w) {
   }
   return { pts: [{ lat: w.lat, lon: w.lon }], obj: o, R: 0 };
 }
-function avoidLeg(As, Bs, zones, clr, M) {
+function avoidLeg(As, Bs, zones, clr, M, maxT) {
   const a0 = As.pts[0], b0 = Bs.pts[0];
   const ab = NAV.inv(a0.lat, a0.lon, b0.lat, b0.lon), mid = NAV.dir(a0.lat, a0.lon, ab.a1, ab.s / 2);
   const ae = aePlane(mid.lat, mid.lon), L = ab.s;
@@ -329,29 +330,38 @@ function avoidLeg(As, Bs, zones, clr, M) {
         const a = (i + 0.5) * 2 * Math.PI / AV.NV, x = z.x + z.r * rv * Math.sin(a), y = z.y + z.r * rv * Math.cos(a);
         if (!inside(x, y, near)) nodes.push({ x, y, t: 0 });
       }
-    /* Dijkstra from all the starts (distance 0) to the first end reached */
-    const n = nodes.length, dist = new Float64Array(n).fill(Infinity), prev = new Int32Array(n).fill(-1), done = new Uint8Array(n);
-    nodes.forEach((p, i) => { if (p.t === 1) dist[i] = 0; });
+    /* Dijkstra from all the starts (distance 0) to the first end reached. With a turn budget K (maxT): the states are
+       (node, turns used), a corner of a zone a turn; K + 1 layers, the first end reached the shortest within K */
+    const n = nodes.length, K = maxT > 0 ? maxT : 0, L = K + 1, ns = n * L;
+    const dist = new Float64Array(ns).fill(Infinity), prev = new Int32Array(ns).fill(-1), done = new Uint8Array(ns);
+    const vis = new Int8Array(n * n);                       /* clear sight between two nodes: 0 not known, 1 yes, -1 no */
+    const sees = (u, v) => { const k = u * n + v; if (!vis[k]) vis[k] = vis[v * n + u] = clear(nodes[u].x, nodes[u].y, nodes[v].x, nodes[v].y, act) ? 1 : -1; return vis[k] > 0; };
+    nodes.forEach((p, i) => { if (p.t === 1) dist[i * L] = 0; });
     let end = -1;
     for (;;) {
       let u = -1, best = Infinity;
-      for (let i = 0; i < n; i++) if (!done[i] && dist[i] < best) { best = dist[i]; u = i; }
+      for (let i = 0; i < ns; i++) if (!done[i] && dist[i] < best) { best = dist[i]; u = i; }
       if (u < 0) break;
       done[u] = 1;
-      if (nodes[u].t === 2) { end = u; break; }
-      const pu = nodes[u];
+      const un = (u / L) | 0, uk = u % L;
+      if (nodes[un].t === 2) { end = u; break; }
+      const pu = nodes[un];
       for (let v = 0; v < n; v++) {
-        if (done[v] || nodes[v].t === 1) continue;
+        if (nodes[v].t === 1) continue;
+        const vk = maxT > 0 ? uk + (nodes[v].t === 0 ? 1 : 0) : 0;
+        if (vk >= L) continue;
+        const vs = v * L + vk;
+        if (done[vs]) continue;
         const pv = nodes[v], d = best + Math.hypot(pv.x - pu.x, pv.y - pu.y);
-        if (d < dist[v] && clear(pu.x, pu.y, pv.x, pv.y, act)) { dist[v] = d; prev[v] = u; }
+        if (d < dist[vs] && sees(un, v)) { dist[vs] = d; prev[vs] = u; }
       }
     }
     if (end < 0) {                                          /* boxed in by zones not yet in the search: all of them in */
       if (active.size < near.length) { near.forEach(z => active.add(z)); continue; }
-      return { ok: false, why: "no way round the zones" };
+      return { ok: false, why: maxT > 0 ? `no way round the zones with ${maxT} turning point${maxT > 1 ? "s" : ""}` : "no way round the zones", turns: maxT > 0 };
     }
     path = [];
-    for (let i = end; i >= 0; i = prev[i]) path.unshift(nodes[i]);
+    for (let i = end; i >= 0; i = prev[i]) path.unshift(nodes[(i / L) | 0]);
     let added = false;                                      /* zones the path crosses that were not in the search */
     for (let i = 1; i < path.length; i++)
       for (const z of near)
@@ -366,6 +376,37 @@ function avoidLeg(As, Bs, zones, clr, M) {
     tight.push(path[j]); i = j;
   }
   return { ok: true, pts: tight.map(p => { const [la, lo] = ae.inv(p.x, p.y); return { lat: la, lon: lo, t: p.t }; }) };
+}
+/* a leg with at most maxT turning points (0: no limit): the shortest first; when it turns more, the shortest within
+   maxT, else within maxT + 1 .. 10 (said in the warnings), else the shortest as it is */
+const turnsOf = leg => leg.pts.filter(p => p.t === 0).length;
+function turnsLeg(from, to, zones, clr, M, maxT, i, warn) {
+  const leg = avoidLeg(from, to, zones, clr, M, 0);
+  if (!leg.ok || !(maxT > 0) || turnsOf(leg) <= maxT) return leg;
+  for (let k = maxT; k <= 10; k++) {
+    const l = avoidLeg(from, to, zones, clr, M, k);
+    if (l.ok) { if (k > maxT && !warn.some(w => w.startsWith(`Leg ${i}: `))) warn.push(`Leg ${i}: needs ${k} turning points (asked ${maxT}).`); return l; }
+  }
+  warn.push(`Leg ${i}: more than 10 turning points needed; planned with ${turnsOf(leg)}.`);
+  return leg;
+}
+/* the points to 0.01' of arc: of the 4 nearest on that grid, the one farthest from the zones (clr off the others, off
+   its own ends' zones), so the rounding never takes the route closer; legKeeps checks it after */
+const G01 = 1 / 6000;
+function roundPts(pts, zones, clr, oa, ob) {
+  const on = v => Math.abs(v / G01 - Math.round(v / G01)) < 1e-3;   /* already on the grid (typed, a joint, 7 decimals): as it is */
+  return pts.map(p => {
+    if (on(p.lat) && on(p.lon)) return p;
+    const near = zones.filter(z => Math.abs(z.lat - p.lat) < 0.1 && Math.abs(nearLon(z.lon, p.lon) - p.lon) < 0.1);
+    let best = null, bs = -Infinity;
+    for (const la of [Math.floor(p.lat / G01) * G01, Math.ceil(p.lat / G01) * G01])
+      for (const lo of [Math.floor(p.lon / G01) * G01, Math.ceil(p.lon / G01) * G01]) {
+        let sc = Infinity;
+        for (const z of near) sc = Math.min(sc, NAV.inv(la, lo, z.lat, z.lon).s - z.r - (z === oa || z === ob ? 0 : clr));
+        if (sc > bs + 1e-9) { bs = sc; best = { lat: la, lon: lo, t: p.t }; }
+      }
+    return best;
+  });
 }
 /* does a planned leg, as sailed, keep clr off every zone (its own ends: off the zone itself)? exact distances */
 function legKeeps(pts, zones, clr, oa, ob) {
@@ -406,8 +447,14 @@ function compute() {
         if (to.wide) warn.push(`${esc(to.obj.name)}: its ${R.margin} m ring is inside other zones; the route ends ${Math.round(to.R - to.obj.r)} m outside its zone.`);
         if (i === 1 && from.wide) warn.push(`${esc(from.obj.name)}: its ${R.margin} m ring is inside other zones; the route starts ${Math.round(from.R - from.obj.r)} m outside its zone.`);
         for (const clr of [R.clear, R.clear / 2, 0]) {
-          /* tight margins first; the leg checked with exact distances as sailed; wider until it keeps clr */
-          for (const M of AV.MS) { leg = avoidLeg(from, to, zones, clr, M); if (!leg.ok || legKeeps(leg.pts, zones, clr, from.obj, to.obj)) break; }
+          /* tight margins first; at most R.turns turning points; the points to 0.01'; the leg checked with exact
+             distances as sailed; wider margins until it keeps clr */
+          for (const M of AV.MS) {
+            leg = turnsLeg(from, to, zones, clr, M, R.turns, i, warn);
+            if (!leg.ok) break;
+            leg.pts = roundPts(leg.pts, zones, clr, from.obj, to.obj);
+            if (legKeeps(leg.pts, zones, clr, from.obj, to.obj)) break;
+          }
           if (leg.ok) { if (clr < R.clear) warn.push(`Leg ${i}: no way with ${R.clear} m clearance; planned with ${clr} m.`); break; }
           if (clr === 0) break;
         }
@@ -1117,6 +1164,7 @@ function routeCard() {
       <label><input type="checkbox" id="avoid" ${R.avoid ? "checked" : ""}> keep out of the zones</label>
       <label ${R.avoid ? "" : "hidden"}>pass zones by ≥ <input class="num" id="clear" type="number" min="0" step="10" value="${R.clear}"> m</label>
       <label ${R.avoid ? "" : "hidden"}>start / end <input class="num" id="margin" type="number" min="0" step="10" value="${R.margin}"> m outside the object's zone</label>
+      <label ${R.avoid ? "" : "hidden"} title="the most turning points round the zones on each leg (between two of your waypoints): fewer turns, maybe a little longer">turning points <select id="turns"><option value="0">no limit</option>${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(k => `<option value="${k}">at most ${k}</option>`).join("")}</select> a leg</label>
     </div>
     <h3>Waypoints <span class="meta">(click on the chart with ＋ Waypoint; on an object: from / to it)</span></h3>
     <div class="scroll" style="max-height:260px"><table id="wptab"><tr><th>#</th><th>Name</th><th>Position</th><th>Object</th><th></th></tr>
@@ -1144,6 +1192,7 @@ function routeCard() {
   $("splitv").onchange = e => { R.val = Math.max(0, +e.target.value || 0); upd(); };
   $("avoid").onchange = e => { R.avoid = e.target.checked; upd(); };
   $("margin").onchange = e => { const v = parseFloat(e.target.value); R.margin = Number.isFinite(v) ? Math.max(0, v) : 50; upd(); };
+  $("turns").value = String(R.turns || 0); $("turns").onchange = e => { R.turns = +e.target.value; upd(); };
   $("clear").onchange = e => { const v = parseFloat(e.target.value); R.clear = Number.isFinite(v) ? Math.max(0, v) : 0; upd(); };
   document.querySelectorAll("[data-wn]").forEach(i => i.onchange = e => { R.wps[+i.dataset.wn].name = e.target.value; upd(); });
   document.querySelectorAll("[data-wp]").forEach(i => i.onchange = e => { const p = parsePos(e.target.value), w = R.wps[+i.dataset.wp];

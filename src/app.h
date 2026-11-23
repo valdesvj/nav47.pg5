@@ -115,6 +115,7 @@ void bar_at(double ut, const char *name);
 void fmt_dm3(char *s, double v, int lat);
 void header(const char *name);
 void fmt_dmn(char *s, double deg, int ddig, char hemi);
+void fmt_dmn2(char *s, double deg, int ddig, char hemi);   /* to 0.01' (the route's points) */
 double parse_dm(const char *s);
 char *read_text(const char *path);
 void cfg_save(void);

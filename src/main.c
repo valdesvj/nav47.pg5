@@ -108,6 +108,14 @@ void fmt_dmn(char *s, double deg, int ddig, char hemi) {     /* 26°30.0N 050°1
   sprintf(s, ddig == 3 ? "%03d" NT_DEG "%04.1f%c" : "%02d" NT_DEG "%04.1f%c", d, m, hemi);
 }
 
+void fmt_dmn2(char *s, double deg, int ddig, char hemi) {    /* to 0.01': 26°30.12N 050°10.05E (the route's points) */
+  double a = fabs(deg);
+  int d = (int)a;
+  double m = (a - d) * 60.0;
+  if (m >= 59.995) { d++; m = 0.0; }
+  sprintf(s, ddig == 3 ? "%03d" NT_DEG "%05.2f%c" : "%02d" NT_DEG "%05.2f%c", d, m, hemi);
+}
+
 static const char *MON[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 static const char *WDAY[7] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
 
