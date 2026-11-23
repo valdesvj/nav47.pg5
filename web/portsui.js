@@ -72,6 +72,23 @@ const PORTSUI = (() => {
     const m = r.m + NAV.inv(A.lat, A.lon, N.lat[a], N.lon[a]).s + NAV.inv(N.lat[b], N.lon[b], B.lat, B.lon).s;
     return { m, pts, passes: r.passes };
   }
+  /* the miles of a leg inside the Emission Control Areas (eca.js), by area, in 5 NM steps; the stretches inside (drawn) */
+  function ecaOf(pts) {
+    const r = { m: 0, by: {}, approx: false, segs: [] };
+    if (typeof ecaAt !== "function") return r;
+    let run = null;
+    for (let i = 1; i < pts.length; i++) {
+      const [a1, o1] = pts[i - 1], [a2, o2] = pts[i], s0 = NAV.inv(a1, o1, a2, o2), n = Math.max(1, Math.ceil(s0.s / 9260));
+      for (let k = 0; k < n; k++) {
+        const p0 = NAV.dir(a1, o1, s0.a1, s0.s * k / n), p1 = NAV.dir(a1, o1, s0.a1, s0.s * (k + 1) / n), pm = NAV.dir(a1, o1, s0.a1, s0.s * (k + 0.5) / n);
+        const z = ecaAt(pm.lat, nearLon(pm.lon, 0));
+        if (z) { const d = s0.s / n; r.m += d; r.by[z.name] = (r.by[z.name] || 0) + d; if (!z.exact) r.approx = true;
+          if (!run) { run = [[p0.lat, p0.lon]]; r.segs.push(run); } run.push([p1.lat, p1.lon]); }
+        else run = null;
+      }
+    }
+    return r;
+  }
   /* the voyage: each leg, and for a canal used, the way without it */
   let V = null, VK = "";
   function compute() {
@@ -84,7 +101,7 @@ const PORTSUI = (() => {
       if (!g) { V.legs.push({ from: st[k - 1], to: st[k], none: true }); continue; }
       const alt = {};
       for (const c of ["suez", "panama"]) if (g.passes.includes(c)) { const w = leg(st[k - 1], st[k], Object.assign({}, P.use, { [c]: false })); alt[c] = w ? w.m : null; }
-      V.legs.push(Object.assign({ from: st[k - 1], to: st[k], alt }, g)); V.m += g.m;
+      V.legs.push(Object.assign({ from: st[k - 1], to: st[k], alt, eca: ecaOf(g.pts) }, g)); V.m += g.m;
     }
   }
   /* Douglas-Peucker on the route (in degrees, longitudes unrolled): its turning points within tol degrees */
@@ -116,18 +133,19 @@ const PORTSUI = (() => {
     const L = ports(), f = find.trim().toLowerCase();
     const hits = f.length >= 2 ? L.filter(p => p.name.toLowerCase().includes(f) || (p.cc || "").toLowerCase() === f).slice(0, 12) : [];
     const etd = P.etd || (S.live ? Date.now() / 864e5 + 2440587.5 : S.jd), off = S.times === "zt" ? Math.round(S.pos[1] / 15) : 0;
-    let t = etd, fuel = 0, rows = "";
+    let t = etd, fuel = 0, rows = "", ecaM = 0, ecaT = 0, approx = false;
     V.legs.forEach((g, k) => {
       const stay = k ? (P.stops_days || {})[k] || 0 : 0;
       t += stay; fuel += stay * P.tport;
       if (g.none) { rows += `<tr><td>${esc(g.from.name)} → ${esc(g.to.name)}: <b>no way</b> with the passages chosen</td></tr>`; return; }
       const nm = g.m / NMm, days = nm / P.kn / 24, f2 = days * P.tpd * (P.kn / P.v0) ** 3;
       const dep = t; t += days; fuel += f2;
+      const E = g.eca, ef = g.m ? E.m / g.m : 0; ecaM += E.m; ecaT += f2 * ef; approx = approx || E.approx;
       const via = g.passes.filter(p => p !== "dover" && p !== "gibraltar" && p !== "malacca").map(p => p[0].toUpperCase() + p.slice(1)).join(", ");
       const alt = Object.entries(g.alt).map(([c, m]) => m ? `without ${c[0].toUpperCase() + c.slice(1)} ${Math.round(m / NMm).toLocaleString()} NM (+${Math.round((m - g.m) / NMm).toLocaleString()})` : `no way without ${c}`).join(" · ");
       /* a leg in two lines (the card is narrow): the way and its miles; the days, the fuel, departure and arrival */
       rows += `<tr><td style="white-space:normal"><div><b>${k + 1}</b> ${esc(g.from.name)} → ${esc(g.to.name)} · <b>${Math.round(nm).toLocaleString()} NM</b>${via ? ` <span class="meta">via ${via}</span>` : ""}</div>
-        <div class="meta" style="white-space:normal">${fmtD(days)} at sea · ${f2.toFixed(0)} t · ${FMT.dt(dep, off)} → ${FMT.dt(t, off)} ${off ? "ZT" : "UT"}</div>${alt ? `<div class="meta">${alt}</div>` : ""}</td></tr>`;
+        <div class="meta" style="white-space:normal">${fmtD(days)} at sea · ${f2.toFixed(0)} t · ${FMT.dt(dep, off)} → ${FMT.dt(t, off)} ${off ? "ZT" : "UT"}</div>${E.m > 0 ? `<div style="white-space:normal;color:#15803d">ECA ${Math.round(E.m / NMm).toLocaleString()} NM${E.approx ? " (approx.)" : ""}: ${Object.entries(E.by).map(([n, m]) => `${esc(n)} ${Math.round(m / NMm).toLocaleString()}`).join(", ")} · low-sulphur ${(f2 * ef).toFixed(0)} t</div>` : ""}${alt ? `<div class="meta">${alt}</div>` : ""}</td></tr>`;
     });
     const sea = V.m / NMm / P.kn / 24;
     el.innerHTML = `<h2>Port to port <span class="meta">the sea lanes between the world's ports: for planning, not for navigation</span></h2>
@@ -146,10 +164,10 @@ const PORTSUI = (() => {
         ${["suez", "panama", "northwest", "northeast"].map(c => `<label><input type="checkbox" data-puse="${c}" ${P.use[c] !== false ? "checked" : ""}> ${{ suez: "Suez", panama: "Panama", northwest: "NW passage", northeast: "NE passage" }[c]}</label>`).join("")}</div>
       ${V.legs.length ? `<table style="margin-top:8px;width:100%">${rows}
         <tr><td style="background:var(--chip);white-space:normal"><div><b>Voyage · ${Math.round(V.m / NMm).toLocaleString()} NM</b></div>
-        <div style="white-space:normal"><b>${fmtD(sea)}</b> at sea, ${fmtD(t - etd)} in all · <b>${fuel.toFixed(0)} t</b> · arrives <b>${FMT.dt(t, off)} ${off ? "ZT" : "UT"}</b></div></td></tr></table>
+        <div style="white-space:normal"><b>${fmtD(sea)}</b> at sea, ${fmtD(t - etd)} in all · <b>${fuel.toFixed(0)} t</b> · arrives <b>${FMT.dt(t, off)} ${off ? "ZT" : "UT"}</b></div>${ecaM > 0 ? `<div style="white-space:normal;color:#15803d">in ECAs <b>${Math.round(ecaM / NMm).toLocaleString()} NM</b> (${Math.round(ecaM / V.m * 100)} %)${approx ? ", some approximate" : ""} · low-sulphur <b>${ecaT.toFixed(0)} t</b> of ${fuel.toFixed(0)} at sea + in port</div>` : ""}</td></tr></table>
         <div class="controls" style="margin-top:6px"><button id="pfit">Fit the voyage</button><button id="proute" title="the voyage's turning points into the Route tab as your waypoints (the planner off): then To the calculator as ROUTE.TXT">To the route</button><button id="pclr">Clear</button><span class="meta" id="pmsg"></span></div>` :
         `<div class="meta" style="margin-top:6px">Two ports or more: find them above, or click a port on the chart (the ports' layer on).</div>`}
-      <div class="meta">The ports: NGA's World Port Index (public domain). The lanes: Eurostat SeaRoute's maritime network (EUPL-1.2), from Oak Ridge National Laboratory's Global Shipping Lane Network. Distances along the lanes, geodesic (WGS84); a published distance table may differ by a few percent. Fuel: t/day × (speed / service speed)³.</div>`;
+      <div class="meta">The ports: NGA's World Port Index (public domain). The lanes: Eurostat SeaRoute's maritime network (EUPL-1.2), from Oak Ridge National Laboratory's Global Shipping Lane Network. Distances along the lanes, geodesic (WGS84); a published distance table may differ by a few percent. Fuel: t/day × (speed / service speed)³. ECAs (green on the chart): MARPOL Annex VI; Baltic, North Sea, Mediterranean (from May 2025) by their defining lines; North America and the US Caribbean approximate (±30 NM): check the official coordinates.</div>`;
     bind(el);
   }
   function upd(fit) { save(); card(); if (fit) fitVoyage(); else draw(); }
@@ -193,6 +211,8 @@ const PORTSUI = (() => {
     if (V && V.legs.length) {
       g.strokeStyle = "#c2410c"; g.lineWidth = 3;
       for (const l of V.legs) if (!l.none) polyline(l.pts);
+      g.strokeStyle = "#16a34a"; g.lineWidth = 4;                /* inside an ECA */
+      for (const l of V.legs) if (!l.none && l.eca) for (const sg of l.eca.segs) polyline(sg);
       g.fillStyle = "#c2410c"; g.font = "bold 12px system-ui";
       const st = P.stops.map(i => L[i]).filter(Boolean);
       st.forEach((p, k) => { const [x, y, v] = proj(p.lat, p.lon); if (!v) return; g.beginPath(); g.arc(x, y, 5, 0, 2 * Math.PI); g.fill(); placeLabel(`${k + 1} ${p.name}`, x, y, true); });
