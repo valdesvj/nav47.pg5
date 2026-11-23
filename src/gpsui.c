@@ -24,6 +24,7 @@
 #include "gpsin.h"
 #include "gpsui.h"
 #include "navctx.h"
+#include "wmm.h"
 #include "objects.h"
 #include "bmp.h"
 
@@ -238,6 +239,14 @@ const char *gps_alarm_text(void) {
 
 /* ------------------------------------------------------------------ drawing helpers */
 static void tiny(int x, int y, const char *s) { draw_text(&TINY, x, y, s, 0); }
+/* the magnetic variation here and now (WMM), "2.1°E"; 0 outside the model's years (s: why) */
+static int var_text(char *s, double lat, double lon, double *var) {
+  double yr = wmm_year(nav_ut());
+  if (!wmm_valid(yr)) { sprintf(s, "%s expired", WMM_NAME); return 0; }
+  *var = wmm_var(lat, lon, yr);
+  sprintf(s, "%.1f%s%c", fabs(*var), NT_DEG, *var >= 0 ? 'E' : 'W');
+  return 1;
+}
 /* a line on the chart, no box: white behind its own text only, so the chart shows round it and nothing sticks out */
 static void chart_line(int x, int y, const char *s, int big) {
   int w = big ? nt_w(s) : text_width(&TINY, s);
@@ -455,6 +464,13 @@ static void draw_fix(void) {
     sprintf(s, "SUN Zn %05.1f" NT_DEG "  Hc %.1f" NT_DEG "  ENTER: its gyro bearing", szn, shc);
     nt(4, y + 16, s);
   }
+  { char v[24]; double var;                            /* the variation (WMM); with the Sun's bearing: a compass's deviation */
+    if (!var_text(v, f->lat, f->lon, &var)) snprintf(s, sizeof s, "VAR: %s", v);
+    else if (P->gyro_have && !P->gyro_edit && !isnan(szn)) {
+      double ce = fmod(szn - P->gyro_obs + 540.0, 360.0) - 180.0, dev = fmod(ce - var + 540.0, 360.0) - 180.0;
+      snprintf(s, sizeof s, "VAR %s   a magnetic compass: DEV %.1f%s%c (error - VAR)", v, fabs(dev), NT_DEG, dev >= 0 ? 'E' : 'W');
+    } else snprintf(s, sizeof s, "VAR %s (%s)", v, WMM_NAME);
+    if (!(P->mob && row_used)) tiny(4, y + 33, s); }      /* (the MOB takes that row when the first is used) */
   int nl, no;
   gpsin_counts(&nl, &no);
   sprintf(s, "%s  in %d  bad %lu  lost %d", P->input ? "USB NMEA ch 2" : "NMEA input off", nl, (unsigned long)g->n_bad, no);
@@ -649,12 +665,18 @@ static void draw_nav(void) {
     fmt_ttg(a1, p->ttg_user); fmt_ttg(a2, p->ttg_final);
     snprintf(s, sizeof s, "TTG %s / %s at %.1f kn", a1, a2, p->kn);
     tiny(4, y, s);
+    { char v[24]; double var;                          /* the variation (WMM): the course and the bearing magnetic */
+      if (var_text(v, f->lat, f->lon, &var))
+        snprintf(s, sizeof s, "VAR %s  CTS %03.0f%sM  BRG %03.0f%sM", v, fmod(p->cts - var + 720, 360), NT_DEG, fmod(p->brg - var + 720, 360), NT_DEG);
+      else snprintf(s, sizeof s, "VAR: %s", v);
+      tiny(4, y + 9, s); }
   } else if (R) nt(6, y + 18, "5: start the passage");
   else {                                               /* no route: where she is, and how to give her one */
     char a[24];
     nt_inv(6, y, "NO ROUTE");
     fmt_pos(a, f->lat, 1); nt(4, y + 20, a);
     fmt_pos(a, f->lon, 0); nt(4, y + 36, a);
+    { char v[24]; double var; if (var_text(v, f->lat, f->lon, &var)) { snprintf(s, sizeof s, "VAR %s (%s)", v, WMM_NAME); tiny(4, y + 76, s); } }
     tiny(4, y + 58, "ROUTE: two waypoints or more,");
     tiny(4, y + 67, "or WPTS (1 on ROUTE)");
   }
