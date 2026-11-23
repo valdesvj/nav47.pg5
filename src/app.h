@@ -31,6 +31,7 @@
 #include "navctx.h"
 #include "objects.h"
 #include "wpdb.h"
+#include "ports.h"
 
 #define DIR       "/NAV47"
 #define TIDEDIR   "/NAV47/TIDES"
