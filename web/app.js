@@ -873,6 +873,7 @@ function draw() {
   const which = drawCoast();
   if (V.mode === "globe") { g.beginPath(); g.arc(CH.W / 2, CH.H / 2, V.k, 0, 2 * Math.PI); g.strokeStyle = css("--soft"); g.lineWidth = 1.5; g.stroke(); }
   drawStreams();
+  if (typeof PORTSUI !== "undefined") PORTSUI.drawLayer(g);  /* the world's ports, the port-to-port voyage */
   for (const o of S.objects) drawObj(o, S.sel && S.sel.t === "o" && S.sel.id === o.id);
   /* the route */
   const R = S.route, wps = R.wps, rows = ROUTE.plan.rows;
@@ -1022,6 +1023,7 @@ function routeTab() {
     </div><div>
     <div class="card" id="livecard"></div>
     <div class="card" id="routecard"></div>
+    <div class="card" id="portcard"></div>
     <div class="card" id="checkcard"></div>
     <div class="card" id="voycard"></div>
     <div class="card" id="objcard"></div>
@@ -1115,7 +1117,7 @@ function chartEvents() {
 }
 function click(x, y) {
   const p = unproj(x, y);
-  if (S.tool === "move") { S.sel = hit(x, y); draw(); objList(); return; }
+  if (S.tool === "move") { S.sel = hit(x, y); if (!S.sel && typeof PORTSUI !== "undefined" && PORTSUI.click(x, y)) return; draw(); objList(); return; }
   if (!p) return;
   if (S.tool === "obj" && S.lock) return;
   if (S.tool === "wp") {
@@ -1149,7 +1151,7 @@ function refresh(first) {
   compute();
   ROUTE.ms = performance.now() - t0;
   if (first) fitRoute();
-  save(); draw(); routeCard(); checkCard(); planCard(); objList(); cmpCard(); voyCard();
+  save(); draw(); routeCard(); if (typeof PORTSUI !== "undefined") PORTSUI.card(); checkCard(); planCard(); objList(); cmpCard(); voyCard();
 }
 
 /* a passage between two objects: the route replaced by them, planned round every zone */
