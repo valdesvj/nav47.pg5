@@ -724,6 +724,22 @@ function fmtDeg(v, h) {
   const a = Math.abs(v), d = Math.floor(a + 1e-9), m = Math.round((a - d) * 60);
   return d + "°" + (m ? String(m).padStart(2, "0") + "′" : "") + (v === 0 ? "" : v < 0 ? h[1] : h[0]);
 }
+/* the chart's labels, placed so they stay inside the frame and do not cover each other: right below, right above, left
+   below, left above the point, the first free; must (your waypoints): the best place inside even when all are taken,
+   else a label with no free place is left out (it comes back closer in) */
+function placeLabel(text, x, y, must) {
+  const g = CH.g, w = g.measureText(text).width, h = 13, L = CH.labels || (CH.labels = []);
+  const cand = [[x + 8, y + 13], [x + 8, y - 6], [x - 8 - w, y + 13], [x - 8 - w, y - 6]];
+  if (must) for (let k = 1; k <= 8; k++)                     /* yours, crowded: a column below / above, a line a step */
+    cand.push([x + 8, y + 13 + 13 * k], [x - 8 - w, y + 13 + 13 * k], [x + 8, y - 6 - 13 * k], [x - 8 - w, y - 6 - 13 * k]);
+  const inside = ([lx, ly]) => lx >= 2 && lx + w <= CH.W - 2 && ly - 11 >= 2 && ly + 2 <= CH.H - 2;
+  const free = ([lx, ly]) => !L.some(r => lx < r[0] + r[2] && lx + w > r[0] && ly - 11 < r[1] + r[3] && ly + 2 > r[1]);
+  let at = cand.find(c => inside(c) && free(c));
+  if (!at && must) at = cand.find(inside) || [Math.max(2, Math.min(CH.W - 2 - w, x + 8)), Math.max(13, Math.min(CH.H - 4, y + 13))];
+  if (!at) return;
+  L.push([at[0], at[1] - 11, w, h]);
+  g.fillText(text, at[0], at[1]);
+}
 function drawObj(o, sel) {
   const g = CH.g, [x, y, v] = proj(o.lat, o.lon);
   if (!v) return;
@@ -745,7 +761,7 @@ function drawObj(o, sel) {
       g.fillStyle = "#8a9097"; g.fill(); g.strokeStyle = ink; g.lineWidth = 1.2; g.stroke();
       g.beginPath(); g.moveTo(pc[0][0], pc[0][1]); g.lineTo(pc[1][0], pc[1][1]); g.strokeStyle = "#d63a2a"; g.lineWidth = 3; g.stroke();   /* face 0 */
       if (sel) { g.beginPath(); g.arc(x, y, 11, 0, 2 * Math.PI); g.strokeStyle = css("--accent"); g.lineWidth = 2; g.stroke(); }
-      g.font = "12px system-ui"; g.fillStyle = ink; g.fillText(o.name, x + 9, y - 7);
+      g.font = "12px system-ui"; g.fillStyle = ink; placeLabel(o.name, x, y, false);
       return;
     }
   }
@@ -766,7 +782,7 @@ function drawObj(o, sel) {
     default: g.font = "15px system-ui"; g.textAlign = "center"; g.fillText("⚓", x, y + 5); g.textAlign = "left";
   }
   if (sel) { g.beginPath(); g.arc(x, y, 11, 0, 2 * Math.PI); g.strokeStyle = css("--accent"); g.lineWidth = 2; g.stroke(); }
-  if (rp > 6 || spanDeg() < 1.5) { g.font = "12px system-ui"; g.fillStyle = ink; g.fillText(o.name, x + 9, y - 7); }
+  if (rp > 6 || spanDeg() < 1.5) { g.font = "12px system-ui"; g.fillStyle = ink; placeLabel(o.name, x, y, false); }
 }
 /* the ship (the Mermaid Asiana, as on the calculator) and the plane */
 const SHIP = [0x0000004000, 0x000000E000, 0x0000004000, 0x000000E000, 0x0000004000, 0x000001F000, 0x000003FFFF, 0x000002AB02,
@@ -844,6 +860,7 @@ let BADGE = null;
 function draw() {
   if (!CH.g || $("t-route").hidden) return;
   const g = CH.g, V = S.view;
+  CH.labels = [];
   g.setTransform(CH.dpr, 0, 0, CH.dpr, 0, 0);
   g.clearRect(0, 0, CH.W, CH.H);
   if (V.mode === "globe") {
@@ -886,10 +903,15 @@ function draw() {
     if (w.flags & 1) { g.fillStyle = css("--card"); g.strokeStyle = css("--track"); g.lineWidth = 2; g.fillRect(x - 4, y - 4, 8, 8); g.strokeRect(x - 4, y - 4, 8, 8); }
     else { g.fillStyle = css("--track"); g.beginPath(); g.arc(x, y, 2.6, 0, 2 * Math.PI); g.fill(); }
   });
-  ROUTE.pts.forEach((p, i) => {                               /* the planned points: numbered */
+  ROUTE.pts.forEach(p => {                                    /* the planned points */
     const [x, y, v] = proj(p.lat, p.lon); if (!v) return;
     g.fillStyle = css("--track"); g.beginPath(); g.arc(x, y, p.user ? 5 : 3.5, 0, 2 * Math.PI); g.fill();
-    g.fillStyle = css("--ink"); g.fillText((i + 1) + (p.name ? " " + p.name : ""), x + 7, y + 13);
+  });
+  g.fillStyle = css("--ink");                                 /* their numbers: yours first (always shown), then the turns */
+  for (const user of [true, false]) ROUTE.pts.forEach((p, i) => {
+    if (!!p.user !== user) return;
+    const [x, y, v] = proj(p.lat, p.lon); if (!v) return;
+    placeLabel((i + 1) + (p.name ? " " + p.name : ""), x, y, user);
   });
   wps.forEach((w, i) => {                                     /* the user's waypoints: handles */
     const [x, y, v] = proj(w.lat, w.lon); if (!v) return;
