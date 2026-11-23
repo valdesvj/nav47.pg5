@@ -471,12 +471,13 @@ static void draw_info(void) {
 /* ------------------------------------------------------------------ */
 /*  Menus, keys, main loop                                            */
 /* ------------------------------------------------------------------ */
-static const char *MENUS[5][6] = {
+static const char *MENUS[6][6] = {
   { "ALMAN", "SPLIT", "SKY", "ALLSK", "MOON", ">>" },
   { "ANIM", "T&F", "TIDE", "ROUTE", "ZONES", ">>" },
   { "SET", "FILES", "INFO", "DP", "USB", ">>" },
   { "ADD", "EDIT", "DEL", "RL/GC", "HERE", ">>" },
   { "FIX", "SATS", "NAV", "BOW", "GPSSET", ">>" },
+  { "WPTS", "LOAD", "SAVE", "NEW", "", ">>" },          /* your waypoints, the routes' library (/NAV47/ROUTES) */
 };
 static const char *FILE_MENU[6] = { "TID", "FLW", "CLEAR", "WPTS", "LOAD", "BACK" };
 static int wpdb_back = PG_ROUTE;
@@ -622,7 +623,7 @@ static void redraw(void) {
   MENUS[0][2] = page == PG_VSKY ? "SKY2" : "SKY";
   CHART_MENU[3] = chart_globe ? "MERC" : "GLOBE";
   VOY_MENU[0] = voy_play ? "PAUSE" : "PLAY";
-  lcd_draw_menu_keys(page == PG_WPDB ? (const char **)wpdb_menu() : page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0 || (page == PG_DPIN && dp_editing()) || (IS_GPS(page) && gps_editing())) ? EDIT_MENU :
+  lcd_draw_menu_keys(page == PG_ROUTE && rlib_active() ? (const char **)rlib_menu() : page == PG_WPDB ? (const char **)wpdb_menu() : page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0 || (page == PG_DPIN && dp_editing()) || (IS_GPS(page) && gps_editing())) ? EDIT_MENU :
                      page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : page == PG_VOY ? VOY_MENU : page == PG_ETA ? ETA_MENU : page == PG_ETAT ? ETAT_MENU : page == PG_DP ? DP_MENU : page == PG_DPIN ? DPIN_MENU : page == PG_DPABS ? ABS_MENU : MENUS[menu_page]);
   lcd_refresh();
   lcd_refresh_wait();        /* the LCD goes out by DMA: done before the next frame clears the buffer (no flicker) */
@@ -648,6 +649,7 @@ static void key_edit(int key) {
 void go(int p) { page = p; vframe = 0; }
 
 static void softkey(int fn) {
+  if (page == PG_ROUTE && rlib_active()) { rlib_key(KEY_F1 + fn); return; }   /* the library asks: its name's letters, YES / NO */
   if (page == PG_FILES) {
     if (fn == 0 || fn == 1) {
       check_create_dir(TIDEDIR);
@@ -720,7 +722,7 @@ static void softkey(int fn) {
   }
   if (fn == 5) {                                       /* >> */
     /* the rows: 0 1 2, the GPS's (4), then ROUTE's own (3) on ROUTE */
-    menu_page = menu_page == 3 ? 0 : menu_page == 2 ? 4 : menu_page == 4 ? (page == PG_ROUTE ? 3 : 0) : menu_page + 1;
+    menu_page = menu_page == 3 ? 0 : menu_page == 2 ? 4 : menu_page == 4 ? 5 : menu_page == 5 ? (page == PG_ROUTE ? 3 : 0) : menu_page + 1;
     return;
   }
   switch (menu_page * 6 + fn) {
@@ -745,12 +747,17 @@ static void softkey(int fn) {
   case 21: N->cfg.gc = (N->cfg.gc + 1) % 3; route_save(); break;
   case 22: route_insert(N->cfg.lat, N->cfg.lon); route_save(); break;
   case 24: case 25: case 26: case 27: case 28: go(PG_GFIX + fn); menu_page = 4; break;   /* FIX SATS NAV BOW GPSSET */
+  case 30: wpdb_back = page == PG_WPDB ? PG_ROUTE : page; wpdb_open(0); go(PG_WPDB); break;   /* WPTS */
+  case 31: rlib_load(); wait_for_key_release(-1); go(PG_ROUTE); menu_page = 5; break;   /* LOAD a route */
+  case 32: go(PG_ROUTE); menu_page = 5; rlib_save_start(); break;               /* SAVE it by name */
+  case 33: go(PG_ROUTE); menu_page = 5; rlib_new_start(); break;                /* NEW: an empty route */
   }
 }
 
 void step_time(double hours) { toff += hours; }
 
 static void handle_key(int key) {
+  if (page == PG_ROUTE && rlib_active() && key != KEY_SHIFT) { rlib_key(key); return; }
   if (key == KEY_SHIFT) { shift = !shift; return; }
   if (shift) {
     shift = 0;

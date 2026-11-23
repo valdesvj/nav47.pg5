@@ -31,6 +31,7 @@
 #include "navctx.h"
 #include "objects.h"
 #include "wpdb.h"
+#include "alpha.h"
 
 #define DIR       "/NAV47"
 #define TIDEDIR   "/NAV47/TIDES"
@@ -179,6 +180,14 @@ void draw_etat(void);
 void etat_key(int key);
 void voy_tick(void);
 void voy_open(int back);
+extern char route_name[24];
+int  rlib_active(void);                   /* the routes' library asks (ROUTE: SAVE's name, replace?, NEW?) */
+int  rlib_key(int key);
+int  rlib_draw(void);
+const char *const *rlib_menu(void);
+void rlib_save_start(void);
+void rlib_new_start(void);
+void rlib_load(void);
 
 /* dp_ui.c: DP OPS, ABS SKP, INPUT */
 void dp_enter(void);

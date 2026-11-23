@@ -38,8 +38,15 @@ The soft keys **F1–F6** follow the menu at the bottom of the screen. **`>>`** 
 | 2 | ANIM | T&F | TIDE | ROUTE | ZONES |
 | 3 | SET | FILES | INFO | DP | USB |
 | 4 | FIX | SATS | NAV | BOW | GPSSET |
+| 5 | WPTS | LOAD | SAVE | NEW | |
 
-On ROUTE a fifth row edits the route: ADD, EDIT, DEL, RL/GC, HERE.
+On ROUTE another row edits the route: ADD, EDIT, DEL, RL/GC, HERE.
+
+Row 5, your routes (`/NAV47/ROUTES/`): **WPTS** your waypoints' list; **LOAD** a route from the list of files (it
+becomes the route, `/NAV47/ROUTE.TXT`); **SAVE** the route by name (up to 8 letters, digits, `-`, typed as in WPTS:
+F1–F6 a group, then the letter; ENTER; an existing file asks before it is replaced): `/NAV47/ROUTES/NAME.TXT`;
+**NEW** an empty route (ENTER yes, EXIT no). The route's name shows in ROUTE's top bar; the web page's routes carry
+theirs (`NAME` in ROUTE.TXT).
 
 | Key | Everywhere |
 |---|---|

@@ -12,6 +12,7 @@
 #include "objects.h"
 #include "navctx.h"
 #include "wpdb.h"
+#include "alpha.h"
 
 #define D2R  (M_PI / 180)
 #define VIS  10
@@ -23,16 +24,14 @@ typedef struct { short k; float nm, brg; } Row;            /* k >= 0 a waypoint,
 static Wp *W;
 static int NW, cur, top, pick, sortn = 1, objs = 1, rows_n;
 static Row *rows;
-/* editing: 0 the name, 1 the latitude, 2 the longitude; group: the letters' group chosen (-1 none) */
-static int edit = -1, eidx, elen, group = -1, enew;
+/* editing: 0 the name (alpha.c), 1 the latitude, 2 the longitude */
+static int edit = -1, eidx, elen, enew;
+static Alpha A;                                             /* the name, typed (alpha.c) */
 static char ebuf[WP_NAME + 4];
 static double elat;
 static char msg[40];
 
-static const char *const GROUPS[6] = { "ABCDE", "FGHIJ", "KLMNO", "PQRST", "UVWXY", "Z-/. " };
 static const char *MENU[6] = { "ADD", "EDIT", "DEL", "SORT", "ROUTE", "BACK" };
-static const char *EMENU[6];
-static char emenu_txt[6][8];
 
 /* ------------------------------------------------------------------ the file */
 static void save(void) {
@@ -149,7 +148,7 @@ static void build(void) {
 
 void wpdb_open(int pk) {
   wpdb_init();
-  pick = pk; edit = -1; group = -1; msg[0] = 0;
+  pick = pk; edit = -1; msg[0] = 0;
   build();
 }
 
@@ -189,7 +188,7 @@ void wpdb_draw(void) {
     const char *nm;
     row_pos(&rows[i], &la, &lo, &nm);
     int editing = edit >= 0 && i == cur;
-    if (editing && edit == 0) sprintf(s, "%s_", ebuf); else snprintf(s, sizeof s, "%s%s", nm, rows[i].k < 0 ? "*" : "");
+    if (editing && edit == 0) sprintf(s, "%s_", A.buf); else snprintf(s, sizeof s, "%s%s", nm, rows[i].k < 0 ? "*" : "");
     if (i == cur) nt_inv(4, y, s); else nt(4, y, s);
     if (editing && edit == 1) { sprintf(a, "%s_", ebuf); nt_r(190, y, a); }
     else { fmt_ll(a, editing && edit == 2 ? elat : la, 1); nt_r(190, y, a); }
@@ -199,7 +198,7 @@ void wpdb_draw(void) {
     nt_r(396, y, s);
   }
   const char *h;
-  if (edit == 0) h = group < 0 ? "NAME: F1-F6 letters  digits  <- del  ENTER" : "the letter: F1-F5  F6 the groups";
+  if (edit == 0) h = alpha_help(&A);
   else if (edit == 1) h = "LAT DD.MMm  +/- SOUTH  ENTER (empty: as is)";
   else if (edit == 2) h = "LON DDD.MMm  +/- WEST  ENTER";
   else if (msg[0]) h = msg;
@@ -210,14 +209,7 @@ void wpdb_draw(void) {
 }
 
 const char *const *wpdb_menu(void) {
-  if (edit == 0) {
-    for (int i = 0; i < 6; i++) {
-      if (group < 0) EMENU[i] = GROUPS[i];
-      else if (i < 5) { char c = GROUPS[group][i]; emenu_txt[i][0] = c == ' ' ? '_' : c; emenu_txt[i][1] = 0; EMENU[i] = emenu_txt[i]; }
-      else EMENU[i] = "ABC..";
-    }
-    return EMENU;
-  }
+  if (edit == 0) return alpha_menu(&A);
   if (edit > 0) { static const char *E[6] = { "", "", "", "", "", "CANCEL" }; return E; }
   MENU[4] = pick ? "PICK" : "ROUTE";
   return MENU;
@@ -225,9 +217,8 @@ const char *const *wpdb_menu(void) {
 
 static void start_edit(int fresh) {
   if (!rows_n || rows[cur].k < 0) { strcpy(msg, "an object: edit it in OBJECTS.CSV"); return; }
-  eidx = rows[cur].k; edit = 0; group = -1; enew = fresh;
-  if (fresh) ebuf[0] = 0; else strcpy(ebuf, W[eidx].name);   /* new: typed from empty (ENTER keeps WPnnn) */
-  elen = (int)strlen(ebuf);
+  eidx = rows[cur].k; edit = 0; enew = fresh;
+  alpha_start(&A, fresh ? "" : W[eidx].name, WP_NAME - 1, 0);   /* new: typed from empty (ENTER keeps WPnnn) */
 }
 
 static void del(int k) {
@@ -254,20 +245,9 @@ static int edit_key(int key) {
     edit = -1; build(); return 1;
   }
   if (edit == 0) {
-    if (key >= KEY_F1 && key <= KEY_F6) {
-      int f = key - KEY_F1;
-      if (group < 0) group = f;
-      else if (f == 5) group = -1;
-      else { if (elen < WP_NAME - 1) { ebuf[elen++] = GROUPS[group][f]; ebuf[elen] = 0; } group = -1; }
-      return 1;
-    }
-    if (d >= 0 && elen < WP_NAME - 1) { ebuf[elen++] = (char)('0' + d); ebuf[elen] = 0; return 1; }
-    if (key == KEY_DOT && elen < WP_NAME - 1) { ebuf[elen++] = '.'; ebuf[elen] = 0; return 1; }
-    if (key == KEY_BSP) { if (elen) ebuf[--elen] = 0; return 1; }
-    if (key == KEY_ENTER) {
-      if (elen) clean_name(W[eidx].name, ebuf);
+    if (alpha_key(&A, key) == 1) {
+      if (A.len) clean_name(W[eidx].name, A.buf);
       edit = 1; elen = 0; ebuf[0] = 0; elat = W[eidx].lat;
-      return 1;
     }
     return 1;
   }
