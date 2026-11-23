@@ -1,0 +1,49 @@
+# port_aliases.csv - the common English names of ports the World Port Index writes otherwise (NAV47's own list:
+# public, no third-party data). common,WPI name,country. tools/gen_ports.py adds them; the page searches both.
+common,wpi,country
+Dubai,Dubayy,AE
+Jebel Ali,Mina Jabal Ali,AE
+Abu Dhabi,Abu Zaby,AE
+Sharjah,Ash Shariqah,AE
+Fujairah,Fujayrah Harbor,AE
+Khor Fakkan,Khawr Fakkan,AE
+Ras Al Khaimah,Mina Saqr,AE
+Mesaieed,Umm Said,QA
+Sitra,Sitrah,BH
+Kuwait,Mina Al Ahmadi,KW
+Basra,Al Basrah,IQ
+Muscat,Mina Qabus,OM
+Sohar,Port Of Sohar,OM
+Salalah,Mina Raysut,OM
+Jeddah,Jiddah,SA
+Jubail,Al Jubayl,SA
+Ras Tanura,Ras Tannurah,SA
+Juaymah,Ju Aymah Oil Terminal,SA
+Juaymah LPG,Ju Aymah Lpg Terminal,SA
+Suez,As Suways,EG
+Port Said,Bur Said (Port Said),EG
+Alexandria,Al Iskandariyh (Alexandria),EG
+Aqaba,Al Aqabah,JO
+Beirut,Bayrut,LB
+Piraeus,Piraievs,GR
+Genoa,Genova,IT
+Venice,Porto Di Lido-Venezia,IT
+Naples,Napoli,IT
+Lisbon,Lisboa,PT
+Antwerp,Antwerpen,BE
+Gothenburg,Goteborg,SE
+Copenhagen,Kobenhavn,DK
+Le Havre,Port Of Le Havre,FR
+Dunkirk,Dunkerque Port Est,FR
+Mumbai,Mumbai (Bombay),IN
+Chennai,Chennai (Madras),IN
+Kolkata,Calcutta,IN
+Singapore,Keppel - (East Singapore),SG
+Ho Chi Minh City,Thanh Ho Chi Minh,VN
+Qingdao,Qingdao Gang,CN
+Tianjin,Tianjin Xin Gang,CN
+Busan,Pusan,KR
+Tokyo,Tokyo Ko,JP
+Yokohama,Yokohama Ko,JP
+Colon,Puerto Cristobal,PA
+New York,New York City,US
