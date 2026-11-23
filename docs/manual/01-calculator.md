@@ -256,6 +256,9 @@ vessel placed STANDOFF metres off a face, and working limits on the thrusters.
 | **1** | side to: parallel to the face, or within ± TOL |
 | **.** | **ABS SKP** |
 
+BEST and ABS SKP can take a while on the calculator: **any key stops them**. A stopped BEST keeps the best of the
+headings tried so far ("BEST stopped", no wind limit); a stopped ABS SKP goes back to DP OPS ("ABS stopped").
+
 ### ABS SKP
 
 ![ABS SKP](img/calc_abs.png)
