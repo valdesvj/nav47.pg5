@@ -97,9 +97,12 @@ K int api_plan(int nwp, int sail, double lim, int split, double val) {
 
 /* ---------------------------------------------------------------- the almanac */
 static Al al;
+static double WEB_DUT1;                       /* the page's UT1 - UTC (s); the Calculator tab's own is its SET DUT1 */
+K void api_set_dut1(double s) { WEB_DUT1 = s; }
 /* OUT: 64 bodies x (gha dec hc zn): the Sun, the Moon, Venus Mars Jupiter Saturn, stars 1..58;
  * then [256..] times NTWA RISE TRAN SET NTWP (hours of the shown day), illum, age, sun SD, moon HP, moon SD, aries */
 K int api_alm(double jd, double lat, double lon, double tz) {
+  view_dut1 = WEB_DUT1;                       /* the almanac at UT1 = UTC + DUT1 */
   al_compute(&al, jd, lat, lon, tz);
   double g, d, sha, hc, zn;
   int k = 0;

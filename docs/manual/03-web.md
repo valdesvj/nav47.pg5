@@ -71,7 +71,7 @@ field's route 30 times faster).
 | | |
 |---|---|
 | ![Almanac](img/web_almanac.png) | ![Sky](img/web_sky.png) |
-| **Almanac**: the Sun, the Moon, the planets and the stars above 10°: GHA, Dec, Hc, Zn; the Sun's day; the Moon's phases. | **Sky**: the dome from the DR, and the brightest stars for sights. |
+| **Almanac**: the Sun, the Moon, the planets and the stars above 10°: GHA, Dec, Hc, Zn; the Sun's day; the Moon's phases; **DUT1** (UT1 − UTC) typed or **From IERS** (online: IERS data through CelesTrak), for the calculator's SET. | **Sky**: the dome from the DR, and the brightest stars for sights. |
 | ![Tide](img/web_tide.png) | ![Zones](img/web_zones.png) |
 | **Tide**: the public stations, NOAA's current stations and your own `.TID` files: the day's curve, high and low waters (or the streams); **Auto**: the station nearest the DR. | **Zones**: the dot map in 24 columns of 15°, each zone's places and their local and summer time now. |
 

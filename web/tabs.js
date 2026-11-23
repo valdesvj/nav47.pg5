@@ -10,6 +10,32 @@ const TABS2 = (() => {
   const ns = v => (v < 0 ? "S " : "N ") + F().dm(v, 2);
   const daylight = hc => hc > 0 ? "DAY" : hc > -12 ? "TWILIGHT" : "NIGHT";
   let starNames = null, bright = null;
+  /* DUT1 = UT1 - UTC (s): the page's clock is UTC, the almanac computed at UT1. From IERS (Bulletin A, daily, with a
+     year of predictions) through CelesTrak's EOP file, the one copy a page may read (it allows any page: CORS) */
+  const DKEY = "nav47web:dut1", DSRC = "nav47web:dut1src";
+  const dut1 = () => { const v = parseFloat(localStorage.getItem(DKEY)); return isFinite(v) && Math.abs(v) <= 0.9 ? v : 0; };
+  const EOP_URL = "https://celestrak.org/SpaceData/EOP-Last5Years.txt";
+  async function fetchDut1() {
+    const st = document.getElementById("dut1st"); if (st) st.textContent = "asking CelesTrak (IERS data)…";
+    try {
+      const t = await (await fetch(EOP_URL, { cache: "no-store" })).text();
+      const d = new Date((jd() - 2440587.5) * 864e5), key = `${d.getUTCFullYear()} ${String(d.getUTCMonth() + 1).padStart(2, "0")} ${String(d.getUTCDate()).padStart(2, "0")}`;
+      const lines = t.split("\n"), i = lines.findIndex(l => l.startsWith(key + " ")), endObs = lines.findIndex(l => l.startsWith("END OBSERVED"));
+      if (i < 0) throw new Error("no line for " + key);
+      const v = parseFloat(lines[i].trim().split(/\s+/)[6]), upd = (t.match(/^UPDATED (.*)$/m) || [, "?"])[1];
+      if (!isFinite(v) || Math.abs(v) > 0.9) throw new Error("not a DUT1: " + v);
+      localStorage.setItem(DKEY, v.toFixed(4));
+      localStorage.setItem(DSRC, `IERS ${i < endObs ? "observed" : "predicted"} for ${key.replace(/ /g, "-")} (CelesTrak, updated ${upd})`);
+    } catch (e) { localStorage.setItem(DSRC, "could not get it (offline?): " + e.message); }
+    almanac();
+  }
+  /* into the Calculator tab's NAV47.CFG (its SET DUT1), and the tab restarts with it */
+  function dut1ToCalc() {
+    const k = "nav47fs:/simdisk/NAV47/NAV47.CFG", v = dut1().toFixed(3);
+    let c = localStorage.getItem(k) || "NAV47 CFG 1\n";
+    c = /^DUT1 /m.test(c) ? c.replace(/^DUT1 .*$/m, "DUT1 " + v) : c.replace(/\n?$/, "\nDUT1 " + v + "\n");
+    CALC.putAndRestart("NAV47.CFG", c);
+  }
   function stars() {
     if (!starNames) {
       starNames = Array.from({ length: 58 }, (_, i) => N().str(Module._api_star_name(i + 1)));
@@ -20,6 +46,7 @@ const TABS2 = (() => {
   function bodies() {
     stars();
     const [lat, lon] = S().pos;
+    Module._api_set_dut1(dut1());
     Module._api_alm(jd(), lat, lon, off());
     const o = N().o(), out = [];
     for (let k = 0; k < 64; k++) {
@@ -37,7 +64,9 @@ const TABS2 = (() => {
 
   /* ---------------------------------------------------------------- Almanac */
   function almanac() {
-    const A = bodies(), b = A.b, sun = b[0], el = document.getElementById("t-almanac");
+    const el = document.getElementById("t-almanac"), a = document.activeElement;
+    if (el && a && a.id === "dut1in" && el.contains(a)) return;      /* typing DUT1: the 5 s redraw waits */
+    const A = bodies(), b = A.b, sun = b[0];
     const row = x => `<tr class="${x.hc < 0 ? "dim" : ""}"><td>${SYM[x.name] || "★"} ${x.name}${x.n > 0 ? ` <span class="meta">${x.n === 58 ? "" : x.n}</span>` : ""}</td>
       <td class="num mono">${F().dm(x.gha, 3)}</td><td class="num mono">${ns(x.dec)}</td><td class="num mono">${(x.hc < 0 ? "−" : "") + F().dm(x.hc)}</td>
       <td class="num mono">${x.zn.toFixed(1).padStart(5, "0")}°</td></tr>`;
@@ -56,7 +85,16 @@ const TABS2 = (() => {
       ${next.map(([t, k]) => `<tr><td>${k}</td><td class="num mono">${F().dt(t, off())} ${lab()}</td></tr>`).join("")}</table></div>
       <div><h3>Stars above 10°, the brightest first</h3><div class="scroll" style="max-height:640px"><table><tr><th>Star</th><th class="num">GHA</th><th class="num">Dec</th><th class="num">Hc</th><th class="num">Zn</th></tr>
       ${st.map(row).join("")}</table></div></div></div>
+      <h3 style="margin-top:10px">UT1 − UTC (DUT1)</h3>
+      <div class="controls"><label>DUT1 <input class="num" id="dut1in" type="number" min="-0.9" max="0.9" step="0.01" value="${dut1().toFixed(2)}" style="width:80px"> s</label>
+       <button id="dut1get">From IERS (online)</button><button id="dut1calc">To the Calculator tab</button></div>
+      <div class="meta"><span id="dut1st">${localStorage.getItem(DSRC) || "typed, or 0"}</span>. The clock is UTC; the almanac is computed at UT1 = UTC + DUT1
+       (0.1 s moves every GHA 1.5″). On the DM42n: <b>SET → DUT1 ${dut1() >= 0 ? "+" : ""}${dut1().toFixed(2)}</b>. The time signals broadcast it to 0.1 s; IERS publishes it daily. To check against the Nautical Almanac at a tabulated time, use 0: its argument is already UT1.</div>
       <div class="meta">The calculator's own almanac (Almanac 47: VSOP87D, IAU1980, Meeus + DE421 fit). Not for navigation: check against the Nautical Almanac.</div></div>`;
+    const inp = document.getElementById("dut1in");
+    inp.onchange = () => { const v = parseFloat(inp.value); if (isFinite(v) && Math.abs(v) <= 0.9) { localStorage.setItem(DKEY, v.toFixed(4)); localStorage.setItem(DSRC, "typed"); } inp.blur(); almanac(); };
+    document.getElementById("dut1get").onclick = fetchDut1;
+    document.getElementById("dut1calc").onclick = dut1ToCalc;
   }
 
   /* ---------------------------------------------------------------- Sky: the dome */
