@@ -7,7 +7,8 @@ Your objects, routes and settings stay in the browser (localStorage). Nothing is
 tab when you switch it on.
 
 - [Route](#route): plan, check, voyage
-- [Route · Live](#route--live-the-route-with-the-gps): the route monitored with the GPS
+- [Live](#live-navigating-with-the-gps): the route monitored with the GPS
+- [Flight, Helicopter, Supply](#flight-helicopter-supply): airport to airport; the field's helidecks and supply runs, the shortest round trips
 - [GPS](#gps)
 - [Almanac, Sky, Tide, Flow, Zones, Weather, DP](#the-other-tabs)
 - [Calculator](#calculator)
@@ -44,7 +45,7 @@ what they are. The GPS tab's raw sentences are folded: **Show the last sentences
 | **Port to port** | the world's ports (NGA's World Port Index) along the sea lanes (Eurostat SeaRoute's network): find ports by any of their names (Dubai or the index's Dubayy; with NGA's CSV also the UN/LOCODE, AEDXB), or click them on the chart (the ports' layer); a voyage of several ports, days in each; Suez, Panama, the Arctic passages on or off, and for a canal used the distance without it; speed, the fuel in t/day at a service speed (× (speed / service speed)³) and in port, the ETD: each leg's miles, days, fuel, departure and arrival, the voyage's totals; drawn on the chart (**Fit the voyage**: Mercator or the globe); **To the route**: the lanes' turning points as your waypoints (within a few minutes, 99 at most, a shortcut over land avoided), so to the calculator as ROUTE.TXT; **PORTS.CSV** for the calculator; the miles inside the **Emission Control Areas** each leg (green on the chart) and the low-sulphur fuel they take: Baltic, North Sea, Mediterranean (from May 2025) by MARPOL's defining lines, North America and the US Caribbean approximate (±30 NM). For planning, not for navigation: the lanes are simplified (20 km), a published distance table may differ by a few percent |
 | **Check** | the route against the coastline (Natural Earth 50 m) and your zones: the closest pass, legs over land or into a zone in red |
 | **Plan** | every point: course to steer, leg, cumulative distance, ETA. **CSV**, **NMEA**, **GPX**, **ROUTE.TXT**, **WAYPTS.CSV**; **To the calculator** sends the route and your objects to the Calculator tab |
-| **Voyage** | speed, departure, arrival (typed: the speed it needs); **Play** sails the plan with the Mermaid Asiana; the ETA at slower speeds |
+| **Voyage** | speed (a vessel: 1 to 100 kn; flights have their own tab), departure, arrival (typed: the speed it needs); **Play** sails the plan with the Mermaid Asiana; the ETA at slower speeds. Over 30 kn the bridge has a word to say, once |
 | **Objects** | your platforms, rigs, wellheads, SPMs, wrecks, buoys, lights and ports: add them on the chart, or load a CSV, GeoJSON, GPX or KML; each zone can be changed; a platform can have its outline (orientation, sides). **🔒 Objects locked** (the chart's toolbar, on at first): they cannot be dragged, edited or deleted, only the waypoints change; From / To / ＋WP still work |
 | **Compare** | great circle, rhumb line and composite on each ellipsoid |
 
@@ -70,6 +71,23 @@ While the GPS is live the Voyage player waits: there is one vessel on the chart,
 
 To see it with no hardware: open `web/index.html#tab=live&ex=field&gpsdemo&gpsx=30` (the demo sails the example
 field's route 30 times faster).
+
+## Flight, Helicopter, Supply
+
+Three planning views on the same chart (its route and tools step aside; **Fit** fits the view's own route). Each
+finds its order of stops by itself (**shortest**: exact up to 13 stops, then a good one) or keeps yours (**my
+order**), and lists every leg with its distance, time and ETA under the chart.
+
+![Flight](img/web_flight.png)
+
+| | |
+|---|---|
+| **Flight** | airport to airport: the world's large and medium airports (OurAirports, public domain), found by name, city, ICAO or IATA code (Dubai, OMDB, DXB), or clicked on the chart (zoomed in, the medium ones too); as many as you like, ↑ ↓ ✕, **Reverse**; the cruise speed, the time on the ground at each stop, the departure: each leg's initial course, NM, flight time, departure and arrival, the totals. Great circles: no airways, wind or climb. `#tab=flight&fl=DXB,LHR,JFK` opens with a flight |
+| **Helicopter** | from **Ras Tanajib** or **Ras Tanura** (their airports and heliports, OurAirports) to the field's helidecks: your **ACP** platforms (the accommodation platforms: ACP in the name) and your **rigs** (objects of the type Rig). Tick them, or click them on the chart (a ring marks each helideck). The round trip: from the base, every deck, back to the base, in the order of least flying. Cruise 140 kn, endurance 2 h 30 with a 30 min reserve, 10 min on each deck, 20 min to refuel (all to change). Every ACP refuels: where the endurance less the reserve would not reach the next deck and then fuel, it refuels on the deck it is on, or turns aside to the best ACP on the way; ⛽ on the chart and in the table. The totals: decks, NM, flying time, the time in all, back at the base |
+| **Supply** | a supply vessel from **Tanajib** (the marine port) or **Ras Tanura** round your platforms (find them by name, or click them on the chart): the schedule of least steaming, back to the base; 12 kn, 2 h alongside each (each its own, typed in the table); **a trip at most** so many hours: the schedule split into trips, home between them. **To the route**: the schedule into the Route tab, its legs planned round the zones (a little longer than the straight miles here), so to the calculator as ROUTE.TXT |
+
+The platforms are yours: the Route tab's **Objects** card (a CSV of your field), kept in this browser and never
+sent anywhere; nothing of them is in the page or the repository.
 
 ## GPS
 

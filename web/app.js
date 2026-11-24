@@ -546,12 +546,11 @@ function check(rows, zones, warn) {
                 pass: Infinity, passObj: null, passLeg: 0, end: Infinity, endObj: null };   /* pass: the zones passed (R.clear); end: the waypoints' own objects (R.margin) */
   const own = new Set(S.route.wps.map(w => w.obj).filter(Boolean));
   if (rows.length < 2) return out;
-  /* land: for a vessel; a flight (100 kn or more) passes over it */
-  out.flight = S.route.speed >= 100;
+  /* land: the Route tab plans a vessel (flights: the Flight tab) */
   const ports = S.objects.filter(o => o.type === "port"), first = rows[0], last = rows[rows.length - 1];
   const exempt = p => NAV.inv(p[0], p[1], first.lat, first.lon).s < 3000 || NAV.inv(p[0], p[1], last.lat, last.lon).s < 3000 ||
     ports.some(o => NAV.inv(p[0], p[1], o.lat, o.lon).s < 3000);
-  for (let i = 1; i < rows.length && !out.flight; i++) {
+  for (let i = 1; i < rows.length; i++) {
     const a = rows[i - 1], b = rows[i], k = rows[i].kind !== "G";   /* each leg as it is planned: G a geodesic, else a rhumb line */
     const n = Math.max(2, Math.min(600, Math.ceil(rows[i].leg / 2000)));
     const X = landCrossings(sailPts(a, b, n, k), exempt);
@@ -907,6 +906,10 @@ function draw() {
   const which = drawCoast();
   if (V.mode === "globe") { g.beginPath(); g.arc(CH.W / 2, CH.H / 2, V.k, 0, 2 * Math.PI); g.strokeStyle = css("--soft"); g.lineWidth = 1.5; g.stroke(); }
   drawStreams();
+  if (altTab()) {                                            /* Flight, Helicopter, Supply: their layer, no route */
+    if (S.tab !== "flight") for (const o of S.objects) drawObj(o, false);
+    VIEWS.drawLayer(g);
+  } else {
   if (typeof PORTSUI !== "undefined") PORTSUI.drawLayer(g);  /* the world's ports, the port-to-port voyage */
   for (const o of S.objects) drawObj(o, S.sel && S.sel.t === "o" && S.sel.id === o.id);
   /* the route */
@@ -956,8 +959,9 @@ function draw() {
   });
   { const [x, y, v] = proj(S.pos[0], S.pos[1]); if (v) { g.strokeStyle = css("--now"); g.lineWidth = 2; g.beginPath(); g.moveTo(x - 8, y); g.lineTo(x + 8, y); g.moveTo(x, y - 8); g.lineTo(x, y + 8); g.stroke(); } }
   const gpsLive = typeof LIVE !== "undefined" && LIVE.active();   /* the GPS's vessel: the only one then */
-  if (VOY.on && !gpsLive) { const p = VOY.at(); if (p) drawVessel(p.lat, p.lon, p.crs, R.speed >= 100, !VOY.playing && (VOY.t <= 0 || VOY.t >= 1)); }
+  if (VOY.on && !gpsLive) { const p = VOY.at(); if (p) drawVessel(p.lat, p.lon, p.crs, false, !VOY.playing && (VOY.t <= 0 || VOY.t >= 1)); }
   if (typeof LIVE !== "undefined") LIVE.drawChart(g);         /* the GPS: the vessel, her track, the XTE limits (live.js) */
+  }
   /* the scale and the corner */
   g.font = "12px system-ui"; g.fillStyle = css("--soft");
   const la0 = unproj(CH.W / 2, CH.H / 2);
@@ -1013,7 +1017,7 @@ function hud() {
   if (!VOY.on || ROUTE.plan.rows.length < 2 || (typeof LIVE !== "undefined" && LIVE.active())) { h.hidden = true; return; }
   h.hidden = false;
   const p = VOY.at(), H = VOY.hours(), gone = H * VOY.t, etd = VOY.etd(), off = zd(), lab = off ? "ZT" : "UT";
-  const plane = S.route.speed >= 100;
+  const plane = false;                                          /* the Route tab: a vessel (flights: the Flight tab) */
   if (!BADGE) BADGE = vesselBadge();
   h.innerHTML = `<div style="display:flex;align-items:center;gap:8px;margin-bottom:2px">${plane ? '<span style="font-size:22px">✈</span>' : `<img src="${BADGE}" width="78" height="36" alt="">`}
       <span class="meta">${plane ? "Airliner, 64 m" : `Mermaid Asiana, ${S.route.len || VESSEL.len} m`} · ${VOY.trueScale ? "true scale" : "symbol (too small at this scale)"}</span></div>
@@ -1071,7 +1075,7 @@ function routeTab() {
     S.view.mode = S.view.mode === "merc" ? "globe" : "merc"; S.view.lat0 = c[0]; S.view.lon0 = c[1];
     S.view.k = S.view.mode === "merc" ? CH.W / (s0 * D2R) : (CH.W / 2) / Math.sin(Math.min(89, s0 / 2) * D2R); clampView();
     $("mode").textContent = S.view.mode === "merc" ? "🌍 Globe" : "🗺 Mercator"; save(); draw(); };
-  $("fit").onclick = () => { fitRoute(); save(); draw(); };
+  $("fit").onclick = () => { if (altTab()) VIEWS.fitView(); else fitRoute(); save(); draw(); };
   $("streams").classList.toggle("on", !!S.showStreams);
   $("streams").onclick = () => { S.showStreams = !S.showStreams; store.set("streams", S.showStreams); $("streams").classList.toggle("on", S.showStreams); draw(); };
   $("del").onclick = delSel;
@@ -1105,7 +1109,7 @@ function chartEvents() {
   const xy = e => { const r = cv.getBoundingClientRect(); return [e.clientX - r.left, e.clientY - r.top]; };
   cv.addEventListener("pointerdown", e => {
     cv.setPointerCapture(e.pointerId);
-    const [x, y] = xy(e), h = S.tool === "move" ? hit(x, y) : null;
+    const [x, y] = xy(e), h = S.tool === "move" && !altTab() ? hit(x, y) : null;   /* the other views: no dragging */
     down = { x, y, moved: false, h: h && h.t === "o" && S.lock ? null : h, lat0: S.view.lat0, lon0: S.view.lon0, p0: psi(S.view.lat0) };   /* locked: an object is not dragged, the chart pans */
     if (h) S.sel = h;
   });
@@ -1152,6 +1156,7 @@ function chartEvents() {
   });
 }
 function click(x, y) {
+  if (altTab()) { VIEWS.click(x, y); return; }             /* Flight: an airport; Helicopter, Supply: a platform */
   const p = unproj(x, y);
   if (S.tool === "move") { S.sel = hit(x, y); if (!S.sel && typeof PORTSUI !== "undefined" && PORTSUI.click(x, y)) return; draw(); objList(); return; }
   if (!p) return;
@@ -1302,8 +1307,7 @@ function checkCard() {
   if (rows.length < 2) { el.innerHTML = `<h2>Check</h2><div class="meta">Two waypoints or more make a route.</div>`; return; }
   const zones = zonesOf();
   const chips = [`<span class="chip">${FMT.nm(rows[rows.length - 1].cum)} NM</span>`, `<span class="chip">${ROUTE.pts.length} points, ${rows.length} with the split</span>`];
-  if (c.flight) chips.push(`<span class="chip">✈ a flight (${R.speed} kn): over land allowed</span>`);
-  else if (c.land.length) chips.unshift(`<span class="chip warn">⛔ ${c.land.length} leg${c.land.length > 1 ? "s" : ""} over land</span>`);
+  if (c.land.length) chips.unshift(`<span class="chip warn">⛔ ${c.land.length} leg${c.land.length > 1 ? "s" : ""} over land</span>`);
   else chips.push(`<span class="chip ok">✓ no leg over land</span>`);
   if (zones.length) {
     if (c.hits.length) chips.push(`<span class="chip warn">⚠ ${c.hits.length} leg${c.hits.length > 1 ? "s" : ""} into a zone</span>`);
@@ -1471,7 +1475,7 @@ function loadRouteTxt(t) {
     else if ((m = l.match(/^LIM\s+(-?[\d.]+)/))) R.lim = Math.max(10, Math.min(85, +m[1]));
     else if ((m = l.match(/^SPLIT\s+(\d)\s+(-?[\d.]+)/))) { R.split = Math.min(3, +m[1]); R.val = +m[2]; }
     else if ((m = l.match(/^ELL\s+(\d+)/))) R.ell = Math.min(+m[1], Module._api_ell_count() - 2);
-    else if ((m = l.match(/^SPEED\s+([\d.]+)/))) R.speed = Math.max(1, Math.min(1000, +m[1]));
+    else if ((m = l.match(/^SPEED\s+([\d.]+)/))) R.speed = Math.max(1, Math.min(VMAX, +m[1]));
     else if ((m = l.match(/^ETD\s+([\d.]+)/))) R.etd = +m[1] > 2400000 ? +m[1] : null;
     else if ((m = l.match(/^(-?[\d.]+)[\s,;]+(-?[\d.]+)(?:[\s,;]+(.*))?$/)) && Math.abs(+m[1]) <= 90 && Math.abs(+m[2]) <= 180 && wps.length < 100)
       wps.push({ lat: +m[1], lon: +m[2], name: m[3] ? m[3].trim().replace(/([\s,;]+-?[\d.]+)+$/, "").replace(/^-?[\d.]+$/, "").slice(0, 24) : "", obj: null });   /* extra columns: kept loading */
@@ -1628,15 +1632,28 @@ function cmpCard() {
     <tr><td>Composite ${S.route.lim}°</td><td class="num" colspan="2">${Math.abs(v.lat) > S.route.lim && v.inside ? FMT.nm(csd) + " NM" : "the limit is not reached"}</td></tr></table>
     <div class="meta">Without the zones. Geodesics: GeographicLib; rhumb lines exact on the ellipsoid.</div>`;
 }
+/* a vessel: 100 kn at most; over 30 kn, once a session, a word from the bridge */
+const VMAX = 100;
+function speedEgg(v) {
+  if (!(v > 30) || sessionStorage.getItem("nav47web:egg")) return;
+  sessionStorage.setItem("nav47web:egg", "1");
+  const t = document.createElement("div");
+  t.id = "egg";
+  t.style.cssText = "position:fixed;left:50%;top:18px;transform:translateX(-50%);z-index:50;max-width:560px;background:#111;color:#ffcf33;" +
+    "border:1px solid #ffcf33;border-radius:12px;padding:12px 18px;font:600 15px system-ui;box-shadow:0 6px 24px rgba(0,0,0,.4);cursor:pointer";
+  t.textContent = "I never met a vessel that can do more than 30 knots. You have reached the year of Blade Runner.";
+  t.onclick = () => t.remove(); document.body.append(t); setTimeout(() => t.remove(), 9000);
+}
 function voyCard() {
   const el = $("voycard"); if (!el) return;
   const R = S.route;
   if (ROUTE.plan.rows.length < 2) { el.innerHTML = "<h2>Voyage</h2><div class='meta'>Plan a route first.</div>"; return; }
   const etd = VOY.etd(), H = VOY.hours();
   const iso = new Date(msOf(etd)).toISOString().slice(0, 16);
-  el.innerHTML = `<h2>Voyage <span class="meta">${R.speed >= 100 ? "✈ flight" : "🚢 the Mermaid Asiana"}</span></h2>
-    <div class="controls"><label>Speed <input class="num" id="speed" type="number" min="1" max="1000" step="0.01" value="${(+R.speed).toFixed(2)}"> kn</label>
-      <label ${R.speed >= 100 ? "hidden" : ""}>Length <input class="num" id="vlen" type="number" min="5" max="500" step="1" value="${R.len || 95}"> m</label>
+  if (R.speed > VMAX) R.speed = VMAX;                             /* a route kept from the old flight mode */
+  el.innerHTML = `<h2>Voyage <span class="meta">🚢 the Mermaid Asiana</span></h2>
+    <div class="controls"><label>Speed <input class="num" id="speed" type="number" min="1" max="${VMAX}" step="0.01" value="${(+R.speed).toFixed(2)}"> kn</label>
+      <label>Length <input class="num" id="vlen" type="number" min="5" max="500" step="1" value="${R.len || 95}"> m</label>
       <label>Departure UT <input type="datetime-local" id="etd" value="${iso}" step="60"></label><button id="etdnow" class="small">now</button>
       <label>Arrival UT <input type="datetime-local" id="eta" value="${new Date(msOf(etd + H / 24)).toISOString().slice(0, 16)}" step="60"></label>
       <label title="a new departure keeps the arrival (the speed follows), else the speed (the arrival follows)"><input type="checkbox" id="keepeta" ${S.keepEta ? "checked" : ""}> a new departure keeps the arrival</label></div>
@@ -1653,20 +1670,19 @@ function voyCard() {
         <td>${k ? `<button class="small" data-use="${kn}">use</button>` : ""}</td></tr>`; }).join("")}</table>
     <div class="meta">${FMT.nm(VOY.total())} NM in ${FMT.dur(H)}: arrival ${FMT.dt(etd + H / 24, zd())} ${zd() ? "ZT" : "UT"}. The whole voyage plays in ${VOY.dur} s.</div>`;
   $("vlen").onchange = e => { R.len = Math.max(5, Math.min(500, +e.target.value || 100)); save(); draw(); };
-  $("speed").onchange = e => { const was = R.speed >= 100; R.speed = Math.max(1, Math.min(1000, +e.target.value || 12)); save();
-    if (was !== (R.speed >= 100)) refresh(); else { voyCard(); planCard(); draw(); } };
+  $("speed").onchange = e => { R.speed = Math.max(1, Math.min(VMAX, +e.target.value || 12)); save(); speedEgg(R.speed); voyCard(); planCard(); draw(); };
   $("etd").onchange = e => {
     const t = Date.parse(e.target.value + "Z"); if (!isFinite(t)) return;
     const eta = etd + H / 24, nd = jdOf(t);
     if (S.keepEta) { const h = (eta - nd) * 24, v = VOY.total() / NM / h;
-      if (!(h > 0) || v < 1 || v > 1000) { alert("The departure must be before the arrival (1 to 1000 kn)."); voyCard(); return; }
-      R.speed = v; }
+      if (!(h > 0) || v < 1 || v > VMAX) { alert(`The departure must be before the arrival (1 to ${VMAX} kn).`); voyCard(); return; }
+      R.speed = v; speedEgg(v); }
     R.etd = nd; save(); voyCard(); planCard(); draw(); };
   $("eta").onchange = e => {                                   /* the arrival typed: the speed it needs */
     const t = Date.parse(e.target.value + "Z"); if (!isFinite(t)) return;
     const h = (jdOf(t) - etd) * 24, v = VOY.total() / NM / h;
-    if (!(h > 0) || v < 1 || v > 1000) { alert("The arrival must be after the departure (1 to 1000 kn)."); voyCard(); return; }
-    R.speed = v; if (!R.etd) R.etd = etd; save(); voyCard(); planCard(); draw(); };
+    if (!(h > 0) || v < 1 || v > VMAX) { alert(`The arrival must be after the departure (1 to ${VMAX} kn).`); voyCard(); return; }
+    R.speed = v; speedEgg(v); if (!R.etd) R.etd = etd; save(); voyCard(); planCard(); draw(); };
   $("etastep").value = String(S.etaStep);
   $("etastep").onchange = e => { S.etaStep = +e.target.value; store.set("etaStep", S.etaStep); voyCard(); };
   document.querySelectorAll("[data-use]").forEach(b => b.onclick = () => { R.speed = +b.dataset.use; save(); voyCard(); planCard(); draw(); });
@@ -1681,7 +1697,7 @@ function voyCard() {
 }
 
 /* ---------------------------------------------------------------- the page */
-const TABS = [["route", "Route"], ["live", "Live"], ["weather", "Weather"], ["almanac", "Almanac"], ["sky", "Sky"], ["tide", "Tide"], ["flow", "Flow"], ["zones", "Zones"], ["dp", "DP"], ["gps", "GPS"], ["calc", "Calculator"]];
+const TABS = [["route", "Route"], ["live", "Live"], ["flight", "Flight"], ["heli", "Helicopter"], ["supply", "Supply"], ["weather", "Weather"], ["almanac", "Almanac"], ["sky", "Sky"], ["tide", "Tide"], ["flow", "Flow"], ["zones", "Zones"], ["dp", "DP"], ["gps", "GPS"], ["calc", "Calculator"]];
 /* Live: the navigation, apart from the planning. The bow view, the chart (the Route tab's own card, moved here),
    the live card, the plan's waypoints from the vessel, the GPS's state */
 function liveTab() {
@@ -1695,16 +1711,20 @@ function liveTab() {
     <div class="card" id="livegps"></div>
   </div></div>`;
 }
-const chartTab = () => S.tab === "route" || S.tab === "live";
+const altTab = () => typeof VIEWS !== "undefined" && VIEWS.owns(S.tab);   /* Flight, Helicopter, Supply: their own layer */
+const chartTab = () => S.tab === "route" || S.tab === "live" || altTab();
 function showTab(t) {
   S.tab = t; store.set("tab", t);
   document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
   TABS.forEach(([k]) => $("t-" + k).hidden = k !== t);
-  if (t === "route" || t === "live") {                     /* the one chart into the tab shown */
+  if (typeof VIEWS !== "undefined" && VIEWS.owns(t)) VIEWS.show(t);
+  if (t === "route" || t === "live" || altTab()) {         /* the one chart into the tab shown */
     const slot = $("chartslot-" + t), cc = $("chartcard");
+    if (cc) cc.classList.toggle("alt", altTab());
     if (slot && cc && cc.parentElement !== slot) slot.insertBefore(cc, t === "live" ? $("livestart") : slot.firstChild);
     resize(); draw();
     if (t === "live" && typeof LIVE !== "undefined") { LIVE.card(); LIVE.wpList(); LIVE.gpsBox(); }
+    if (altTab()) VIEWS.card(t);
   }
   else if (t === "calc") CALC.start();
   else if (t === "weather") WX.show();
@@ -1740,7 +1760,7 @@ function header() {
   times.onchange = () => { S.times = times.value; save(); rerender(); };
   setInterval(() => { if (S.live) { show(); if (S.tab !== "route" && S.tab !== "calc") rerender(); } }, 5000);
 }
-function rerender() { if (S.tab === "route") { draw(); planCard(); voyCard(); } else if (S.tab === "live") { draw(); if (typeof LIVE !== "undefined") { LIVE.card(); LIVE.wpList(); LIVE.gpsBox(); } } else if (typeof TABS2 !== "undefined" && TABS2[S.tab]) TABS2[S.tab](); }
+function rerender() { if (S.tab === "route") { draw(); planCard(); voyCard(); } else if (S.tab === "live") { draw(); if (typeof LIVE !== "undefined") { LIVE.card(); LIVE.wpList(); LIVE.gpsBox(); } } else if (altTab()) { VIEWS.table(); draw(); } else if (typeof TABS2 !== "undefined" && TABS2[S.tab]) TABS2[S.tab](); }
 
 /* #test=avoid: random fields, random routes between two objects; every leg checked with exact distances */
 function selfTest() {

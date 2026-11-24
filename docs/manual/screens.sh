@@ -81,6 +81,7 @@ web() {   # web NAME WIDTHxHEIGHT SECONDS HASH
 }
 if [ -n "$CH" ]; then
   web web_live       1400,1320 22 "tab=live&ex=field&gpsdemo&gpsx=30"
+  web web_flight     1400,1000 8  "tab=flight&fl=DXB,LHR,JFK"
   web web_route_plan 1400,1000 8  "tab=route&ex=field"
   web web_gps        1300,1000 12 "tab=gps&gpsdemo"
   web web_almanac    1300,900  6  "tab=almanac"
