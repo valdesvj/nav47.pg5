@@ -99,12 +99,15 @@ int dpo_parse(const char *text, DpPlat *p, char *err, int errn) {
     else if (ieq(key, "SHELTER")) sscanf(s, "%f %f", &p->smin, &p->slen);
     else if (ieq(key, "LOA")) p->loa = (float)atof(s);
     else if (ieq(key, "VESSEL")) snprintf(p->vessel, sizeof p->vessel, "%.39s", s);
-    else if (ieq(key, "LIM")) {
-      if (p->nlim >= MAX_THR) continue;
-      char nm[8] = { 0 };
-      float pc = 100;
-      if (sscanf(s, "%7s %f", nm, &pc) != 2) { snprintf(err, (size_t)errn, "line %d: LIM NAME %%", ln); return -1; }
-      strcpy(p->limname[p->nlim], nm); p->limpct[p->nlim] = pc; p->nlim++;
+    else if (ieq(key, "LIM")) {                          /* LIM NAME %, or several on one line: LIM TUN 30, AZD 45 */
+      for (char *q = s, *e; q; q = e ? e + 1 : NULL) {
+        if ((e = strchr(q, ','))) *e = 0;
+        char nm[8] = { 0 };
+        float pc = 100;
+        if (sscanf(q, " %7s %f", nm, &pc) != 2) { snprintf(err, (size_t)errn, "line %d: LIM NAME %%", ln); return -1; }
+        if (p->nlim >= MAX_THR) continue;
+        strcpy(p->limname[p->nlim], nm); p->limpct[p->nlim] = pc; p->nlim++;
+      }
     } else { snprintf(err, (size_t)errn, "line %d: %s?", ln, key); return -1; }
   }
   if (!have) { snprintf(err, (size_t)errn, "not a NAV47 DPOPS file"); return -1; }
