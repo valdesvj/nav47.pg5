@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """ticon_stations.py - TICON-3's tide gauges worldwide (CC BY 4.0) as NAV47 .TID files.
 
-  python3 tools/ticon_stations.py TIDE47_DIR TICON_3.txt PLACES.geojson OUTDIR [--max N]
+  python3 tools/ticon_stations.py TIDE47_DIR TICON_3.txt PLACES.geojson OUTDIR [--max N]      every area (make ticon)
+  ... --list                          the areas and the regions, with their gauges (fast: nothing written)
+  ... --areas GULF,REDSEA,EU          only these (codes of --list), a file (or a few) each
+  ... --box S N W E NAME              your own rectangle (degrees, W and E -180..180; W > E crosses 180), repeatable
+  ... --pick                          the list, then type the numbers or codes (make ticon-pick)
+  ... --zones DIR                     ZONES47 for the time zones (default ~/opt/zones47)
 
 TICON-3 (Hart-Davis, Dettmering, Seitz 2022, CC BY 4.0, doi:10.1594/PANGAEA.951610): the least-squares harmonic
 constants of the GESLA-3 gauges (cm, Greenwich lags). Converted as Tide 47 converts its TICON-3 ports
@@ -11,9 +16,12 @@ level above LAT. Here the astronomical arguments (V, f) of each day are computed
 
 The coastal and river gauges (GESLA calls many harbours "River"), not the lakes, with a tide of 2 cm or more; gauges within 1 km of each other: the one with the most observations.
 Each named after the nearest place of Natural Earth's populated places (public domain): "Rotterdam NL 12km W".
-TICON gives no time zone: the nautical zone of the longitude (ZD = lon / 15), no summer time.
+The names in plain ASCII (the calculator's font): Male, not Malé.
+TICON gives no time zone: the standard offset of the nearest place's country from ZONES47 (the IANA tz database,
+~/opt/zones47 or --zones DIR; a country of several zones: the one nearest lon / 15); the US summer time in the US,
+Canada and the Bahamas, standard time all year elsewhere. Without ZONES47: the nautical zone (ZD = lon / 15).
 The files go by area, about 200 stations each (the DM42n loads a few at a time): OUTDIR/T<area><n>.TID."""
-import json, math, os, sys
+import json, math, os, sys, unicodedata
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import numpy as np
@@ -31,6 +39,41 @@ AREAS = [  # code, title, test(lat, lon)
     ('XX', 'POLAR AND OTHER', lambda la, lo: True),
 ]
 PER_FILE = 200
+# smaller regions to choose (--areas, --pick): a gauge may be in two of them
+def _med(la, lo): return 30 <= la < 46 and -6 <= lo < 37 or 40 <= la < 48 and 27 <= lo < 42
+def _gulf(la, lo): return 23 <= la < 31 and 47 <= lo < 57
+def _camw(la, lo):                                   # the Pacific side: Mexico, Guatemala to Costa Rica, Panama
+    return (18 <= la < 33 and -118 <= lo < -100 or 13 <= la < 18 and -106 <= lo < -91
+            or 9 <= la < 13 and -92 <= lo < -84.5 or 7 <= la < 9 and -84.5 <= lo < -77)
+REGIONS = [
+    ('GULF', 'ARABIAN GULF', _gulf),
+    ('REDSEA', 'RED SEA, GULF OF ADEN', lambda la, lo: 12 <= la < 30 and 32 <= lo < 44 or 10 <= la < 16 and 42 <= lo < 52),
+    ('ARAB', 'ARABIAN SEA: OMAN, PAKISTAN, W INDIA', lambda la, lo: 5 <= la < 27 and 52 <= lo < 78 and not _gulf(la, lo)),
+    ('BENGAL', 'BAY OF BENGAL, E INDIA', lambda la, lo: 0 <= la < 24 and 78 <= lo < 100),
+    ('EAFR', 'EAST AND SOUTH AFRICA', lambda la, lo: -40 <= la < 10 and 15 <= lo < 60 and not (lo < 25 and la > -30)),
+    ('WAFR', 'WEST AFRICA', lambda la, lo: -30 <= la < 36 and -30 <= lo < 15 and not _med(la, lo)),
+    ('MED', 'MEDITERRANEAN, BLACK SEA', _med),
+    ('IBERIA', 'ATLANTIC IBERIA, BISCAY', lambda la, lo: 36 <= la < 48.5 and -15 <= lo < -1 and not _med(la, lo)),
+    ('NWEUR', 'UK, IRELAND, CHANNEL, NORTH SEA', lambda la, lo: 48.5 <= la < 62 and -15 <= lo < 10),
+    ('BALTIC', 'KATTEGAT, BALTIC', lambda la, lo: 53 <= la < 66 and 10 <= lo < 31),
+    ('NORWAY', 'NORWAY, ICELAND, ARCTIC EUROPE', lambda la, lo: 62 <= la < 75 and -32 <= lo < 45),
+    ('NAEAST', 'US AND CANADA ATLANTIC', lambda la, lo: 24 <= la < 62 and -82 <= lo < -50 and not (la < 31 and lo < -81 and not (la >= 29.5 and lo > -82))),
+    ('CARIB', 'GULF OF MEXICO, CARIBBEAN', lambda la, lo: 7 <= la < 31 and -98 <= lo < -59 and not _camw(la, lo)),
+    ('NAWEST', 'US AND CANADA PACIFIC', lambda la, lo: 30 <= la < 61 and -140 <= lo < -116),
+    ('ALASKA', 'ALASKA, BERING', lambda la, lo: 50 <= la < 72 and (-180 <= lo < -140 or lo >= 170)),
+    ('CAMW', 'MEXICO AND CENTRAL AMERICA PACIFIC', _camw),
+    ('SAM', 'SOUTH AMERICA', lambda la, lo: -57 <= la < 7 and -92 <= lo < -32),
+    ('EASIA', 'CHINA, KOREA, JAPAN, RUSSIA EAST', lambda la, lo: 20 <= la < 62 and 105 <= lo < 165),
+    ('SEASIA', 'SOUTH-EAST ASIA', lambda la, lo: -12 <= la < 20 and 95 <= lo < 135),
+    ('AUS', 'AUSTRALIA, PAPUA', lambda la, lo: -48 <= la < -12 and 105 <= lo < 160 or -12 <= la < -1 and 135 <= lo < 160),
+    ('NZ', 'NEW ZEALAND', lambda la, lo: -53 <= la < -33 and 165 <= lo < 180),
+    ('PACIF', 'PACIFIC ISLANDS, HAWAII', lambda la, lo: -30 <= la < 30 and (lo >= 160 or lo < -120)),
+]
+
+
+def box(s, n, w, e):
+    """a rectangle: w > e crosses 180"""
+    return lambda la, lo: s <= la < n and (w <= lo < e if w <= e else lo >= w or lo < e)
 
 
 def ticon(fn):
@@ -84,6 +127,35 @@ def places(fn):
     return out
 
 
+def country_zones(d):
+    """ZONES47's standard offsets by country code; {} without it"""
+    try:
+        sys.path.insert(0, os.path.join(os.path.expanduser(d), 'python'))
+        import zones
+    except ImportError:
+        return {}
+    out = {}
+    for off, _col, cities in zones.ZONES:
+        for c in cities:
+            if c[1]:
+                out.setdefault(c[1], set()).add(float(off))
+    return out
+
+
+def zone_of(lo, cc, Z):
+    """the time zone (hours) and summer time ('US' or '') of a gauge"""
+    zd = float(max(-12, min(12, round(lo / 15))))
+    offs = Z.get(cc)
+    if not offs:
+        return zd, ''
+    tz = min(offs, key=lambda o: (abs(o - lo / 15), o))
+    return tz, 'US' if cc in ('US', 'CA', 'BS') and tz != -10 else ''   # the US rule: Canada and the Bahamas too
+
+
+def ascii_name(s):
+    return unicodedata.normalize('NFKD', s).encode('ascii', 'ignore').decode()
+
+
 def name_of(la, lo, P):
     a, b = math.radians(la), math.radians(lo)
     best, bd = None, 9.0
@@ -100,8 +172,8 @@ def name_of(la, lo, P):
     else:
         brg = math.degrees(math.atan2(math.sin(b - pb) * math.cos(a), math.cos(pa) * math.sin(a) - math.sin(pa) * math.cos(a) * math.cos(b - pb))) % 360
         s = '%s %s %dkm %s' % (nm, cc, round(km), ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'][int((brg + 22.5) // 45) % 8])
-    s = ' '.join(s.split())
-    return s if len(s) <= 30 else s[:29].rstrip() + '.'
+    s = ' '.join(ascii_name(s).split())
+    return (s if len(s) <= 30 else s[:29].rstrip() + '.'), cc
 
 
 def main():
@@ -126,8 +198,42 @@ def main():
         keep.append(((la, lo, k[2]), v))
     keep = keep[:nmax]
     print(len(st), 'TICON-3 stations,', len(coastal), 'coastal or river with a tide,', len(keep), 'after merging those within 1 km', file=sys.stderr)
+    # the choice: every area (one each), or the regions chosen (a gauge in each that holds it)
+    menu = [(c, t, f) for c, t, f in REGIONS] + [(c, t, f) for c, t, f in AREAS if c != 'XX']
+    count = lambda f: sum(1 for (la, lo, _), _v in keep if f(la, lo))
+    chosen = []
+    if '--box' in a:
+        for i, x in enumerate(a):
+            if x == '--box':
+                s_, n_, w_, e_ = (float(y) for y in a[i + 1:i + 5])
+                nm = a[i + 5].upper()[:6] if i + 5 < len(a) and not a[i + 5].startswith('--') else 'BOX%d' % (len(chosen) + 1)
+                chosen.append((nm, '%s %g..%g N %g..%g E' % (nm, s_, n_, w_, e_), box(s_, n_, w_, e_)))
+    want = a[a.index('--areas') + 1] if '--areas' in a else ''
+    if '--list' in a or '--pick' in a:
+        print('\n  #  CODE    GAUGES  REGION')
+        for i, (c, t, f) in enumerate(menu):
+            if i == len(REGIONS):
+                print('     (the whole areas, as make ticon writes them)')
+            print('%3d  %-7s %5d   %s' % (i + 1, c, count(f), t))
+        if '--list' in a:
+            return
+        want = input('\nthe regions (numbers or codes, a comma between; Enter: none): ').strip()
+    for w in [x.strip().upper() for x in want.split(',') if x.strip()]:
+        hit = [m for i, m in enumerate(menu) if w == m[0] or w == str(i + 1)]
+        if not hit:
+            sys.exit('no region %s (see --list)' % w)
+        if hit[0] not in chosen:
+            chosen.append(hit[0])
+    if ('--areas' in a or '--pick' in a or '--box' in a) and not chosen:
+        sys.exit('no region chosen')
+    if chosen:
+        kept = [k for k in keep if any(f(k[0][0], k[0][1]) for _c, _t, f in chosen)]
+        print(len(kept), 'gauges in', ', '.join(c for c, _t, _f in chosen), file=sys.stderr)
+        keep = kept
     astro = Astro(R)
     P = places(pfile)
+    Z = country_zones(a[a.index('--zones') + 1] if '--zones' in a else '~/opt/zones47')
+    print('time zones:', 'ZONES47, %d countries' % len(Z) if Z else 'none (no ZONES47): lon / 15', file=sys.stderr)
     by = {c[0]: [] for c in AREAS}
     for n, ((la, lo, src), v) in enumerate(keep):
         cons = v['hc']
@@ -136,18 +242,24 @@ def main():
         if not hc or 'M2' not in hc and 'K1' not in hc:
             continue
         z0 = round(float(astro.lat(hc)), 3)
-        tz = float(max(-12, min(12, round(lo / 15))))
-        p = dict(name=name_of(la, lo, P), lat=round(la, 4), lon=round(lo, 4), tz=tz, dst='', datum='LAT', z0=z0,
+        nm, cc = name_of(la, lo, P)
+        tz, dst = zone_of(lo, cc, Z)
+        p = dict(name=nm, lat=round(la, 4), lon=round(lo, 4), tz=tz, dst=dst, datum='LAT', z0=z0,
                  src='TICON-3 %s' % src, hc=hc, kind='tide')
-        for code, title, test in AREAS:
-            if test(la, lo):
-                by[code].append(p); break
+        if chosen:
+            for code, title, test in chosen:
+                if test(la, lo):
+                    by.setdefault(code, []).append(p)
+        else:
+            for code, title, test in AREAS:
+                if test(la, lo):
+                    by[code].append(p); break
         if n % 250 == 0:
             print(n, '/', len(keep), p['name'], file=sys.stderr)
     os.makedirs(out, exist_ok=True)
     total = 0
-    for code, title, test in AREAS:
-        ps = sorted(by[code], key=lambda p: (-p['lat'], p['lon']))
+    for code, title, test in chosen or AREAS:
+        ps = sorted(by.get(code, []), key=lambda p: (-p['lat'], p['lon']))
         if not ps:
             continue
         k = math.ceil(len(ps) / PER_FILE)
@@ -155,7 +267,7 @@ def main():
             part = ps[i * PER_FILE:(i + 1) * PER_FILE]
             fc = '%s%d' % (code, i + 1)
             tl = '%s %d/%d: TICON-3' % (title, i + 1, k) if k > 1 else '%s: TICON-3' % title
-            fn = os.path.join(out, 'T%s.TID' % fc)
+            fn = os.path.join(out, 'T%s.TID' % (fc if k > 1 or not chosen else code))
             open(fn, 'w').write('\n'.join(gen_tides.tid_lines(R, 'T' + fc, tl, part)) + '\n')
             print(fn, len(part), 'stations, %.1f..%.1f N' % (part[-1]['lat'], part[0]['lat']))
             total += len(part)

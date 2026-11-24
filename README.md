@@ -346,6 +346,17 @@ That writes one `.TID` file per region (stations: tides and streams) and `FLOW.F
 DM42n: **>> >> → FILES → TID** (or **FLW**) and choose the file. Loaded files are remembered and reloaded at start;
 CLEAR forgets them. The format is plain text (see `src/tidefile.c`), so you can also write a station by hand.
 
+**C. TICON-3's gauges of the regions you choose** (public, CC BY 4.0; TICON_3.zip in ~/Downloads):
+
+```bash
+make ticon-list                       # the regions (GULF, REDSEA, MED, NWEUR, CARIB...) and their gauges
+make ticon-pick                       # the list, then type the numbers or codes: 1,7,NWEUR
+make ticon-pick AREAS=GULF,REDSEA     # no questions;  BOX="22 30 47 57 MYAREA" your own rectangle
+```
+
+The files go to `build/ticon/pick/T<REGION>.TID` (200 stations a file at most): copy them to `/NAV47/TIDES/` and
+load them with **TID**. Named after the nearest town, the time zone of its country (ZONES47), LAT as the datum.
+
 ## Build
 
 ```bash
