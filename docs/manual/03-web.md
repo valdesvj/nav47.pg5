@@ -156,11 +156,13 @@ side or a set-up button, turns them off; a change of the weather computes them a
 - **To the target** (first row): the **smallest turn** from the present heading that brings the most loaded thruster
   down to the target (25 ± 5 % of full power by default, as the bars, both to change) and holds in the limits; out of
   reach on that side, the least load, said so.
-- **BEST H**: your face and your side, the **smallest turn** from the present heading (within the tolerance of square,
-  parallel or not) that puts **every thruster 5 points under its working limit** (`TUN 30, AZ 40`: the tunnels at
-  25 %, the azimuths at 35 % at most), holding; out of reach on that side: the least loaded, said so.
-- **BEST L**: **every set-up** on the face (side to, stern to, bow to; every face with AUTO): the **least total thrust**
-  (the thrusters' forces added, in tonnes) while holding; it takes that side.
+- **BEST H** (coming into working): your face and your side, the **smallest turn** from the present heading (within
+  the tolerance of square, parallel or not) with **every thruster within its working limit** (`TUN 30, AZ 45`: the
+  tunnels at 30 %, the azimuths at 45 % at most) and 5 points under it; else the smallest turn within the limits (said
+  so); else the least over them, in red (a wider tolerance, or another side).
+- **BEST L**: your face and your side kept, the heading of the **least total thrust** (the thrusters' forces added, in
+  tonnes) while holding: into the weather as far as the tolerance lets her, the azimuths taking it, the tunnels
+  lightly; at the tolerance's edge it says a wider one lets her head more into the weather.
 
 **Working limits**: `TYPE %` or `NAME %`, the types as the vessel file's, DNV-ST-0111's thrusters: `TUN` tunnel, `AZI`
 open azimuth or pod, `AZD` ducted, `PROP` shaft line; `AZ` both azimuths; a thruster by its name over its type

@@ -85,14 +85,15 @@ const DPTAB = (() => {
     if (best && P.bestH) {
       const face = P.face >= 0 ? P.face : P.bestFace >= 0 ? P.bestFace : res ? res.face : 0;
       const from = P.from !== undefined && P.from !== null ? +P.from : 9999;
-      P.hHit = !!Module._api_dp_besth(face, from, 0.05); const r = read();
+      P.hHit = Module._api_dp_besth(face, from, 0.05); const r = read();   /* 2 all 5 under, 1 within, 0 over */
       P.hTurn = from < 999 ? Math.abs(((r.hdg - from) % 360 + 540) % 360 - 180) : null;
       P.hdg = Math.round(r.hdg * 10) / 10; P.bestFace = face;
     }
     if (best && P.bestL) {
       const side = Module._api_dp_bestl(), r = read();
       P.lSum = N().o()[39] / 9.80665;                           /* kN to tonnes */
-      if (side !== P.side) { P.side = side; P.par = false; }    /* her set-up: within the tolerance */
+      { const nom = (r.normal + [0, 90, -90, 180][P.side] + 360) % 360; P.lEdge = Math.abs(((r.hdg - nom) % 360 + 540) % 360 - 180) > +P.tol - 0.5; }
+      void side;                                                /* your face and side kept */
       P.hdg = Math.round(r.hdg * 10) / 10; P.bestFace = r.face; setC(); weather();
     }
     /* To the target (P.bestTarget): on this face and side, the smallest turn from the present heading that brings the
@@ -308,8 +309,10 @@ const DPTAB = (() => {
       ${res ? `<div class="pill ${st[0]}" style="margin:8px 0;padding:6px 10px;border-radius:8px;font-weight:600;background:${st[0] === "ok" ? "#dff3e6" : st[0] === "warn" ? "#fdf0d5" : "#f8dcd8"}">${st[1]}</div>
       <div style="display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;margin:4px 2px 0;font-size:14px">
        <span class="meta">Heading</span><span><b class="mono">${String(Math.round(res.hdg)).padStart(3, "0")}°</b> ${P.bestTarget ? (P.tgtHit ? `to the target: ${Math.round(P.tgtLoad)} % (${P.target} ± ${P.band} %), turned ${Math.round(P.tgtTurn)}°` : `the target ${P.target} ± ${P.band} % not reached on this side: the least load, ${Math.round(P.tgtLoad)} %`)
-         : P.bestH ? (P.hHit ? `BEST H: every thruster 5 points under its limit${P.hTurn !== null ? `, turned ${Math.round(P.hTurn)}°` : ""}` : `BEST H: not reached on this side within ±${P.tol}°: the least loaded`)
-         : P.bestL ? `BEST L: the least total thrust of every set-up, ${P.lSum.toFixed(1)} t` : P.hdg === null ? "the best for this set-up" : "yours"}</span>
+         : P.bestH ? (P.hHit === 2 ? `BEST H: every thruster in its limit and 5 points under${P.hTurn !== null ? `, turned ${Math.round(P.hTurn)}°` : ""}`
+                    : P.hHit === 1 ? `BEST H: every thruster within its limit, not 5 under${P.hTurn !== null ? `, turned ${Math.round(P.hTurn)}°` : ""}`
+                    : `<b style="color:var(--now)">BEST H: over the limits on this side within ±${P.tol}°</b>: the least over (a wider tolerance, or another side)`)
+         : P.bestL ? `BEST L: the least total thrust on this face and side, ${P.lSum.toFixed(1)} t${P.lEdge ? ` (at the ±${P.tol}° limit: a wider tolerance lets her head more into the weather)` : ""}` : P.hdg === null ? "the best for this set-up" : "yours"}</span>
        <span class="meta">Set-up</span><span>off the face looking to <span class="mono">${String(Math.round(res.normal)).padStart(3, "0")}°</span>${P.face < 0 ? " (AUTO: the best face)" : ""}, ${setupName()}, ${res.mid.toFixed(1)} m off</span>
        ${res.mid > +P.standoff + 0.05 ? `<span class="meta">Moved out</span><span>the heading turned: the ${P.side === 0 ? "stern" : P.side === 3 ? "bow" : "middle of the side"} <b>${res.mid.toFixed(1)} m</b> off, the nearest corner ${res.clear.toFixed(1)} m (corners ≥ ${P.mincl} m)</span>` : ""}
        <span class="meta">Wind in the lee</span><span>${res.wleft < 0.999 ? `${Math.round(res.wleft * 100)} % of it reaches her` : "none: all of the wind"}</span>
@@ -330,8 +333,8 @@ const DPTAB = (() => {
        (taller than the vessel: ${P.smin} % of the wind left close in, all of it ${P.slen} heights downwind).</div>` : ""}
       <div class="controls" style="margin-top:8px"><button id="dp_besttgt" class="${P.bestTarget ? "on" : ""}" title="the smallest turn from the present heading that brings the most loaded thruster down to the target">To the target</button>
        <label>${num("target", P.target, 1)} ± ${num("band", P.band, 1)} % of full</label></div>
-      <div class="controls" style="margin-top:6px"><button id="dp_besth" class="${P.bestH ? "on" : ""}" title="this face and side: the smallest turn that puts every thruster 5 points under its working limit">BEST H</button>
-       <button id="dp_bestl" class="${P.bestL ? "on" : ""}" title="every set-up on the face: the least total thrust while holding">BEST L</button>
+      <div class="controls" style="margin-top:6px"><button id="dp_besth" class="${P.bestH ? "on" : ""}" title="this face and side: the smallest turn with every thruster within its working limit, 5 points under it if it can">BEST H</button>
+       <button id="dp_bestl" class="${P.bestL ? "on" : ""}" title="this face and side: the heading of the least total thrust, holding (into the weather as far as the tolerance lets her)">BEST L</button>
        <label>Heading ${num("hdg", res ? Math.round(res.hdg) : 0, 5)}°</label><button class="small" id="dp_hm">−5°</button><button class="small" id="dp_hp">+5°</button></div>
      </div>
      <div>
