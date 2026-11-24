@@ -85,10 +85,21 @@ int vbodies(Al *al, VBody *out) {
   return n;
 }
 
+/* any body's GHA, Dec, Hc and Zn (id as VBody: 0 Sun, -1 Moon, -2..-5 Venus Mars Jupiter Saturn, 1..58 stars) */
+void vbody_at(Al *al, int id, double *hc, double *zn) {
+  double g, d;
+  if (id == 0) { g = al->sun.gha; d = al->sun.dec; }
+  else if (id == -1) { g = al->moon[0]; d = al->moon[1]; }
+  else if (id < 0) { g = al->planets[-id - 1][0]; d = al->planets[-id - 1][1]; }
+  else al_star(al, id, &g, &d);
+  hcz(al->lat, al->lon, d, g, hc, zn);
+}
+const char *vbody_name(int id);
 static int symbol(int id) { return id == 0 ? '@' : id == -1 ? '(' : id < 0 ? "<>=?"[-id - 2] : '*'; }
 static const char *body_name(int id) {
   return id == 0 ? "SUN" : id == -1 ? "MOON" : id < 0 ? PNAME[-id - 1] : STAR_NAME47[id - 1];
 }
+const char *vbody_name(int id) { return body_name(id); }
 static int phase_now(double j) { Moon47 p; moon47_page(j, 0, &p); return moon47_name_index(&p); }   /* as MOON names it */
 static const char *daylight(double hc) { return hc > 0 ? "DAY" : hc > -12 ? "TWILIGHT" : "NIGHT"; }
 static const char *moon_word(const Al *al) {

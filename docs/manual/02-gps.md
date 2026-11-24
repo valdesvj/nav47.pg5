@@ -6,7 +6,7 @@ the view over the bow and the vessel on the chart. Without a signal it keeps a d
 - [Connecting the GPS or the ship's NMEA](#connecting-the-gps-or-the-ships-nmea)
 - [The GPS pages](#the-gps-pages): FIX, SATS, NAV, BOW, the live CHART, GPSSET
 - [DR: when the fix is lost](#dr-when-the-fix-is-lost)
-- [Alarms, MOB, anchor watch, gyro error](#alarms-mob-anchor-watch-gyro-error) (and the compass's deviation)
+- [Alarms, MOB, anchor watch, gyro error](#alarms-mob-anchor-watch-gyro-error) (the COMPASS page: the gyro error, the deviation, the cards)
 - [Your vessel's pictures](#your-vessels-pictures)
 - [Without any hardware: a log or the demo](#without-any-hardware-a-log-or-the-demo)
 - [Troubleshooting](#troubleshooting)
@@ -307,15 +307,53 @@ position; **ENTER** there clears it.
 
 **Anchor watch**: **7** on FIX drops the anchor at the position now; the radius is GPSSET's ANCHOR R.
 
-**Gyro error**: on FIX, **ENTER**, then type the Sun's bearing as read on the gyro repeater. NAV47 gives the Sun's
-true azimuth (Zn) and the error: **ERR 1.5° LOW** (the gyro reads low: add) or **HIGH** (subtract).
+**Gyro error and deviation: the COMPASS page** (FIX's **ENTER**, or menu row 6's **COMPAS**).
 
-**Magnetic compass**: the same, with the bearing read on the magnetic compass. The error is then the compass error,
-and the line under it gives the **deviation** for that heading: **DEV = compass error − variation** (east +), the
-variation from the World Magnetic Model (WMM2025, NOAA / NGA, valid 2025–2030; about 0.5° at sea, more near local
-anomalies: the chart's magnetic notes still apply). After 2030 the line says the model has expired: a new
-`WMM.COF` and `python3 tools/gen_wmm.py WMM.COF src/wmmdata.c` give the next one; `make test-wmm` checks it against
-NOAA's test values.
+| | |
+|---|---|
+| ![COMPASS](img/calc_compass.png) | ![CARD](img/calc_devcard.png) |
+
+On the left the observation, **8 2** a line, **ENTER** types it (or switches it):
+- **POSITION**: the GPS's (its tag: GPS, DGPS, DR…; SET's without a fix), or **MANUAL** (ENTER), its LAT and LON
+  typed; **0** back to the GPS.
+- **TIME UT**: now, or typed (HH.MMSS, today). Typing the gyro bearing takes its time; **NOW** a new observation.
+- **BODY**: **4 6** the Sun, the Moon, the planets and the stars above the horizon, the brightest first, with Zn and
+  Hc. A low body gives the best bearing.
+- **GYRO BRG**: the body's bearing on the gyro repeater.
+- **GYRO HDG**: the gyro's heading from the NMEA (HDT) when it comes, or typed (**0** back to the NMEA's).
+- **COMPASS**: the course on the magnetic compass at that moment.
+
+On the right the results:
+- **GYRO ERR**: Zn − the gyro bearing (LOW: add, HIGH: subtract).
+- **TRUE HDG**: the gyro heading + its error.
+- **VAR**: the variation from the World Magnetic Model (WMM2025, NOAA / NGA, valid 2025–2030; about 0.5° at sea,
+  more near local anomalies: the chart's magnetic notes still apply).
+- **COMP ERR**: the true heading − the compass course.
+- **DEVIATION**: the compass error − VAR (east +).
+- Under them, the original card's and the corrected card's deviation at that compass course.
+
+**SAVE** puts the deviation into the **corrected** card at the compass course. After 2030 VAR says the model has
+expired: a new `WMM.COF` and `python3 tools/gen_wmm.py WMM.COF src/wmmdata.c` give the next one; `make test-wmm`
+checks it against NOAA's test values.
+
+**CARD**: the deviation cards, the ship's **ORIGINAL** (typed in from her card) and the **CORRECTED** (your checks,
+SAVE, or typed).
+- **The table** of the card shown: each heading, its deviation, the other card's there, the difference.
+- **The plot** over 0–360°: the original solid with squares, the corrected dashed with crosses, ±5° dotted.
+- **The five coefficients**, dev = A + B sin h + C cos h + D sin 2h + E cos 2h, fitted with 5 headings or more
+  round the card (fewer: between its points), and the largest deviation.
+- **Over 5°: the advice**, the largest coefficients first:
+  - **B**: the fore-and-aft magnets and the Flinders bar;
+  - **C**: the athwartship magnets;
+  - **D**: the quadrantal spheres in or out;
+  - **E**: the spheres slewed;
+  - **A**: the lubber line or the binnacle's alignment (no magnet);
+  - then by a compass adjuster, a swing, a new card.
+
+**ADD** a heading then its deviation (+/− west), **ENTER** edits the row's, **DEL**, **CORR / ORIG** the other card,
+**ADOPT** (pressed twice, after the compensation) makes the corrected card the original, **CLEAR** (twice) empties the
+card shown. The cards are `/NAV47/DEVCARD.CSV` and `/NAV47/DEVCORR.CSV` (`heading,deviation`, east +), from the
+web page's Compass tab too (**To the calculator**).
 
 ## Your vessel's pictures
 

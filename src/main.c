@@ -476,7 +476,7 @@ static const char *MENUS[6][6] = {
   { "SET", "FILES", "INFO", "DP", "USB", ">>" },
   { "ADD", "EDIT", "DEL", "RL/GC", "HERE", ">>" },
   { "FIX", "SATS", "NAV", "BOW", "GPSSET", ">>" },
-  { "WPTS", "LOAD", "SAVE", "NEW", "", ">>" },          /* your waypoints, the routes' library (/NAV47/ROUTES) */
+  { "WPTS", "LOAD", "SAVE", "NEW", "COMPAS", ">>" },          /* your waypoints, the routes' library (/NAV47/ROUTES) */
 };
 static const char *FILE_MENU[6] = { "TID", "FLW", "CLEAR", "WPTS", "LOAD", "BACK" };
 static int wpdb_back = PG_ROUTE;
@@ -615,6 +615,8 @@ static void redraw(void) {
     case PG_PICK: draw_pick(); break;
     case PG_GFIX: case PG_GSATS: case PG_GNAV: case PG_GBOW: case PG_GSET: gps_draw(page - PG_GFIX, anim_frame); break;
     case PG_WPDB: wpdb_draw(); break;
+    case PG_GCOMP: draw_compass(); break;
+    case PG_GDEV: draw_devcard(); break;
     }
   if (page != PG_ROUTE && menu_page == 3) menu_page = 0;
   CHART_MENU[4] = chart_live ? "NAV" : "PLAN";
@@ -622,7 +624,7 @@ static void redraw(void) {
   MENUS[0][2] = page == PG_VSKY ? "SKY2" : "SKY";
   CHART_MENU[3] = chart_globe ? "MERC" : "GLOBE";
   VOY_MENU[0] = voy_play ? "PAUSE" : "PLAY";
-  lcd_draw_menu_keys(page == PG_ROUTE && rlib_active() ? (const char **)rlib_menu() : page == PG_WPDB ? (const char **)wpdb_menu() : page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0 || (page == PG_DPIN && dp_editing()) || (IS_GPS(page) && gps_editing())) ? EDIT_MENU :
+  lcd_draw_menu_keys(page == PG_ROUTE && rlib_active() ? (const char **)rlib_menu() : page == PG_WPDB ? (const char **)wpdb_menu() : (page == PG_GCOMP || page == PG_GDEV) ? compass_menu() : page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0 || (page == PG_DPIN && dp_editing()) || (IS_GPS(page) && gps_editing())) ? EDIT_MENU :
                      page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : page == PG_VOY ? VOY_MENU : page == PG_ETA ? ETA_MENU : page == PG_ETAT ? ETAT_MENU : page == PG_DP ? DP_MENU : page == PG_DPIN ? DPIN_MENU : page == PG_DPABS ? ABS_MENU : MENUS[menu_page]);
   lcd_refresh();
   lcd_refresh_wait();        /* the LCD goes out by DMA: done before the next frame clears the buffer (no flicker) */
@@ -688,6 +690,7 @@ static void softkey(int fn) {
     return;
   }
   if (page == PG_DP) { dp_soft(fn); return; }
+  if (page == PG_GCOMP || page == PG_GDEV) { compass_fn(fn); return; }
   if (page == PG_DPABS) {
     static const int k[6] = { KEY_DOT, KEY_7, KEY_8, 0, 0, KEY_EXIT };
     if (k[fn]) dpabs_key(k[fn]);
@@ -750,6 +753,7 @@ static void softkey(int fn) {
   case 31: rlib_load(); wait_for_key_release(-1); go(PG_ROUTE); menu_page = 5; break;   /* LOAD a route */
   case 32: go(PG_ROUTE); menu_page = 5; rlib_save_start(); break;               /* SAVE it by name */
   case 33: go(PG_ROUTE); menu_page = 5; rlib_new_start(); break;                /* NEW: an empty route */
+  case 34: compass_open(page); break;                                            /* COMPASS: the gyro error, the deviation */
   }
 }
 
@@ -774,6 +778,11 @@ static void handle_key(int key) {
     }
   }
   if (IS_GPS(page) && gps_editing()) { gps_key(page - PG_GFIX, key); return; }
+  if (page == PG_GCOMP || page == PG_GDEV) {                 /* COMPASS, CARD: their keys (the softkeys unless typing) */
+    if (key >= KEY_F1 && key <= KEY_F6 && !compass_editing()) { softkey(key - KEY_F1); vframe = 0; return; }
+    if (key >= KEY_F1 && key <= KEY_F6) { compass_fn(key - KEY_F1); return; }
+    compass_key(key); return;
+  }
   if (page == PG_WPDB) {
     int r = wpdb_key(key);
     if (r == 2) { go(wpdb_back); if (wpdb_back == PG_ROUTE) menu_page = 3; }
@@ -807,6 +816,7 @@ static void handle_key(int key) {
   }
   if (IS_GPS(page)) {
     if (gps_key(page - PG_GFIX, key)) return;
+    if (page == PG_GFIX && key == KEY_ENTER) { compass_open(PG_GFIX); return; }   /* FIX: ENTER, the COMPASS page */
     if (key == KEY_0 && page == PG_GFIX) { go(PG_GSET); return; }
     if (key == KEY_EXIT) { go(PG_VALM); menu_page = 0; }
     return;

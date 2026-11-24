@@ -23,6 +23,8 @@ typedef struct { int id; double gha, dec, hc, zn; } VBody;   /* id 0 Sun, -1 Moo
 extern double view_dut1;   /* UT1 - UTC, seconds: al_compute takes UTC, computes at UT1 (0: the clock as UT1) */
 void al_compute(Al *al, double j, double lat, double lon, double tz);   /* tz: the shown time - UT, hours */
 int  vbodies(Al *al, VBody *out);                             /* the 8 bodies of the views */
+void vbody_at(Al *al, int id, double *hc, double *zn);         /* any body (VBody ids): its Hc and Zn */
+const char *vbody_name(int id);
 
 /* each draws the whole area above the menu bar (rows 0-207) */
 void view_almanac(Al *al);

@@ -38,7 +38,7 @@ The soft keys **F1–F6** follow the menu at the bottom of the screen. **`>>`** 
 | 2 | ANIM | T&F | TIDE | ROUTE | ZONES |
 | 3 | SET | FILES | INFO | DP | USB |
 | 4 | FIX | SATS | NAV | BOW | GPSSET |
-| 5 | WPTS | LOAD | SAVE | NEW | |
+| 5 | WPTS | LOAD | SAVE | NEW | COMPAS |
 
 On ROUTE another row edits the route: ADD, EDIT, DEL, RL/GC, HERE.
 

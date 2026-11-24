@@ -488,3 +488,27 @@ K int api_psg_update(double lat, double lon, double kn, double plan_kn, int by_h
   PS.event = 0;
   return PS.active;
 }
+
+/* ---------------------------------------------------------------- the compass (src/compass.c, the calculator's own) */
+#include "compass.h"
+#include "wmm.h"
+/* the variation (WMM) at a position and a JD; NAN out of the model's years */
+K double api_var(double lat, double lon, double jd) { double y = wmm_year(jd); return wmm_valid(y) ? wmm_var(lat, lon, y) : NAN; }
+/* OUT: the gyro error, the true heading, the compass error, the deviation (NAN: not given) */
+K void api_cmp(double zn, double gb, double gh, double ch, double var) {
+  CmpOut o; cmp_errors(zn, gb, gh, ch, var, &o);
+  OUT[0] = o.gyro_err; OUT[1] = o.true_hdg; OUT[2] = o.comp_err; OUT[3] = o.dev;
+}
+/* the card in IN (n headings, then n deviations): OUT A B C D E, fitted, max, at, rms; then OUT[16..16+m] the curve
+   every degree 0..359 (m = 360); the advice: api_devadvice() */
+static char DEVADV[600];
+K int api_devfit(int n) {
+  if (n < 0) n = 0; if (n > DEV_MAX) n = DEV_MAX;
+  DevFit f; dev_fit(n, IN, IN + n, &f);
+  for (int k = 0; k < 5; k++) OUT[k] = f.c[k];
+  OUT[5] = f.fitted; OUT[6] = f.max; OUT[7] = f.at; OUT[8] = f.rms;
+  for (int h = 0; h < 360; h++) OUT[16 + h] = dev_at(n, IN, IN + n, &f, h);
+  dev_advice(&f, DEVADV, sizeof DEVADV);
+  return f.fitted;
+}
+K const char *api_devadvice(void) { return DEVADV; }
