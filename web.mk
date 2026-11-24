@@ -39,6 +39,17 @@ build/ticon/ne_places.geojson: ; mkdir -p build/ticon && curl -sfL -o $@ $(NE_PL
 ticon: build/ticon/TICON_3.txt build/ticon/ne_places.geojson
 	$(PYTHON) -I tools/ticon_stations.py $(or $(TIDE47),$(TIDE47_TEST),$(HOME)/opt/tide47) build/ticon/TICON_3.txt build/ticon/ne_places.geojson build/ticon
 .PHONY: ticon
+# ticon-pick: only the regions you choose, for the calculator: build/ticon/pick/T<REGION>.TID (copy to /NAV47/TIDES/)
+#   make ticon-pick                     the list of regions, then type the numbers or codes
+#   make ticon-pick AREAS=GULF,REDSEA   no questions;  make ticon-pick BOX="22 30 47 57 MYAREA"  your own rectangle
+TICON_ARGS = $(TIDE47_OR) build/ticon/TICON_3.txt build/ticon/ne_places.geojson build/ticon/pick
+TIDE47_OR = $(or $(TIDE47),$(TIDE47_TEST),$(HOME)/opt/tide47)
+ticon-pick: build/ticon/TICON_3.txt build/ticon/ne_places.geojson
+	rm -rf build/ticon/pick
+	$(PYTHON) -I tools/ticon_stations.py $(TICON_ARGS) $(if $(AREAS),--areas $(AREAS))$(if $(BOX), --box $(BOX))$(if $(AREAS)$(BOX),, --pick)
+ticon-list: build/ticon/TICON_3.txt build/ticon/ne_places.geojson
+	@$(PYTHON) -I tools/ticon_stations.py $(TICON_ARGS) --list
+.PHONY: ticon-pick ticon-list
 
 # web-private: the same page with YOUR private tide data compiled in (as make TIDE47=... for the .pg5), for this
 # computer only: build/web-private/ (git-ignored), never web/. Open build/web-private/index.html.
