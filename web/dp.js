@@ -119,8 +119,12 @@ const DPTAB = (() => {
       const r = hit || least;
       P.hdg = Math.round(r.hdg * 10) / 10; P.bestFace = face; P.tgtHit = !!hit; P.tgtLoad = r.load; P.tgtTurn = Math.abs(((r.hdg - start) % 360 + 540) % 360 - 180);
     }
+    if (P.reset) {                                               /* reset: the set-up's own heading, square to the face */
+      Module._api_dp_best(); const r = read();
+      P.hdg = (r.normal + [0, 90, -90, 180][P.side] + 360) % 360; P.bestFace = r.face; P.reset = false; P.atSetup = true;
+    }
     if (P.hdg === null) { Module._api_dp_best(); res = read(); limw = Module._api_dp_limit(); }
-    else { Module._api_dp_eval(P.face >= 0 ? P.face : (P.bestH || P.bestL || P.bestTarget) && P.bestFace >= 0 ? P.bestFace : res ? res.face : 0, +P.hdg); res = read(); limw = Module._api_dp_limit(); }
+    else { Module._api_dp_eval(P.face >= 0 ? P.face : (P.bestH || P.bestL || P.bestTarget || P.atSetup) && P.bestFace >= 0 ? P.bestFace : res ? res.face : 0, +P.hdg); res = read(); limw = Module._api_dp_limit(); }
     res.wx = wx;
     const n = Module._api_dp_sweep(res.face), o = N().o();
     sweep = Array.from({ length: n }, (_, i) => ({ h: o[3 * i], rank: o[3 * i + 1], worst: o[3 * i + 2] }));
@@ -288,6 +292,8 @@ const DPTAB = (() => {
   }
 
   let typing = 0;
+  /* the face, the side, PARALLEL, a set-up, the picture clicked: the vessel at the set-up's own heading, the three off */
+  function resetV() { P.hdg = null; P.reset = true; P.from = null; P.bestH = false; P.bestL = false; P.bestTarget = false; save(); render(true); }
   function render(best) {
     const el = document.getElementById("t-dp");
     const open = [...el.querySelectorAll("details")].map(d => d.open);   /* the sections you opened stay open */
@@ -312,6 +318,7 @@ const DPTAB = (() => {
          : P.bestH ? (P.hHit === 2 ? `BEST H: every thruster in its limit and 5 points under${P.hTurn !== null ? `, turned ${Math.round(P.hTurn)}°` : ""}`
                     : P.hHit === 1 ? `BEST H: every thruster within its limit, not 5 under${P.hTurn !== null ? `, turned ${Math.round(P.hTurn)}°` : ""}`
                     : `<b style="color:var(--now)">BEST H: over the limits on this side within ±${P.tol}°</b>: the least over (a wider tolerance, or another side)`)
+         : P.atSetup ? `the set-up's, ${P.side === 1 || P.side === 2 ? "parallel to" : "square to"} the face: press To the target, BEST H or BEST L`
          : P.bestL ? `BEST L: the least total thrust on this face and side, ${P.lSum.toFixed(1)} t${P.lEdge ? ` (at the ±${P.tol}° limit: a wider tolerance lets her head more into the weather)` : ""}` : P.hdg === null ? "the best for this set-up" : "yours"}</span>
        <span class="meta">Set-up</span><span>off the face looking to <span class="mono">${String(Math.round(res.normal)).padStart(3, "0")}°</span>${P.face < 0 ? " (AUTO: the best face)" : ""}, ${setupName()}, ${res.mid.toFixed(1)} m off</span>
        ${res.mid > +P.standoff + 0.05 ? `<span class="meta">Moved out</span><span>the heading turned: the ${P.side === 0 ? "stern" : P.side === 3 ? "bow" : "middle of the side"} <b>${res.mid.toFixed(1)} m</b> off, the nearest corner ${res.clear.toFixed(1)} m (corners ≥ ${P.mincl} m)</span>` : ""}
@@ -433,20 +440,23 @@ const DPTAB = (() => {
       }
       render(true); });
     $("shape").value = P.shape; on("shape", e => { P.shape = e.target.value; save(); render(true); });
-    $("face").value = String(P.face); on("face", e => { P.face = +e.target.value; P.hdg = null; save(); render(true); });
+    $("face").value = String(P.face); on("face", e => { P.face = +e.target.value; resetV(); });
     $("side").value = `${P.side}:${(P.side === 1 || P.side === 2) && P.par ? 1 : 0}`;
-    on("side", e => { const [a, b] = e.target.value.split(":"); P.side = +a; P.par = b === "1"; P.hdg = null; P.bestH = false; P.bestL = false; P.bestTarget = false; save(); render(true); });
-    document.querySelectorAll(".dpq").forEach(b => b.onclick = () => { const q = quick[+b.dataset.q]; P.side = q.sd; P.par = q.par; P.hdg = null; P.bestH = false; P.bestL = false; P.bestTarget = false; save(); render(true); });
+    on("side", e => { const [a, b] = e.target.value.split(":"); P.side = +a; P.par = b === "1"; resetV(); });
+    document.querySelectorAll(".dpq").forEach(b => b.onclick = () => { const q = quick[+b.dataset.q]; P.side = q.sd; P.par = q.par; resetV(); });
+    /* the picture clicked: the vessel back to the set-up's heading, ready for the three again */
+    const pic = document.getElementById("dpcv");
+    if (pic) { pic.style.cursor = "pointer"; pic.title = "click: the vessel back to the set-up's heading (parallel or square to the face)"; pic.onclick = resetV; }
     on("solid", e => { P.solid = e.target.checked; save(); render(true); });
     on("cauto", e => { P.cauto = e.target.checked; save(); render(true); });
     on("sauto", e => { P.sauto = e.target.checked; save(); render(true); });
     on("lims", e => { P.lims = e.target.value; save(); render(true); });
-    $("besth").onclick = () => { P.from = res ? res.hdg : null; P.hdg = null; P.bestH = true; P.bestL = false; P.bestTarget = false; save(); render(true); };   /* the smallest turn, 5 under */
-    $("bestl").onclick = () => { P.hdg = null; P.bestL = true; P.bestH = false; P.bestTarget = false; save(); render(true); };                                  /* every set-up, the least thrust */
-    $("besttgt").onclick = () => { P.from = res ? res.hdg : null; P.hdg = null; P.bestTarget = true; P.bestH = false; P.bestL = false; save(); render(true); };   /* the least turn to the target */
-    on("hdg", e => { P.hdg = ((parseFloat(e.target.value) || 0) % 360 + 360) % 360; P.bestH = false; P.bestL = false; P.bestTarget = false; save(); render(); });
-    $("hm").onclick = () => { P.hdg = ((res ? res.hdg : 0) + 355) % 360; P.bestH = false; P.bestL = false; P.bestTarget = false; save(); render(); };
-    $("hp").onclick = () => { P.hdg = ((res ? res.hdg : 0) + 5) % 360; P.bestH = false; P.bestL = false; P.bestTarget = false; save(); render(); };
+    $("besth").onclick = () => { P.from = res ? res.hdg : null; P.hdg = null; P.bestH = true; P.bestL = false; P.bestTarget = false; P.atSetup = false; save(); render(true); };   /* the smallest turn, 5 under */
+    $("bestl").onclick = () => { P.hdg = null; P.bestL = true; P.bestH = false; P.bestTarget = false; P.atSetup = false; save(); render(true); };                                  /* every set-up, the least thrust */
+    $("besttgt").onclick = () => { P.from = res ? res.hdg : null; P.hdg = null; P.bestTarget = true; P.bestH = false; P.bestL = false; P.atSetup = false; save(); render(true); };   /* the least turn to the target */
+    on("hdg", e => { P.hdg = ((parseFloat(e.target.value) || 0) % 360 + 360) % 360; P.bestH = false; P.bestL = false; P.bestTarget = false; P.atSetup = false; save(); render(); });
+    $("hm").onclick = () => { P.hdg = ((res ? res.hdg : 0) + 355) % 360; P.bestH = false; P.bestL = false; P.bestTarget = false; P.atSetup = false; save(); render(); };
+    $("hp").onclick = () => { P.hdg = ((res ? res.hdg : 0) + 5) % 360; P.bestH = false; P.bestL = false; P.bestTarget = false; P.atSetup = false; save(); render(); };
     $("vapply").onclick = () => { VES = $("ves").value; localStorage.setItem(VKEY, VES); render(true); };
     $("vex").onclick = () => { VES = ""; localStorage.removeItem(VKEY); render(true); };
     on("vfile", e => { const f = e.target.files[0]; if (f) f.text().then(t => { VES = t.replace(/\r/g, ""); localStorage.setItem(VKEY, VES); render(true); }); });

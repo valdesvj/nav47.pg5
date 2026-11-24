@@ -165,9 +165,22 @@ static void dp_eval_here(void) {
   DP->limw = -1;
 }
 
+/* the face, the side, PAR, LOAD, the page opened: the vessel at the set-up's own heading (parallel, or square to the
+   face), ready for BEST H or BEST L (manual 2: SETUP) */
+static void dp_reset(void) {
+  static const float ADD[4] = { 0, 90, -90, 180 };
+  if (DP->p.face >= 0) DP->face = DP->p.face;
+  if (DP->face < 0 || DP->face > 3) DP->face = 0;
+  DP->hdg = fmodf(dpo_face_normal(&DP->p, DP->face) + ADD[DP->p.side] + 720.0f, 360.0f);
+  DP->manual = 2;
+  if (strstr(DP->msg, "BEST")) DP->msg[0] = 0;
+  dp_eval_here();
+  DP->limw = dpo_limit_wind(&DP->v, &DP->p, &DP->w, DP->face, DP->hdg);
+}
+
 void dp_enter(void) {
   if (!DP || !DP->loaded) dp_load();
-  if (DP) dp_best();
+  if (DP) dp_reset();
 }
 
 /* the picture: north up, framed on the platform and the vessel; the platform hatched, its working face thick, the
@@ -317,7 +330,7 @@ void draw_dp(void) {
   sprintf(s, "FACE %03.0f%s %s%s", dpo_face_normal(&d->p, d->face), d->p.face < 0 ? "*" : "", DPO_SIDE[d->p.side],
           dpo_tol(&d->p) == 0 && d->p.side != DPS_STERN && d->p.side != DPS_BOW ? " PAR" : "");
   nt(X, 18, s);
-  sprintf(s, "HDG %03.0f%s  %.0fm OFF", r->hdg, d->manual ? " SET" : d->bmode ? " BEST L" : " BEST H", r->mid);
+  sprintf(s, "HDG %03.0f%s  %.0fm OFF", r->hdg, d->manual == 2 ? " SETUP" : d->manual ? " SET" : d->bmode ? " BEST L" : " BEST H", r->mid);
   nt(X, 34, s);
   gfx_hline_dotted(X - 2, LCD_X - 1, 49, 2);             /* the set-up | the weather | the result */
   sprintf(s, "WIND %03.0f %.0fkn", d->w.wfrom, d->w.wkn);
@@ -359,7 +372,7 @@ void draw_dp(void) {
     char b[48];
     if (d->msg[0]) snprintf(b, sizeof b, "%s", d->msg);
     else if (r->mid > d->p.standoff + 0.05f || r->clear < d->p.standoff - 0.05f) snprintf(b, sizeof b, "MID %.1fm CORNER %.1fm", r->mid, r->clear);
-    else strcpy(b, ". ABS SKP   + BEST H / BEST L");
+    else strcpy(b, ". ABS SKP   + H or L");
     gfx_rect(0, MENU_Y - LH - 1, 165, LH, 0);                /* the weather push's tonnes keep their place (x 166+) */
     draw_text(&TINY, 2, MENU_Y - LH, b, 0);
   }
@@ -383,14 +396,14 @@ void dp_key(int key) {
   if (key == KEY_ENTER) dp_best();
   else if (key == KEY_4 || key == KEY_6) { d->hdg = fmodf(d->r.hdg + (key == KEY_4 ? 355 : 5), 360); d->manual = 1; dp_eval_here(); }
   else if (key == KEY_UP || key == KEY_DOWN) { step_time(key == KEY_UP ? 1 : -1); d->manual ? dp_eval_here() : dp_best(); }
-  else if (key == KEY_5) { toff = 0; dp_best(); }
+  else if (key == KEY_5) { toff = 0; d->manual ? dp_eval_here() : dp_best(); }
   else if (key == KEY_7 || key == KEY_9 || key == KEY_8 || key == KEY_2) {   /* the wind: 7 9 its direction, 8 2 its speed */
     wind_step(key == KEY_7 ? -10 : key == KEY_9 ? 10 : 0, key == KEY_8 ? 1 : key == KEY_2 ? -1 : 0);
     d->manual ? dp_eval_here() : dp_best();
   }
   else if (key == KEY_0) d->showfail ^= 1;
   else if (key == KEY_3) d->tonnes ^= 1;                       /* the bars: % of full thrust or tonnes */
-  else if (key == KEY_1) { d->p.par ^= 1; dp_save_plat(); dp_best(); }   /* side to: parallel to the face, or within TOL */
+  else if (key == KEY_1) { d->p.par ^= 1; dp_save_plat(); dp_reset(); }  /* side to: parallel to the face, or within TOL */
   else if (key == KEY_DOT) { if (abs_run()) go(PG_DPABS); }  /* ABS SKP: the vessel's capability, every direction */
   else if (key == KEY_ADD) { d->bmode ^= 1; dp_best(); }      /* +: BEST H or BEST L */
   else if (key == KEY_EXIT) go(PG_VALM);
@@ -402,10 +415,10 @@ void dp_soft(int fn) {
   DpS *d = DP;
   if (!d) { go(PG_VALM); return; }
   if (fn == 0) dp_best();
-  else if (fn == 1) { d->p.face = d->p.face >= 3 ? -1 : d->p.face + 1; dp_save_plat(); if (d->p.face >= 0) d->face = d->p.face; dp_best(); }
-  else if (fn == 2) { d->p.side = (d->p.side + 1) % DPS_N; dp_save_plat(); dp_best(); }
+  else if (fn == 1) { d->p.face = d->p.face >= 3 ? -1 : d->p.face + 1; dp_save_plat(); if (d->p.face >= 0) d->face = d->p.face; dp_reset(); }
+  else if (fn == 2) { d->p.side = (d->p.side + 1) % DPS_N; dp_save_plat(); dp_reset(); }
   else if (fn == 3) { go(PG_DPIN); d->sel = 0; d->edit = -1; }
-  else if (fn == 4) { dp_load(); dp_best(); if (!d->msg[0]) snprintf(d->msg, sizeof d->msg, "%.14s, %.20s (%.7s)", d->p.name, d->v.name, d->vsrc); }
+  else if (fn == 4) { dp_load(); dp_reset(); if (!d->msg[0]) snprintf(d->msg, sizeof d->msg, "%.14s, %.20s (%.7s)", d->p.name, d->v.name, d->vsrc); }
   else go(PG_VALM);
 }
 
@@ -630,7 +643,7 @@ void dpin_key(int key) {
     }
     cfg_save();
   } else if (key == KEY_ENTER) { d->edit = d->sel; elen = 0; ebuf[0] = 0; }
-  else if (key == KEY_EXIT) { go(PG_DP); dp_best(); }
+  else if (key == KEY_EXIT) { go(PG_DP); DP->manual ? dp_eval_here() : dp_best(); }   /* the set-up or your heading kept */
 }
 
 int dp_editing(void) { return DP && DP->edit >= 0; }
