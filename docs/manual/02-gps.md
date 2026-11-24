@@ -307,7 +307,7 @@ position; **ENTER** there clears it.
 
 **Anchor watch**: **7** on FIX drops the anchor at the position now; the radius is GPSSET's ANCHOR R.
 
-**Gyro error and deviation: the COMPASS page** (FIX's **ENTER**, or menu row 6's **COMPAS**).
+**Gyro error and deviation: the COMPASS page** (FIX's **ENTER**, or menu row 5's **CMPS**).
 
 | | |
 |---|---|
