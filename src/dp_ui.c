@@ -129,9 +129,9 @@ static void dp_busy(int n, int tot) {
   lcd_refresh();
 }
 
-/* BEST H: this face and side, the smallest turn from the present heading that puts every thruster 5 points under its
-   working limit (1 deg steps); none: the least loaded. BEST L: every side on the face (every face with FACE AUTO), the
-   least total thrust while holding (2 deg, 5 with AUTO). Then the wind she holds to. The web's DP tab the same C. */
+/* BEST H: this face and side, the smallest turn from the present heading with every thruster within its working limit
+   and 5 points under it; else within it; else the least over (1 deg steps). BEST L: this face and side, the least total
+   thrust while holding (2 deg, 5 with FACE AUTO). Then the wind she holds to. The web's DP tab the same C. */
 static void dp_best(void) {
   dp_weather();
   dp_abort = 0;
@@ -139,12 +139,15 @@ static void dp_best(void) {
   if (DP->bmode == 0) {
     int face = DP->p.face >= 0 ? DP->p.face : DP->face;
     int hit = dpo_best_h(&DP->v, &DP->p, &DP->w, face, DP->hdg, 0.05f, 1, &DP->r, dp_busy);
-    if (!hit && !dp_abort) snprintf(DP->msg, sizeof DP->msg, "BEST H: not 5 under on this side");
+    if (!dp_abort) snprintf(DP->msg, sizeof DP->msg, hit == 2 ? "BEST H: 5 under all limits" : hit == 1 ? "BEST H: in limits, <5 under" : "BEST H: OVER LIMITS here");
   } else {
     int side;
-    dpo_best_l(&DP->v, &DP->p, &DP->w, DP->p.face < 0 ? 5 : 2, &DP->r, &side, dp_busy);
-    if (side != DP->p.side) { DP->p.side = side; DP->p.par = 0; }   /* her set-up (not saved: SIDE sets yours) */
-    if (!dp_abort) snprintf(DP->msg, sizeof DP->msg, "BEST L: %.1ft thrust", dpo_thrust_sum(&DP->v, &DP->r) / 9.80665f);
+    dpo_best_l(&DP->v, &DP->p, &DP->w, DP->p.face < 0 ? 5 : 2, 0, &DP->r, &side, dp_busy);   /* your face and side kept */
+    if (!dp_abort) {                                     /* at the tolerance's edge: a wider one lets her head into the weather */
+      static const float ADD[4] = { 0, 90, -90, 180 };
+      float d = fmodf(DP->r.hdg - dpo_face_normal(&DP->p, DP->r.face) - ADD[DP->p.side] + 540.0f, 360.0f) - 180.0f;
+      snprintf(DP->msg, sizeof DP->msg, "BEST L: %.1ft%s", dpo_thrust_sum(&DP->v, &DP->r) / 9.80665f, fabsf(d) > DP->p.tol - 0.5f ? " (TOL edge)" : "");
+    }
   }
   DP->face = DP->r.face; DP->hdg = DP->r.hdg; DP->manual = 0;
   if (dp_abort) {                                          /* stopped: the best of the headings tried, no wind limit */

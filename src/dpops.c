@@ -400,11 +400,11 @@ int dpo_best_h(Vessel *v, const DpPlat *p0, const DpWx *w, int face, float from,
   if (face < 0) face = 0;
   if (step < 1) step = 1;
   float tol = p.tol, nom = nominal(&p, face), start = off180(from, nom) <= tol ? from : nom;
-  int nh = (int)(2 * tol / step) + 1, n = 0;
+  int nh = (int)(2 * tol / step) + 1, n = 0, have1 = 0;
   float bs = -1e9f;
-  DpRes r;
-  memset(out, 0, sizeof *out);
-  for (int k = 0; k <= nh; k++)                          /* 0, +step, -step, +2 step ... */
+  DpRes r, in1, least;
+  memset(out, 0, sizeof *out); memset(&in1, 0, sizeof in1); memset(&least, 0, sizeof least);
+  for (int k = 0; k <= nh; k++)                          /* 0, +step, -step, +2 step ...: the nearest first */
     for (int sg = 1; sg >= -1; sg -= 2) {
       if (k == 0 && sg < 0) continue;
       float h = wrap(start + sg * step * (float)k);
@@ -412,28 +412,35 @@ int dpo_best_h(Vessel *v, const DpPlat *p0, const DpWx *w, int face, float from,
       dpo_eval(v, &p, w, face, h, &r);
       n++;
       if (progress) progress(n, nh);
-      int ok = r.rank >= 2;
-      for (int i = 0; i < v->nthr && ok; i++) ok = r.use[i] <= p.lim[i] - margin + 1e-4f;
-      if (ok) { *out = r; return 1; }
+      int in = r.rank >= 2, under = in;                  /* every thruster within its limit; and margin under it */
+      for (int i = 0; i < v->nthr; i++) {
+        if (r.use[i] > p.lim[i] + 1e-4f) in = 0;
+        if (r.use[i] > p.lim[i] - margin + 1e-4f) under = 0;
+      }
+      under = under && in;
+      if (under) { *out = r; return 2; }
+      if (in && !have1) { in1 = r; have1 = 1; }          /* the nearest within the limits, if the margin never comes */
       float sc = score(&r, &p);
-      if (sc > bs) { bs = sc; *out = r; }
-      if (dp_abort) return 0;
+      if (sc > bs) { bs = sc; least = r; }
+      if (dp_abort) break;
     }
-  return 0;
+  *out = have1 ? in1 : least;
+  return have1 ? 1 : 0;
 }
 
-int dpo_best_l(Vessel *v, const DpPlat *p0, const DpWx *w, float step, DpRes *out, int *side, void (*progress)(int, int)) {
+int dpo_best_l(Vessel *v, const DpPlat *p0, const DpWx *w, float step, int all_sides, DpRes *out, int *side,
+               void (*progress)(int, int)) {
   static const int SIDES[4] = { DPS_STBD, DPS_PORT, DPS_STERN, DPS_BOW };
-  int f0 = p0->face < 0 ? 0 : p0->face, f1 = p0->face < 0 ? 3 : p0->face, n = 0, have = 0;
+  int f0 = p0->face < 0 ? 0 : p0->face, f1 = p0->face < 0 ? 3 : p0->face, n = 0, have = 0, ns = all_sides ? 4 : 1;
   if (step < 1) step = 1;
-  int nh = (int)(2 * p0->tol / step) + 1, tot = nh * 4 * (f1 - f0 + 1);
+  int nh = (int)(2 * p0->tol / step) + 1, tot = nh * ns * (f1 - f0 + 1);
   float bsum = 0;
   DpRes r;
   memset(out, 0, sizeof *out);
   *side = p0->side;
-  for (int si = 0; si < 4; si++) {
+  for (int si = 0; si < ns; si++) {
     DpPlat p = *p0;
-    p.side = SIDES[si]; p.par = 0;
+    p.side = all_sides ? SIDES[si] : p0->side; p.par = 0;      /* your side kept: within the tolerance, parallel or not */
     for (int f = f0; f <= f1; f++)
       for (int k = 0; k < nh; k++) {
         float h = nominal(&p, f) - p.tol + step * (float)k;
@@ -442,7 +449,7 @@ int dpo_best_l(Vessel *v, const DpPlat *p0, const DpWx *w, float step, DpRes *ou
         if (progress) progress(n, tot);
         if (!r.geo) continue;
         float sum = dpo_thrust_sum(v, &r);
-        if (!have || r.rank > out->rank || (r.rank == out->rank && sum < bsum - 1e-3f)) { *out = r; bsum = sum; *side = SIDES[si]; have = 1; }
+        if (!have || r.rank > out->rank || (r.rank == out->rank && sum < bsum - 1e-3f)) { *out = r; bsum = sum; *side = p.side; have = 1; }
         if (dp_abort) return n;
       }
   }
