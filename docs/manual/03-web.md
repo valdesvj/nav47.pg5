@@ -151,8 +151,10 @@ the platform for DP OPS (`DPOPS.TXT` for the calculator), and the vessel's **ABS
 polar of the limiting 1-minute wind intact and after the worst failure, SKP(a, b, c, d, e, NS), the current and the
 margin chosen; the same C as the calculator's ABS SKP page, the same numbers.
 
-**DP's headings** (on the working face; the same C as the calculator's BEST H and BEST L; a heading of your own, or a
-side or a set-up button, turns them off; a change of the weather computes them again):
+**DP's headings** (on the working face; the same C as the calculator's BEST H and BEST L; a change of the weather
+computes them again). **A reset**: choosing the face, the side or PARALLEL, a set-up button, or **a click on the
+picture** puts the vessel back at the set-up's own heading (parallel, or square to the face), the three off, and from
+there you press one again; a heading of your own (typed, −5° / +5°) turns them off too:
 - **To the target** (first row): the **smallest turn** from the present heading that brings the most loaded thruster
   down to the target (25 ± 5 % of full power by default, as the bars, both to change) and holds in the limits; out of
   reach on that side, the least load, said so.
