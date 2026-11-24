@@ -359,6 +359,10 @@ static void dp_out(void) {
   for (int i = 0; i < DV.nthr; i++) { o[80 + 2 * i] = r->f[i][0]; o[81 + 2 * i] = r->f[i][1]; o[104 + 2 * i] = r->ff[i][0]; o[105 + 2 * i] = r->ff[i][1]; }
 }
 K int api_dp_best(void) { dp_abort = 0; int n = dpo_best(&DV, &DPP, &DW, 5, &DR, NULL); dp_out(); return n; }
+/* BEST H: this face and side, the smallest turn from `from` to every thruster `margin` under its limit; 1 found */
+K int api_dp_besth(int face, double from, double margin) { dp_abort = 0; int ok = dpo_best_h(&DV, &DPP, &DW, face, (float)from, (float)margin, 1, &DR, NULL); dp_out(); return ok; }
+/* BEST L: every side on the face (every face with AUTO), the least total thrust while holding; its side; OUT[39] the sum, kN */
+K int api_dp_bestl(void) { dp_abort = 0; int side; dpo_best_l(&DV, &DPP, &DW, 1, &DR, &side, NULL); dp_out(); OUT[39] = dpo_thrust_sum(&DV, &DR); return side; }
 K void api_dp_eval(int face, double hdg) { dpo_eval(&DV, &DPP, &DW, face & 3, (float)hdg, &DR); dp_out(); }
 K double api_dp_limit(void) { return dpo_limit_wind(&DV, &DPP, &DW, DR.face, DR.hdg); }
 /* ABS SKP (the ABS DPS Guide, Section 9), as the calculator's DP OPS key .: the vessel's capability every direction.

@@ -88,6 +88,16 @@ float dpo_clear(const Vessel *v, const DpPlat *p, int face, float hdg, float px,
 void dpo_hull(const Vessel *v, const DpPlat *p, float hdg, float px, float py, float xy[7][2]);   /* the outline, world m */
 void dpo_eval(Vessel *v, const DpPlat *p, const DpWx *w, int face, float hdg, DpRes *r);
 int  dpo_best(Vessel *v, const DpPlat *p, const DpWx *w, float step, DpRes *best, void (*progress)(int, int));
+/* BEST H: on this face and side (within the tolerance, parallel or not), the smallest turn from `from` that puts every
+   thruster `margin` (a fraction of full thrust, 0.05) under its working limit, holding in the limits. 1 found; 0: none
+   within the tolerance, *out the least loaded (as dpo_best). */
+int  dpo_best_h(Vessel *v, const DpPlat *p, const DpWx *w, int face, float from, float margin, float step, DpRes *out,
+                void (*progress)(int, int));
+/* BEST L: every side on the face (every face with FACE AUTO), every heading within the tolerance: the one that holds
+   best (after a failure, then in the limits) with the least total thrust (the sum of the thrusters' forces). Its side
+   into *side. The number of headings tried. */
+int  dpo_best_l(Vessel *v, const DpPlat *p, const DpWx *w, float step, DpRes *out, int *side, void (*progress)(int, int));
+float dpo_thrust_sum(const Vessel *v, const DpRes *r);                /* kN: the intact thrusters' forces added */
 #define DPO_WIND_TOP 64.0f
 float dpo_limit_wind(Vessel *v, const DpPlat *p, const DpWx *w, int face, float hdg);   /* kn, in the limits, with its sea */
 /* ABS SKP (the ABS DPS Guide, Section 9): dp_abs with the vessel's copy on the heap; 0 no memory */

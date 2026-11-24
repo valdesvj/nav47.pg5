@@ -263,7 +263,8 @@ vessel placed STANDOFF metres off a face, and working limits on the thrusters.
 
 | Key | Does |
 |---|---|
-| **BEST** or **ENTER** | try every heading every 5° (every face with FACE AUTO), keep the one with the most margin, find the wind she holds to |
+| **BEST H** / **BEST L** or **ENTER** | **BEST H**: this face and side, the smallest turn from the present heading (1° steps, within the tolerance, parallel or not) that puts every thruster 5 points under its working limit (LIM TUN 30, LIM AZ 40: 25 and 35 %), holding; out of reach: the least loaded ("BEST H: not 5 under on this side"). **BEST L**: every side on the face (every face with FACE AUTO; 2° steps, 5° with AUTO), the least total thrust while holding (its side taken; "BEST L: 4.0t thrust"). Then the wind she holds to. The web's DP tab the same |
+| **+** | BEST H or BEST L (the softkey shows which) |
 | **FACE** / **SIDE** | the working face (0–3, AUTO); the side to it (stern, starboard, port, bow) |
 | **INPUT** | the current, the sea, the standoff, the tolerance |
 | **LOAD** | read `/NAV47/DPOPS.TXT` (the platform, made on the web page's DP tab) and the vessel file again |

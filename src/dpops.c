@@ -385,6 +385,70 @@ int dpo_best(Vessel *v, const DpPlat *p, const DpWx *w, float step, DpRes *best,
   return n;
 }
 
+float dpo_thrust_sum(const Vessel *v, const DpRes *r) {
+  float s = 0;
+  for (int i = 0; i < v->nthr; i++) s += hypotf(r->f[i][0], r->f[i][1]);
+  return s;
+}
+
+static float off180(float a, float b) { float d = fmodf(a - b + 540.0f, 360.0f); if (d < 0) d += 360; return fabsf(d - 180.0f); }
+
+int dpo_best_h(Vessel *v, const DpPlat *p0, const DpWx *w, int face, float from, float margin, float step, DpRes *out,
+               void (*progress)(int, int)) {
+  DpPlat p = *p0;
+  p.par = 0;                                             /* side to: within the tolerance, parallel or not */
+  if (face < 0) face = 0;
+  if (step < 1) step = 1;
+  float tol = p.tol, nom = nominal(&p, face), start = off180(from, nom) <= tol ? from : nom;
+  int nh = (int)(2 * tol / step) + 1, n = 0;
+  float bs = -1e9f;
+  DpRes r;
+  memset(out, 0, sizeof *out);
+  for (int k = 0; k <= nh; k++)                          /* 0, +step, -step, +2 step ... */
+    for (int sg = 1; sg >= -1; sg -= 2) {
+      if (k == 0 && sg < 0) continue;
+      float h = wrap(start + sg * step * (float)k);
+      if (off180(h, nom) > tol + 1e-3f) continue;
+      dpo_eval(v, &p, w, face, h, &r);
+      n++;
+      if (progress) progress(n, nh);
+      int ok = r.rank >= 2;
+      for (int i = 0; i < v->nthr && ok; i++) ok = r.use[i] <= p.lim[i] - margin + 1e-4f;
+      if (ok) { *out = r; return 1; }
+      float sc = score(&r, &p);
+      if (sc > bs) { bs = sc; *out = r; }
+      if (dp_abort) return 0;
+    }
+  return 0;
+}
+
+int dpo_best_l(Vessel *v, const DpPlat *p0, const DpWx *w, float step, DpRes *out, int *side, void (*progress)(int, int)) {
+  static const int SIDES[4] = { DPS_STBD, DPS_PORT, DPS_STERN, DPS_BOW };
+  int f0 = p0->face < 0 ? 0 : p0->face, f1 = p0->face < 0 ? 3 : p0->face, n = 0, have = 0;
+  if (step < 1) step = 1;
+  int nh = (int)(2 * p0->tol / step) + 1, tot = nh * 4 * (f1 - f0 + 1);
+  float bsum = 0;
+  DpRes r;
+  memset(out, 0, sizeof *out);
+  *side = p0->side;
+  for (int si = 0; si < 4; si++) {
+    DpPlat p = *p0;
+    p.side = SIDES[si]; p.par = 0;
+    for (int f = f0; f <= f1; f++)
+      for (int k = 0; k < nh; k++) {
+        float h = nominal(&p, f) - p.tol + step * (float)k;
+        dpo_eval(v, &p, w, f, h, &r);
+        n++;
+        if (progress) progress(n, tot);
+        if (!r.geo) continue;
+        float sum = dpo_thrust_sum(v, &r);
+        if (!have || r.rank > out->rank || (r.rank == out->rank && sum < bsum - 1e-3f)) { *out = r; bsum = sum; *side = SIDES[si]; have = 1; }
+        if (dp_abort) return n;
+      }
+  }
+  return n;
+}
+
 float dpo_limit_wind(Vessel *v, const DpPlat *p, const DpWx *w, int face, float hdg) {
   /* the wind raised from its direction with its sea (DNV Table 2-1), the current kept; up to 64 kn (Beaufort 11) */
   DpWx x = *w;
