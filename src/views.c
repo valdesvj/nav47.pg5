@@ -570,7 +570,7 @@ void view_moon(Al *al, int south) {
   moon_disc(70, CY(98), 60, p.age, south);
   for (int i = 0; i < 8; i++) {                       /* the eight phases (o full, * new), today's boxed */
     int x = 6 + i * 20, k = south ? (8 - i) % 8 : i;
-    moon_disc(x + 6, BL(176) + 6, 6, k * M47_LUN / 8, 0);
+    moon_disc(x + 6, BL(176) + 6, 7, k * M47_LUN / 8, 0);   /* r 7: the crescents' lit sliver shows */
     if (k == ni) c47_xor_box(BL(176) - 2, x - 3, 18, 16);
   }
   c47_show();

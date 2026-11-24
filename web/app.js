@@ -892,7 +892,7 @@ function vesselBadge() {
 let BADGE = null;
 
 function draw() {
-  if (!CH.g || $("t-route").hidden) return;
+  if (!CH.g || !chartTab()) return;
   const g = CH.g, V = S.view;
   CH.labels = [];
   g.setTransform(CH.dpr, 0, 0, CH.dpr, 0, 0);
@@ -1029,8 +1029,8 @@ function voyUI() { const s = $("voyt"); if (s) s.value = Math.round(VOY.t * 1000
 /* ---------------------------------------------------------------- the Route tab */
 function routeTab() {
   const el = $("t-route");
-  el.innerHTML = `<div class="split"><div>
-    <div class="card"><div class="tools">
+  el.innerHTML = `<div class="split"><div id="chartslot-route">
+    <div class="card" id="chartcard"><div class="tools">
       <button data-tool="move" title="drag the chart, drag a waypoint or an object, click to select">✋ Move</button>
       <button data-tool="wp" title="click: a waypoint; on an object: from / to it">＋ Waypoint</button>
       <button data-tool="obj" title="click: an object of this type" ${S.lock ? "disabled" : ""}>＋ Object</button>
@@ -1053,11 +1053,9 @@ function routeTab() {
       <span><svg width="16" height="16"><circle cx="8" cy="8" r="6" fill="none" stroke="var(--accent)" stroke-dasharray="2 2"/></svg> departure / arrival circle</span>
       <span id="cursor" class="mono"></span>
     </div></div>
-    <div class="card" id="bowcard" hidden><h2>Bow view <span class="meta">over the Asiana's bow from the helideck, with the GPS: the route a lane
-      (its edges the XTE limits), the waypoints' flags, your platforms</span></h2><div class="controls" id="bowpics" style="margin-bottom:6px"></div><canvas id="bowcv" style="width:100%;border-radius:8px;display:block"></canvas></div>
+    <div class="card" id="rtwpcard"></div>
     <div class="card" id="plancard"></div>
     </div><div>
-    <div class="card" id="livecard"></div>
     <div class="card" id="routecard"></div>
     <div class="card" id="wpdbcard"></div>
     <div class="card" id="portcard"></div>
@@ -1148,7 +1146,7 @@ function chartEvents() {
   }, { passive: false });
   cv.addEventListener("pointerleave", () => { $("tip").style.display = "none"; });
   window.addEventListener("keydown", e => {
-    if ($("t-route").hidden || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+    if (!chartTab() || /INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
     if (e.key === "Delete" || e.key === "Backspace") { delSel(); e.preventDefault(); }
     if (e.key === "Escape") { S.sel = null; S.tool = "move"; tools(); draw(); }
   });
@@ -1239,8 +1237,12 @@ function routeCard() {
       <label ${R.avoid ? "" : "hidden"} title="the most turning points round the zones on each leg (between two of your waypoints): fewer turns, maybe a little longer">turning points <select id="turns"><option value="0">no limit</option>${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(k => `<option value="${k}">at most ${k}</option>`).join("")}</select> a leg</label>
     </div>
     </details>
-    <h3>Waypoints <span class="meta">(click on the chart with ＋ Waypoint; on an object: from / to it)</span></h3>
-    <div class="scroll" style="max-height:260px"><table id="wptab"><tr><th>#</th><th>Name</th><th>Position</th><th>Leg</th><th>Object</th><th></th></tr>
+    <div class="controls" style="margin-top:6px"><label>Load ROUTE.TXT <input type="file" id="rtload" accept=".txt,.TXT"></label>
+      <button id="rtsave" title="for the DM42n: /NAV47/ROUTE.TXT (the planned points, round the zones)">Save ROUTE.TXT</button></div>
+`;
+  /* the route's waypoints: their own card, wide, above the Plan (the handlers below find them by id) */
+  $("rtwpcard").innerHTML = `<h2>The route's waypoints <span class="meta">${R.wps.length} · click on the chart with ＋ Waypoint; on an object: from / to it</span></h2>
+        <div class="scroll" style="max-height:360px"><table id="wptab"><tr><th>#</th><th>Name</th><th>Position</th><th>Leg</th><th>Object</th><th></th></tr>
     ${R.wps.map((w, i) => `<tr class="${S.sel && S.sel.t === "w" && S.sel.i === i ? "sel" : ""}"><td>${i + 1}</td>
       <td><input class="name" data-wn="${i}" value="${esc(w.name || "")}"></td>
       <td><input class="pos mono" data-wp="${i}" value="${FMT.pos(w.lat, w.lon)}"></td>
@@ -1248,8 +1250,6 @@ function routeCard() {
       <td><select data-wo="${i}"><option value="">—</option>${S.objects.map(o => `<option value="${o.id}" ${o.id === w.obj ? "selected" : ""}>${esc(o.name)}</option>`).join("")}</select></td>
       <td><button class="small" data-up="${i}">↑</button><button class="small" data-dn="${i}">↓</button><button class="small" data-x="${i}">✕</button></td></tr>`).join("")}
     </table></div>
-    <div class="controls" style="margin-top:6px"><label>Load ROUTE.TXT <input type="file" id="rtload" accept=".txt,.TXT"></label>
-      <button id="rtsave" title="for the DM42n: /NAV47/ROUTE.TXT (the planned points, round the zones)">Save ROUTE.TXT</button></div>
     <div class="controls" style="margin-top:6px"><button id="wprev">Reverse</button><button id="wpclr">Clear</button>
       <button id="wpex">Example: Cape Town – Melbourne</button></div>`;
   $("rtset").ontoggle = () => localStorage.setItem("nav47web:rtset", $("rtset").open ? "1" : "0");
@@ -1681,12 +1681,31 @@ function voyCard() {
 }
 
 /* ---------------------------------------------------------------- the page */
-const TABS = [["route", "Route"], ["weather", "Weather"], ["almanac", "Almanac"], ["sky", "Sky"], ["tide", "Tide"], ["flow", "Flow"], ["zones", "Zones"], ["dp", "DP"], ["gps", "GPS"], ["calc", "Calculator"]];
+const TABS = [["route", "Route"], ["live", "Live"], ["weather", "Weather"], ["almanac", "Almanac"], ["sky", "Sky"], ["tide", "Tide"], ["flow", "Flow"], ["zones", "Zones"], ["dp", "DP"], ["gps", "GPS"], ["calc", "Calculator"]];
+/* Live: the navigation, apart from the planning. The bow view, the chart (the Route tab's own card, moved here),
+   the live card, the plan's waypoints from the vessel, the GPS's state */
+function liveTab() {
+  $("t-live").innerHTML = `<div class="split"><div id="chartslot-live">
+    <div class="card" id="bowcard"><h2>Bow view <span class="meta">over the Asiana's bow from the helideck, with the GPS: the route a lane
+      (its edges the XTE limits), the waypoints' flags, your platforms</span></h2><details style="margin-bottom:6px"><summary class="sumline meta">Your pictures: the bow, the ship's icon</summary><div class="controls" id="bowpics"></div></details><canvas id="bowcv" style="width:100%;border-radius:8px;display:block"></canvas></div>
+    <div id="livestart"></div>
+    </div><div>
+    <div class="card" id="livecard"></div>
+    <div class="card" id="livewps"></div>
+    <div class="card" id="livegps"></div>
+  </div></div>`;
+}
+const chartTab = () => S.tab === "route" || S.tab === "live";
 function showTab(t) {
   S.tab = t; store.set("tab", t);
   document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.tab === t));
   TABS.forEach(([k]) => $("t-" + k).hidden = k !== t);
-  if (t === "route") resize();
+  if (t === "route" || t === "live") {                     /* the one chart into the tab shown */
+    const slot = $("chartslot-" + t), cc = $("chartcard");
+    if (slot && cc && cc.parentElement !== slot) slot.insertBefore(cc, t === "live" ? $("livestart") : slot.firstChild);
+    resize(); draw();
+    if (t === "live" && typeof LIVE !== "undefined") { LIVE.card(); LIVE.wpList(); LIVE.gpsBox(); }
+  }
   else if (t === "calc") CALC.start();
   else if (t === "weather") WX.show();
   else if (t === "gps") GPS.show();
@@ -1707,7 +1726,7 @@ function header() {
   times.onchange = () => { S.times = times.value; save(); rerender(); };
   setInterval(() => { if (S.live) { show(); if (S.tab !== "route" && S.tab !== "calc") rerender(); } }, 5000);
 }
-function rerender() { if (S.tab === "route") { draw(); planCard(); voyCard(); if (typeof LIVE !== "undefined") LIVE.card(); } else if (typeof TABS2 !== "undefined" && TABS2[S.tab]) TABS2[S.tab](); }
+function rerender() { if (S.tab === "route") { draw(); planCard(); voyCard(); } else if (S.tab === "live") { draw(); if (typeof LIVE !== "undefined") { LIVE.card(); LIVE.wpList(); LIVE.gpsBox(); } } else if (typeof TABS2 !== "undefined" && TABS2[S.tab]) TABS2[S.tab](); }
 
 /* #test=avoid: random fields, random routes between two objects; every leg checked with exact distances */
 function selfTest() {
@@ -1753,7 +1772,7 @@ const APP = {
       document.body.prepend(b);
     }
     header();
-    routeTab();
+    routeTab(); liveTab();
     const h = location.hash.match(/tab=(\w+)/);
     showTab(h ? h[1] : S.tab);
     const ex = location.hash.match(/ex=(\w+)/);                /* #ex=field or #ex=cape: an example, for demos and tests */

@@ -295,5 +295,5 @@ const GPS = (() => {
   /* #gpsdemo: the demo at once (tests, pictures), when the page is up */
   if (/gpsdemo/.test(location.hash)) { const w = setInterval(() => { if (window.NAV47_UP) { clearInterval(w); demo(); } }, 200); }
 
-  return { show, line, demo, stop, state: () => st, sats: () => sats, running: () => !!src };
+  return { show, line, demo, stop, sky, state: () => st, sats: () => sats, running: () => !!src };
 })();

@@ -29,7 +29,8 @@ what they are. The GPS tab's raw sentences are folded: **Show the last sentences
 | Card | |
 |---|---|
 | the chart | Mercator or the globe; drag, zoom with the wheel, **Fit**; the coastline (Natural Earth); your objects and their keep-out zones; the plan in blue |
-| **Route** | the waypoints (click the chart with **＋ Waypoint**, or type); **Passage**: from one object to another, round every zone; the sailing (RL, GC, CS), the ellipsoid, the split; *keep out of the zones* with a clearance (**pass zones by**: the least, the route the shortest that keeps it, a few metres over), **start / end** outside the objects (0 m: on their zone), **turning points**: at most 1–10 a leg round the zones (fewer turns, a little longer; "needs N" when there is no way with fewer); every point of the plan to 0.01′, rounded away from the zones and checked again |
+| **The route's waypoints** | under the chart, wide, above the Plan: name, position, **Leg**, the object it is tied to, ↑ ↓ ✕; click the chart with **＋ Waypoint**, or type; **Reverse**, **Clear**, the Cape Town example |
+| **Route** | the route's name and library; **Passage**: from one object to another, round every zone; the sailing (RL, GC, CS), the ellipsoid, the split; *keep out of the zones* with a clearance (**pass zones by**: the least, the route the shortest that keeps it, a few metres over), **start / end** outside the objects (0 m: on their zone), **turning points**: at most 1–10 a leg round the zones (fewer turns, a little longer; "needs N" when there is no way with fewer); every point of the plan to 0.01′, rounded away from the zones and checked again |
 | **Leg** sailing | each leg its own sailing (the waypoint table's and the Plan's **Leg**: route / RL / GC / CS): a great circle across the ocean, rhumb lines along the coast; drawn so on the chart and the globe; to the calculator in ROUTE.TXT (`LEGS`), which sails them the same |
 | **Plan** table | your waypoints' rows edited there too (name, position, leg); **Sail** the planned sailing; **✎** makes a split or turning point one of your waypoints |
 | **labels** | the chart's labels: all, your waypoints only, or off (zoomed out they crowd) |
@@ -45,23 +46,25 @@ what they are. The GPS tab's raw sentences are folded: **Show the last sentences
 
 `#ex=field` in the address loads a made-up oil field to try it.
 
-## Route · Live: the route with the GPS
+## Live: navigating with the GPS
 
-![Route with the GPS](img/web_route_live.png)
+![Live](img/web_live.png)
 
-With a GPS source (the GPS tab: a GPS, a log, or the **Demo**), the Route tab monitors the route with the
-calculator's own passage engine:
+The navigation, apart from the planning: with a GPS source (the GPS tab: a GPS, a log, or the **Demo**; or
+**Demo along this route** on the Live card) the Live tab monitors the route with the calculator's own passage
+engine. The chart is the Route tab's own (the same zoom, objects and labels), following the vessel.
 
 | | |
 |---|---|
-| **Live** card | **TO** the next point and waypoint; BRG, DTG, CTS; the next leg; the next waypoint's and the final **ETA** and time to go; the **XTE** bar with the limits and "steer to port / starboard"; SOG, COG, HDG, STW; **set and drift**; your three nearest objects with their **CPA**; the alarms |
-| buttons | **Start** (the leg nearest the vessel), **◀ Prev**, **Next ▶**, **follow**, **MOB**; the XTE limit, the arrival circle, the next leg by itself, a DR speed, the beeps |
+| **Bow view** | as the calculator's BOW: over the bow from the helideck, the route a lane to the horizon, the waypoints' flags, the platforms in perspective with their zones, TURN AHEAD; on the left XTE, CTS, DTG and the latitude, on the right SOG, HDG, COG and the longitude; along the bottom the time (UT and the DR's zone time, to the second) and the fix: its kind (GPS, DGPS, RTK… green; DR amber), 3D, the satellites used, HDOP, the fix's age. *Your pictures* (folded): the calculator's `BOW.BMP` and `SHIP.BMP`, or PNG / JPG |
 | the chart | the Mermaid Asiana (or your icon) with her wake, her track, the XTE limits, the arrival circle, the alarm |
-| **Bow view** | over the bow from the helideck: the route a lane to the horizon, the waypoints' flags, the platforms in perspective with their zones, the Sun and the Moon, TURN AHEAD; *Bow picture* and *Ship icon* take your own pictures (the calculator's `BOW.BMP` and `SHIP.BMP`, or PNG / JPG) |
+| **Live** card | **TO** the next point and waypoint; BRG, DTG, CTS; the next leg; the next waypoint's and the final **ETA** and time to go; the **XTE** bar with the limits and "steer to port / starboard"; SOG, COG, HDG, STW; **set and drift**; your three nearest objects with their **CPA**; the alarms. **Start** (the leg nearest the vessel), **◀ Prev**, **Next ▶**, **follow**, **MOB**; the XTE limit, the arrival circle, the next leg by itself, a DR speed, the beeps |
+| **Plan waypoints** | every point of the plan from the vessel: its bearing, the distance along the plan, the ETA at the speed made good; the one steered for highlighted, those passed dimmed; **click one** to steer for it |
+| **GPS** | the position to 0.001′, the fix, satellites, HDOP and PDOP, the fix's and the corrections' age, the satellites' sky; the GPS tab for the rest |
 
 While the GPS is live the Voyage player waits: there is one vessel on the chart, the real one.
 
-To see it with no hardware: open `web/index.html#tab=route&ex=field&gpsdemo&gpsx=30` (the demo sails the example
+To see it with no hardware: open `web/index.html#tab=live&ex=field&gpsdemo&gpsx=30` (the demo sails the example
 field's route 30 times faster).
 
 ## GPS
