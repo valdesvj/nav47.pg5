@@ -457,5 +457,5 @@ void draw_station(void) {
     sprintf(s, "springs ~%02d-%02d   neaps ~%02d-%02d  (Moon +1.5 d)", d2, m2, d3, m3);
     nt(2, 176, s);
   }
-  nt(2, 192, N->cfg.tauto ? "AUTO  8 2 station 4 6 day 5 today ENTER list" : "8 2 station 4 6 day 5 today ENTER list 0 AUTO");
+  hint(N->cfg.tauto ? "AUTO: the nearest  8 2 station  4 6 day  5 today  ENTER list" : "8 2 station  4 6 day  5 today  ENTER list  0 AUTO");
 }

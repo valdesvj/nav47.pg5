@@ -19,7 +19,7 @@ enum { MAP_SOLID, MAP_THICK, MAP_DASH, MAP_DOT, MAP_FAINT };   /* FAINT: the glo
 void  map_init(map_t *m, int x0, int y0, int w, int h, const struct geod_geodesic *g);
 float map_psi(const map_t *m, double lat);                  /* isometric latitude, lat clamped to +-85 */
 double map_lat(const map_t *m, float psi);                  /* its inverse */
-void  map_xy(const map_t *m, double lat, double lon, float *x, float *y);
+int   map_xy(const map_t *m, double lat, double lon, float *x, float *y);   /* 0: the far side of the globe */
 void  map_fit(map_t *m, double lat_s, double lat_n, double lon_w, double lon_e);   /* lon_w < lon_e, unrolled */
 void  map_zoom(map_t *m, float f);                          /* f > 1 zooms in */
 void  map_pan(map_t *m, float fx, float fy);                /* in parts of the box: +x east, +y north */

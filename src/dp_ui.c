@@ -309,15 +309,16 @@ void draw_dp(void) {
   nt(X, 18, s);
   sprintf(s, "HDG %03.0f%s  %.0fm OFF", r->hdg, d->manual ? " SET" : " BEST", r->mid);
   nt(X, 34, s);
+  gfx_hline_dotted(X - 2, LCD_X - 1, 49, 2);             /* the set-up | the weather | the result */
   sprintf(s, "WIND %03.0f %.0fkn", d->w.wfrom, d->w.wkn);
   nt(X, 50, s);
   if (r->wleft < 0.995f) { sprintf(s, "LEE %.0f%%", (1 - r->wleft) * 100); draw_text(&TINY, X + 138, 54, s, 0); }
   sprintf(s, "CUR %03.0f %.1fkn", d->w.cset, d->w.ckn);
   nt(X, 66, s);
-  draw_text(&TINY, X + 138, 70, N->cfg.dcauto ? "FLOW" : "TYPED", 0);
+  draw_text(&TINY, X + 138, 70, N->cfg.dcauto ? "(FLOW)" : "(TYPED)", 0);
   if (d->w.hs > 0) sprintf(s, "SEA %03.0f %.1fm %.0fs", d->w.vfrom, d->w.hs, d->w.tp); else strcpy(s, "SEA none");
   nt(X, 82, s);
-  sprintf(s, "PUSH %.1ft >%03.0f %s", r->fmag / DP_T, r->fto, r->blow >= 0 ? "OFF" : "ON");   /* the weather's, x 1.25 */
+  sprintf(s, "PUSH %.1ft to %03.0f %s", r->fmag / DP_T, r->fto, r->blow >= 0 ? "OFF" : "ON");   /* the weather's, x 1.25 */
   nt(X, 98, s);
   const char *st = r->held_lim ? "HOLDS IN LIMITS" : r->held_full ? "OVER THE LIMITS" : "NO HOLD";
   gfx_rect(X - 2, 114, 196, 16, 1);
@@ -327,6 +328,7 @@ void draw_dp(void) {
   if (d->limw >= 0) sprintf(s, "WIND LIMIT %s%.0fkn", d->limw >= DPO_WIND_TOP ? ">" : "", d->limw);
   else strcpy(s, "ENTER: BEST, LIMIT");
   nt(X, 146, s);
+  gfx_hline_dotted(X - 2, LCD_X - 1, 161, 2);
   /* the thrusters' bars: 100 % = 24 px, the limit a tick; intact or after the worst failure (0); % or tonnes (3) */
   int n = d->v.nthr, cw = n ? 192 / n : 192, top = 172, H = 24;
   if (d->showfail) sprintf(s, "GROUP %d LOST, %s", r->fail_grp, d->tonnes ? "TONNES" : "% OF FULL");
@@ -466,8 +468,6 @@ void draw_dpabs(void) {
   for (int k = 1; k <= 4; k++) {
     int rr = (int)(R * k / 4);
     for (int t = 0; t < 360; t += k == 4 ? 3 : 6) gfx_pixel(cx + (int)lroundf(rr * sinf(t * ABS_D2R)), cy - (int)lroundf(rr * cosf(t * ABS_D2R)), 1);
-    sprintf(s, "%d", k * 10);
-    draw_text(&TINY, cx - (int)(rr * 0.7071f) - 10, cy + (int)(rr * 0.7071f) - 4, s, 0);
   }
   gfx_line(cx, cy - (int)R, cx, cy + (int)R, 1);
   gfx_line(cx - (int)R, cy, cx + (int)R, cy, 1);
@@ -478,6 +478,13 @@ void draw_dpabs(void) {
   abs_curve(cx, cy, R, r->intact, 0);
   const float *wcf = r->d >= 0 ? r->group[r->d_grp] : r->single[r->c_thr];
   abs_curve(cx, cy, R, wcf, 1);
+  for (int k = 1; k <= 4; k++) {                         /* the rings' speeds: on white, over the curves, m/s once */
+    int rr = (int)(R * k / 4), lx = cx - (int)(rr * 0.906f), ly = cy + (int)(rr * 0.423f) - 4;   /* at 245 deg */
+    sprintf(s, k == 4 ? "%d m/s" : "%d", k * 10);
+    int w = text_width(&TINY, s);
+    gfx_rect(lx - w / 2 - 1, ly - 1, w + 2, 9, 0);
+    draw_text(&TINY, lx - w / 2, ly, s, 0);
+  }
   /* today's wind from its direction relative to the heading on DP OPS */
   float rel = fmodf(DP->w.wfrom - DP->r.hdg + 720, 360);
   int ex = cx + (int)lroundf((R + 6) * sinf(rel * ABS_D2R)), ey = cy - (int)lroundf((R + 6) * cosf(rel * ABS_D2R));
@@ -507,7 +514,7 @@ void draw_dpabs(void) {
   draw_text(&TINY, X, y + 3, s, 0); y += LH + 4;
   draw_text(&TINY, X, y, "TODAY: SET's wind, 10-min mean;", 0); y += LH;
   draw_text(&TINY, X, y, "the ABS limits are 1-min means", 0);
-  draw_text(&TINY, 2, MENU_Y - LH, ". DNV: DP OPS  CUR 7  MARGIN 8  WIND 4 6, UP DOWN", 0);
+  draw_text(&TINY, 2, MENU_Y - LH, "4 6 today's wind direction   UP DOWN its speed   . back", 0);
 }
 
 void dpabs_key(int key) {

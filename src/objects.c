@@ -386,6 +386,8 @@ void obj_bow(double lat, double lon, double hdg, int hor, double kper, double fo
   }
   for (int a = 1; a < nf; a++) for (int b = a; b > 0 && f[b].d > f[b - 1].d; b--) { Far t = f[b]; f[b] = f[b - 1]; f[b - 1] = t; }
   Box lab[64];
+  struct { short x, y; char s[20]; } pl[24];          /* the names to place (on the stack, 576 bytes) */
+  int npl = 0;
   int nl = 0;
   for (int k = 0; k < nf; k++) {                       /* the farthest first: the nearer hide them */
     const Obj *o = &O[f[k].i];
@@ -425,6 +427,7 @@ void obj_bow(double lat, double lon, double hdg, int hor, double kper, double fo
     }
     float px, py, qx, qy;
     if (!vproj(&v, e0, n0, 0, &px, &py)) continue;     /* abeam or astern: gone past */
+    qx = px; qy = py;
     vproj(&v, e0 + a / 2 * v.ch, n0 - a / 2 * v.sh, 0, &qx, &qy);
     int small = fabsf(qx - px) < 2.5f;
     int X = (int)px, Y = (int)py, ytop = Y;
@@ -459,8 +462,14 @@ void obj_bow(double lat, double lon, double hdg, int hor, double kper, double fo
       if (vproj(&v, e0, n0, top, &tx2, &ty2) && ty2 < ytop) ytop = (int)ty2;
       for (int j = 0; j < 4; j++) { float zx, zy; if (vproj(&v, c[j][0], c[j][1], top, &zx, &zy) && zy < ytop) ytop = (int)zy; }
     }
-    char s[32];
-    snprintf(s, sizeof s, f[k].d < 9.95 ? "%s %.1f" : "%s", o->name, f[k].d);
+    if (npl < 24) {                                    /* the name: drawn after all the objects, none over it */
+      snprintf(pl[npl].s, sizeof pl[npl].s, f[k].d < 9.95 ? "%s %.1f" : "%s", o->name, f[k].d);
+      pl[npl].x = (short)X; pl[npl].y = (short)ytop; npl++;
+    }
+  }
+  for (int q = npl - 1; q >= 0; q--) {                 /* the nearest first: theirs the clear places */
+    const char *s = pl[q].s;
+    int X = pl[q].x, ytop = pl[q].y;
     int w = text_width(&TINY, s), lx = X - w / 2, ly = ytop - 10;
     if (lx < 1) lx = 1;
     if (lx + w > LCD_X - 1) lx = LCD_X - 1 - w;

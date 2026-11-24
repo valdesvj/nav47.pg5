@@ -202,7 +202,7 @@ void wpdb_draw(void) {
   else if (edit == 1) h = "LAT DD.MMm  +/- SOUTH  ENTER (empty: as is)";
   else if (edit == 2) h = "LON DDD.MMm  +/- WEST  ENTER";
   else if (msg[0]) h = msg;
-  else h = pick ? "ENTER: into the ROUTE  0 sort  1 objects  EXIT" : "ENTER edit  0 sort  1 objects*  ROUTE: insert";
+  else h = pick ? "ENTER: into the ROUTE   1 your objects (*) too" : "ENTER edit   1 your objects (*) too";
   draw_text(&TINY, 2, 199, h, 0);
   sprintf(s, "%s%s", sortn ? "by name" : "nearest", objs ? " +obj" : "");
   draw_text_r(&TINY, LCD_X - 2, 199, s, 0);

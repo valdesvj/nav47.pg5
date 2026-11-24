@@ -116,6 +116,10 @@ void fmt_dmn2(char *s, double deg, int ddig, char hemi) {    /* to 0.01': 26°30
   sprintf(s, ddig == 3 ? "%03d" NT_DEG "%05.2f%c" : "%02d" NT_DEG "%05.2f%c", d, m, hemi);
 }
 
+/* the bottom row: help small on the left, a short status small on the right (prompts stay large, inverted) */
+void hint(const char *s) { draw_text(&TINY, 2, MENU_Y - LH, s, 0); }
+void hint_r(const char *s) { draw_text_r(&TINY, LCD_X - 2, MENU_Y - LH, s, 0); }
+
 static const char *MON[12] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 static const char *WDAY[7] = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" };
 
@@ -177,9 +181,10 @@ static void draw_zones(void) {
 enum { F_LAT, F_LON, F_TZ, F_LT, F_LIVE, F_DATE, F_TIME, F_DUT1, F_WDIR, F_WKN, F_COUNT };
 static const char *FNAME[F_COUNT] = { "LATITUDE", "LONGITUDE", "CLOCK TZ", "SHOW TIMES", "TIME", "DATE (UT)", "TIME (UT)",
                                       "DUT1", "WIND FROM", "WIND KN" };
-static const char *FHELP[F_COUNT] = { "DD.MMm, +/- south", "DDD.MMm, +/- west", "clock - UT, hours",
-                                      "ENTER, or +/- on any page", "ENTER switches", "YYYY.MMDD", "HH.MM",
-                                      "UT1-UTC s, web: Almanac", "degrees true", "knots" };
+static const char *FHELP[F_COUNT] = { "LATITUDE as DD.MMm (26.30 = 26" SYM_DEG "30'), +/- south", "LONGITUDE as DDD.MMm (050.10 = 50" SYM_DEG "10'), +/- west", "CLOCK TZ: the clock - UT, hours (+3 Saudi Arabia)",
+                                      "SHOW TIMES: LOCAL or UT; ENTER, or +/- on any page", "TIME: the clock (LIVE) or a FIXED one; ENTER switches",
+                                      "DATE (UT) of the fixed time: YYYY.MMDD", "TIME (UT) of the fixed time: HH.MM",
+                                      "DUT1 = UT1 - UTC, seconds (the web page's Almanac gets it from IERS)", "WIND FROM, degrees true (FLOW, DP OPS)", "WIND KN, knots (FLOW, DP OPS)" };
 
 static void field_text(int f, char *s) {
   Cfg *c = &N->cfg;
@@ -234,7 +239,6 @@ static void field_commit(int f) {
 
 static void draw_set(void) {
   header("SET");
-  draw_text_r(&TINY, LCD_X - 2, 16, "8 2 field  ENTER edit", 0);
   char v[48];
   int y = 22;
   for (int f = 0; f < F_COUNT; f++) {
@@ -247,11 +251,10 @@ static void draw_set(void) {
     if (f == F_WDIR) sprintf(v, "%03.0f" NT_DEG, N->cfg.wdir);
     if (edit_field == f) sprintf(v, "%s_", ebuf);
     if (f == sel_field) nt_inv(6, y, FNAME[f]); else nt(6, y, FNAME[f]);
-    nt(140, y, v);
-    draw_text_r(&TINY, LCD_X - 2, y + 5, FHELP[f], 0);
+    nt(160, y, v);
     y += N->cfg.live ? 20 : 17;
   }
-  draw_text(&TINY, 2, MENU_Y - LH, "As Almanac 47: 26.30 = 26" SYM_DEG "30'. Fixed time: date and UT (live off)", 0);
+  hint(FHELP[sel_field]);                                  /* the help of the line chosen only (8 2 choose, ENTER edit) */
 }
 
 /* ------------------------------------------------------------------ */
@@ -298,26 +301,22 @@ static int file_sel_cb(const char *fpath, const char *fname, void *data) {
 static void draw_files(void) {
   header("FILES");
   char s[96];
-  int y = 26;
-  draw_text(&TINY, 2, y, "Stations (.TID) and atlas (.FLW) from " TIDEDIR, 0); y += LH;
-  draw_text(&TINY, 2, y, "PC: tools/gen_tides.py files ~/opt/tide47 OUT", 0); y += LH + 4;
-  sprintf(s, "compiled in: %d public, %d private regions, atlas %s", PUB_NREGIONS, PRIV_NREGIONS,
-          FLOW_ATLAS_PRESENT ? "yes" : "no");
-  draw_text(&TINY, 2, y, s, 0); y += LH + 4;
-  draw_text(&TINY, 2, y, "LOADED FROM FILES (reloaded at start):", 0); y += LH;
-  for (int i = 0; i < N->cfg.nfiles; i++, y += LH) draw_text(&TINY, 10, y, N->cfg.files[i], 0);
-  for (int r = 0; r < N->nfr; r++, y += LH) {
-    sprintf(s, "region %s: %s, %d stations", N->fr[r].code, N->fr[r].title, N->fr[r].n);
-    draw_text(&TINY, 10, y, s, 0);
+  int y = 22, xv = 130;                                  /* rows: what, then its state, in the normal font */
+  nt(4, y, "TIDES"); sprintf(s, "%d public, %d private regions built in", PUB_NREGIONS, PRIV_NREGIONS); nt(xv, y, s); y += 17;
+  for (int r = 0; r < N->nfr && y < 120; r++, y += 17) {
+    sprintf(s, "%s %.22s  %d st", N->fr[r].code, N->fr[r].title, N->fr[r].n); nt(xv, y, s);
   }
-  if (N->have_ffl) { sprintf(s, "atlas: %dx%d, reference %s", N->ffl.nlat, N->ffl.nlon, N->ffl.ref); draw_text(&TINY, 10, y, s, 0); y += LH; }
-  /* your own files in /NAV47: LOAD reads them again */
-  y = MENU_Y - 6 * LH - 4;
-  draw_text(&TINY, 2, y, "YOUR FILES IN /NAV47 (LOAD reads them again):", 0); y += LH;
-  sprintf(s, "OBJECTS.CSV  your platforms and zones: %d", obj_count()); draw_text(&TINY, 10, y, s, 0); y += LH;
-  sprintf(s, "WAYPTS.CSV   your waypoints (WPTS): %d", wpdb_count()); draw_text(&TINY, 10, y, s, 0); y += LH;
-  draw_text(&TINY, 10, y, "BOW.BMP      over the bow, for BOW (400 x 150 at most)", 0); y += LH;
-  draw_text(&TINY, 10, y, "SHIP.BMP     from above, bow up, for the CHART (64 x 160)", 0);
+  nt(4, y, "STREAM ATLAS");
+  if (N->have_ffl) sprintf(s, "%dx%d, ref %s", N->ffl.nlat, N->ffl.nlon, N->ffl.ref);
+  else strcpy(s, FLOW_ATLAS_PRESENT ? "built in" : "none");
+  nt(xv, y, s); y += 17;
+  for (int i = 0; i < N->cfg.nfiles && y < 120; i++, y += 12) draw_text(&TINY, xv, y + 2, N->cfg.files[i], 0);
+  y = 122;
+  gfx_rect(0, y - 3, LCD_X, 1, 1);
+  nt(4, y, "OBJECTS.CSV"); sprintf(s, "%d platforms and zones", obj_count()); nt(xv, y, s); y += 17;
+  nt(4, y, "WAYPTS.CSV"); sprintf(s, "%d waypoints (WPTS)", wpdb_count()); nt(xv, y, s); y += 17;
+  nt(4, y, "BOW, SHIP.BMP"); draw_text(&TINY, xv, y + 4, "bow view 400x150, from above 64x160", 0);
+  hint(N->msg[0] ? "" : "TID FLW: from " TIDEDIR " (PC: tools/gen_tides.py)   LOAD: /NAV47 again");
   if (N->msg[0]) draw_text(&TINY, 2, MENU_Y - LH, N->msg, 1);
 }
 

@@ -137,7 +137,7 @@ const GPS = (() => {
       }
       const k = x(), p = APP.nav.dir(lat, lon, cog, sog * 1852 / 3600 * k); lat = p.lat; lon = p.lon; t += k;
       run += stw * 1852 / 3600 * k;
-      status(along ? `demo: along the route, ${k}× (${(run / 1852).toFixed(1)} nm run)` : `demo: a made-up track from the DR, ${t} s`);
+      status(along ? `demo: along the route, ${k}× (${(run / 1852).toFixed(1)} NM run)` : `demo: a made-up track from the DR, ${t} s`);
     }, 1000);
     src = "demo"; stopSrc = () => clearInterval(id);
   }
@@ -267,7 +267,7 @@ const GPS = (() => {
           <div style="margin-top:6px"><button id="gpscalc">Connect the DM42n (USB)</button> <span class="meta" id="calcstat">this page as the bridge:
             the sentences NAV47 uses, paced for its buffer (as tools/nmea_bridge.py)</span></div>
         </div>
-        <div class="card"><h3>The last sentences</h3><pre id="gpsraw" class="mono" style="font-size:11px;white-space:pre-wrap;margin:0"></pre></div>
+        <div class="card"><details><summary class="sumline">Show the last sentences</summary><pre id="gpsraw" class="mono" style="font-size:11px;white-space:pre-wrap;margin:0"></pre></details></div>
       </div>
       <div>
         <div class="card"><h2>The satellites</h2><canvas id="gpssky" width="340" height="340" style="max-width:100%"></canvas>

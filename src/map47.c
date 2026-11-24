@@ -60,7 +60,7 @@ static int proj(const map_t *m, double lat, double lon, float *x, float *y) {
   return m->sl0 * sp + m->cl0 * cp * cd >= 0;
 }
 
-void map_xy(const map_t *m, double lat, double lon, float *x, float *y) { proj(m, lat, lon, x, y); }
+int map_xy(const map_t *m, double lat, double lon, float *x, float *y) { return proj(m, lat, lon, x, y); }
 
 void map_center(map_t *m, double lat, double lon) {
   if (lat > 90) lat = 90;

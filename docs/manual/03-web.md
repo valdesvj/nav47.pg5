@@ -13,7 +13,12 @@ tab when you switch it on.
 - [Calculator](#calculator)
 
 The top bar, on every tab: **Now** (the clock) or a fixed UT; the **DR**, your position for every tab; the times in
-**UT** or **ZT** (the DR's zone).
+**UT** or **ZT** (the DR's zone); **A+** a larger text, and **☾ Night**: red on black, the charts too, to keep the eyes
+dark-adapted on the bridge (both kept in this browser).
+
+**Cards fold** at their title (▾ / ▸): the Route tab's long column shortens to the cards in use, and the page
+remembers which are folded. The Route card's **Settings** (sailing, ellipsoid, split, zones) fold too, a line saying
+what they are. The GPS tab's raw sentences are folded: **Show the last sentences**.
 
 ---
 
