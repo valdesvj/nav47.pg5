@@ -246,6 +246,7 @@ const DPTAB = (() => {
     return lo.slice(0, -1).concat(up.slice(0, -1));
   }
 
+  let typing = 0;
   function render(best) {
     const el = document.getElementById("t-dp");
     const open = [...el.querySelectorAll("details")].map(d => d.open);   /* the sections you opened stay open */
@@ -362,6 +363,15 @@ const DPTAB = (() => {
     const $ = id => document.getElementById("dp_" + id), on = (id, f) => { const e = $(id); if (e) e.onchange = f; };
     const numf = ["wfrom", "wkn", "cset", "ckn", "vfrom", "hs", "tp", "len", "wid", "orient", "height", "smin", "slen", "standoff", "mincl", "tol", "loa"];
     numf.forEach(k => on(k, e => { const v = parseFloat(e.target.value); if (isFinite(v)) { P[k] = v; save(); render(true); } }));
+    /* the weather: the best heading again while you type (a pause of 0.6 s), not only at Enter; the field keeps the cursor */
+    ["wfrom", "wkn", "cset", "ckn", "vfrom", "hs", "tp"].forEach(k => { const e = $(k); if (e) e.oninput = () => {
+      clearTimeout(typing);
+      typing = setTimeout(() => {
+        const i = $(k), v = parseFloat(i ? i.value : ""); if (!isFinite(v) || v === +P[k]) return;
+        const at = i.selectionStart; P[k] = v; save(); render(true);
+        const j = $(k); if (j) { j.focus(); try { j.setSelectionRange(at, at); } catch (x) { /* number fields: no caret */ } }
+      }, 600);
+    }; });
     on("name", e => { P.name = e.target.value.trim() || "PLATFORM"; save(); render(); });
     on("pos", e => { const p = APP.parsePos(e.target.value); if (p) { P.lat = p[0]; P.lon = p[1]; save(); } render(true); });
     $("dr").onclick = () => { P.lat = null; P.lon = null; save(); render(true); };
