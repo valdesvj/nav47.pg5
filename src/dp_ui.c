@@ -409,7 +409,7 @@ void dp_key(int key) {
   else if (key == KEY_EXIT) go(PG_VALM);
 }
 
-const char *dp_best_label(void) { return DP && DP->bmode ? "BEST L" : "BEST H"; }
+const char *dp_best_label(void) { return DP && DP->bmode ? "L" : "H"; }
 
 void dp_soft(int fn) {
   DpS *d = DP;

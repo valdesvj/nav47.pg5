@@ -225,7 +225,7 @@ void dp_enter(void);
 void draw_dp(void);
 void dp_key(int key);
 void dp_soft(int fn);
-const char *dp_best_label(void);                     /* DP OPS: BEST H or BEST L */
+const char *dp_best_label(void);                     /* DP OPS: BEST's mode, "H" or "L" */
 void draw_dpabs(void);
 void dpabs_key(int key);
 void draw_dpin(void);
