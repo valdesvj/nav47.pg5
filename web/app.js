@@ -1697,7 +1697,7 @@ function voyCard() {
 }
 
 /* ---------------------------------------------------------------- the page */
-const TABS = [["route", "Route"], ["live", "Live"], ["flight", "Flight"], ["heli", "Helicopter"], ["supply", "Supply"], ["weather", "Weather"], ["almanac", "Almanac"], ["sky", "Sky"], ["tide", "Tide"], ["flow", "Flow"], ["zones", "Zones"], ["dp", "DP"], ["gps", "GPS"], ["calc", "Calculator"]];
+const TABS = [["route", "Route"], ["live", "Live"], ["flight", "Flight"], ["heli", "Helicopter"], ["supply", "Supply"], ["weather", "Weather"], ["almanac", "Almanac"], ["sky", "Sky"], ["tide", "Tide"], ["flow", "Flow"], ["zones", "Zones"], ["dp", "DP"], ["gps", "GPS"], ["compass", "Compass"], ["calc", "Calculator"]];
 /* Live: the navigation, apart from the planning. The bow view, the chart (the Route tab's own card, moved here),
    the live card, the plan's waypoints from the vessel, the GPS's state */
 function liveTab() {
@@ -1729,6 +1729,7 @@ function showTab(t) {
   else if (t === "calc") CALC.start();
   else if (t === "weather") WX.show();
   else if (t === "gps") GPS.show();
+  else if (t === "compass") COMPASS.show();
   else if (typeof TABS2 !== "undefined" && TABS2[t]) TABS2[t]();
 }
 let hdrShow = () => {};

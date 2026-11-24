@@ -46,7 +46,7 @@
 /* ------------------------------------------------------------------ */
 enum { PG_VALM, PG_VSPLIT, PG_VSKY, PG_VALLSKY, PG_VMOON, PG_VANIM, PG_VSKY2,
        PG_TIDE, PG_STATION, PG_ROUTE, PG_ZONES, PG_SET, PG_FILES, PG_INFO, PG_PICK, PG_PLAN, PG_CMP, PG_CHART, PG_VOY, PG_ETA, PG_ETAT, PG_DP, PG_DPIN, PG_DPABS,
-       PG_GFIX, PG_GSATS, PG_GNAV, PG_GBOW, PG_GSET, PG_WPDB };
+       PG_GFIX, PG_GSATS, PG_GNAV, PG_GBOW, PG_GSET, PG_WPDB, PG_GCOMP, PG_GDEV };
 #define IS_GPS(p) ((p) >= PG_GFIX && (p) <= PG_GSET)
 #define IS_VIEW(p) ((p) <= PG_VSKY2)
 
@@ -73,6 +73,22 @@ typedef struct { int src, reg, st; } Row;
 #define MAXROWS 400
 #define MAXWP   100
 
+/* COMPASS: an azimuth's observation and the deviation cards (0 the original, 1 the corrected), in Nav (the heap) */
+#define DEVN 36
+typedef struct {
+  int loaded;
+  int man; double lat, lon;                 /* the position: 0 the GPS (else SET's), 1 typed */
+  int fixed; double jd;                     /* the time: 0 now, 1 typed or taken at the gyro bearing */
+  int body;                                 /* VBody id: 0 Sun, -1 Moon, -2..-5 planets, 1..58 stars */
+  int has_gb, has_gh, has_ch;               /* given: the gyro bearing, the gyro heading (else the NMEA's), the compass course */
+  double gbrg, ghdg, chdg;
+  int sel, edit;                            /* the line; 1 typing */
+  int card, cur, cedit, confirm;            /* CARD: which, its row, typing (1 heading, 2 deviation), a key to press again */
+  double newh;                              /* ADD: the heading typed */
+  int n[2]; double h[2][DEVN], d[2][DEVN];
+  char msg[48];
+} CompassS;
+
 typedef struct {
   Cfg cfg;
   Al al;                    /* the views' almanac (c47screen.py Almanac) */
@@ -90,6 +106,7 @@ typedef struct {
   signed char wsail[MAXWP];          /* the leg arriving at each: 0 the route's sailing, 1 RL, 2 GC, 3 CS */
   int nwp;
   double leg_crs[MAXWP], leg_nm[MAXWP];   /* ROUTE: each leg's course and distance (cache) */
+  CompassS cmp;                      /* COMPASS and its deviation cards */
 } Nav;
 
 /* main.c: the state, the time, the formats, the files, the keys */
@@ -124,6 +141,14 @@ char *read_text(const char *path);
 void cfg_save(void);
 void go(int p);
 void hint(const char *s);                 /* the help line: small, at the bottom, left */
+/* compass_ui.c: COMPASS (the gyro error and the deviation from a body's azimuth) and CARD (the deviation cards) */
+void compass_open(int back);
+void draw_compass(void);
+void draw_devcard(void);
+int  compass_key(int key);                /* COMPASS or CARD: 1 used */
+void compass_fn(int fn);
+const char **compass_menu(void);
+int  compass_editing(void);
 void hint_r(const char *s);               /* a short status there, right */
 int digit(int key);
 void step_time(double hours);

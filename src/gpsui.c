@@ -1,6 +1,6 @@
 /* gpsui.c - NAV47 GPS: the pages and the live chart. See gpsui.h.
  *   FIX   where the vessel is, the quality of the fix (GPS / DGPS / RTK / DR), DOP, DGPS station, GST errors, the
- *         time against the clock; the anchor watch (7), the gyro error from the Sun's azimuth (ENTER)
+ *         time against the clock; the anchor watch (7); ENTER: COMPASS (the gyro error, the deviation)
  *   SATS  the satellites in the sky (one symbol a system, filled when used) and their signal bars; 0 the Sun, the
  *         Moon, the planets and the stars on the same sky
  *   NAV   the passage: XTE bar, the next point and waypoint (BRG DTG CTS ETA), the final one, SOG COG HDG, set and drift;
@@ -60,7 +60,6 @@ typedef struct {
   int      sel, edit, elen;                /* GPS SET: the field, typing */
   char     ebuf[12];
   int      sat_sys, stars;                 /* SATS: the bars of one system (GNSS_N: all), the sky's bodies */
-  int      gyro_edit; double gyro_obs, gyro_zn; int gyro_have;   /* FIX: the Sun's bearing by the gyro */
   int      had_route;
 } Gps;
 static Gps *P;
@@ -122,6 +121,8 @@ int gps_live(double *lat, double *lon, double *hdg) {
   *hdg = !isnan(P->f.hdg) ? P->f.hdg : !isnan(P->f.cog) ? P->f.cog : 0;
   return 1;
 }
+
+double gps_gyro(void) { return P && P->f.src != SRC_NONE && P->f.src != SRC_SET ? P->f.hdg : NAN; }   /* the gyro's heading: NAN none */
 
 int gps_bar(double *lat, double *lon, const char **tag) {
   if (!P || (P->f.src != SRC_GPS && P->f.src != SRC_DR)) return 0;
@@ -457,21 +458,13 @@ static void draw_fix(void) {
     snprintf(s, sizeof s, "%s  %s %s", m, a, b);
     nt_inv(4, row_used ? y + 32 : y, s);               /* the free row: above the Sun's, else under it */
   }
-  if (P->gyro_edit) { sprintf(s, "SUN BRG by gyro: %s_", P->ebuf); nt_inv(4, y + 16, s); }
-  else if (P->gyro_have && !isnan(szn)) {
-    double e = fmod(szn - P->gyro_obs + 540.0, 360.0) - 180.0;
-    sprintf(s, "SUN Zn %05.1f" NT_DEG " gyro %05.1f" NT_DEG ": ERR %.1f" NT_DEG " %s", szn, P->gyro_obs, fabs(e), e > 0 ? "LOW" : "HIGH");
-    nt(4, y + 16, s);
-  } else if (!isnan(szn) && shc > -1) {
-    sprintf(s, "SUN Zn %05.1f" NT_DEG "  Hc %.1f" NT_DEG "  ENTER: its gyro bearing", szn, shc);
+  if (!isnan(szn) && shc > -1) {                       /* the gyro error, the deviation: the COMPASS page (ENTER) */
+    sprintf(s, "SUN Zn %05.1f" NT_DEG "  Hc %.1f" NT_DEG "  ENTER: COMPASS", szn, shc);
     nt(4, y + 16, s);
   }
-  { char v[24]; double var;                            /* the variation (WMM); with the Sun's bearing: a compass's deviation */
+  { char v[24]; double var;                            /* the variation (WMM) */
     if (!var_text(v, f->lat, f->lon, &var)) snprintf(s, sizeof s, "VAR: %s", v);
-    else if (P->gyro_have && !P->gyro_edit && !isnan(szn)) {
-      double ce = fmod(szn - P->gyro_obs + 540.0, 360.0) - 180.0, dev = fmod(ce - var + 540.0, 360.0) - 180.0;
-      snprintf(s, sizeof s, "VAR %s   a magnetic compass: DEV %.1f%s%c (error - VAR)", v, fabs(dev), NT_DEG, dev >= 0 ? 'E' : 'W');
-    } else snprintf(s, sizeof s, "VAR %s (%s)", v, WMM_NAME);
+    else snprintf(s, sizeof s, "VAR %s (%s)", v, WMM_NAME);
     if (!(P->mob && row_used)) tiny(4, y + 33, s); }      /* (the MOB takes that row when the first is used) */
   int nl, no;
   gpsin_counts(&nl, &no);
@@ -1223,7 +1216,7 @@ int gps_anim(int page) {
   return 0;
 }
 
-int gps_editing(void) { return P && (P->edit >= 0 || P->gyro_edit); }
+int gps_editing(void) { return P && P->edit >= 0; }
 
 void gps_draw(int page, uint32_t frame) {
   if (!P) { nav_header("GPS"); nt(6, 40, "GPS: not enough memory"); return; }
@@ -1239,15 +1232,6 @@ void gps_draw(int page, uint32_t frame) {
 int gps_key(int page, int key) {
   if (!P) return 0;
   if (page == GP_SET) { if (key == KEY_EXIT && P->edit < 0) return 0; set_key(key); return 1; }
-  if (P->gyro_edit) {
-    if (key == KEY_ENTER) {
-      double v = atof(P->ebuf);
-      if (P->elen && v >= 0 && v <= 360) { P->gyro_obs = v; P->gyro_have = 1; }
-      P->gyro_edit = 0;
-    } else if (key == KEY_EXIT || key == KEY_F6) P->gyro_edit = 0;
-    else edit_key(key, 0);
-    return 1;
-  }
   if (key == KEY_RUN) { gps_mob(); return 1; }
   if (key == KEY_ENTER && (P->alarm & ~P->ack)) { P->ack |= P->alarm; P->event = 0; return 1; }
   double pk;
@@ -1259,7 +1243,6 @@ int gps_key(int page, int key) {
       else if (P->f.src == SRC_GPS || P->f.src == SRC_DR) { P->anc = 1; P->anc_lat = P->f.lat; P->anc_lon = P->f.lon; }
       return 1;
     }
-    if (key == KEY_ENTER) { P->gyro_edit = 1; P->elen = 0; P->ebuf[0] = 0; return 1; }
     break;
   case GP_SATS:
     if (key == KEY_0) { P->stars ^= 1; return 1; }

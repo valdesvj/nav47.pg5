@@ -33,6 +33,8 @@ objs = [("platform", "Alpha", *at(wp[1], 95, 1.6), 500, 40, 60, 40), ("platform"
         ("buoy", "B7", *at(wp[0], 60, 2.4), 50, "", "", "")]
 open(w + "/simdisk/NAV47/OBJECTS.CSV", "w").write("type,name,lat,lon,zone_m,orient,face_m,side_m\n" + "".join("%s,%s,%.6f,%.6f,%s,%s,%s,%s\n" % o for o in objs))
 open(w + "/simdisk/NAV47/WAYPTS.CSV", "w").write("name,lat,lon\nSTART,%.7f,%.7f\nANCHORAGE,%.7f,%.7f\n" % (wp[0] + at(wp[0], 200, 1.0)))
+open(w + "/simdisk/NAV47/DEVCARD.CSV", "w").write("# a made-up card\n0,1.5\n45,3.0\n90,5.5\n135,4.0\n180,0.5\n225,-3.5\n270,-6.0\n315,-2.5\n")
+open(w + "/simdisk/NAV47/DEVCORR.CSV", "w").write("# made-up checks\n0,0.5\n90,2.0\n180,-0.5\n270,-2.5\n")
 open(w + "/simdisk/NAV47/NAV47.CFG", "w").write("NAV47 CFG 1\nLAT 26.3\nLON 50.3\nTZ 3\nLIVE 1\nLT 1\nGPS 1 0 1 1 10 -1 0 1\nPSG 0.250 0.200 1 80\n")
 PY
 cp "$W/simdisk/NAV47/OBJECTS.CSV" "$W/objects.csv"
@@ -68,6 +70,8 @@ shot gps_bow        $G F3 $(w 1720) ENTER F4 WAIT:250
 shot gps_chart      $G F3 $(w 1735) ENTER 0 WAIT:250 7
 shot gps_dr         $G F1 $(w 1525) ENTER WAIT:300
 shot gps_set        $G F5
+shot calc_compass   $G F1 $(w 25) ENTER WAIT:300 DOWN DOWN DOWN DOWN DOWN ENTER 1 4 0 DOT 8 ENTER DOWN ENTER 4 5 ENTER DOWN ENTER 4 1 ENTER WAIT:200
+shot calc_devcard   $G F1 $(w 5) ENTER WAIT:300 F5 WAIT:300
 shot gps_mob        $G F3 $(w 900) RUN $(w 3)
 M="$G F3 $(w 900) RUN $(w 3) ENTER"            # a MOB marked, the alarm acknowledged
 shot gps_mob_fix    $M F1 $(w 2)
@@ -82,6 +86,7 @@ web() {   # web NAME WIDTHxHEIGHT SECONDS HASH
 if [ -n "$CH" ]; then
   web web_live       1400,1320 22 "tab=live&ex=field&gpsdemo&gpsx=30"
   web web_flight     1400,1000 8  "tab=flight&fl=DXB,LHR,JFK"
+  web web_compass    1400,1150 8  "tab=compass&cpdemo"
   web web_route_plan 1400,1000 8  "tab=route&ex=field"
   web web_gps        1300,1000 12 "tab=gps&gpsdemo"
   web web_almanac    1300,900  6  "tab=almanac"

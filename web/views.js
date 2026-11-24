@@ -234,7 +234,8 @@ const VIEWS = (() => {
         ${depHtml("fl", F)}</div>
       ${simHtml()}
       <div class="controls" style="margin-top:6px"><button id="flfit">Fit the flight</button><button id="flrev">Reverse</button><button id="flclr">Clear</button></div>
-      <div class="meta">Great circles at the cruise speed: no airways, winds or climb; for planning, not for navigation.</div>`;
+      <div class="meta">By airways where there are (the FAA's in the USA, yours from a file), else great circles; at the cruise speed: no SIDs,
+        STARs, winds or climb. For planning, not for navigation.</div>`;
     $("flq").oninput = () => {
       $("flres").innerHTML = apMatch($("flq").value).map(a => `<button class="small" data-fa="${a.id}" title="${esc(a.name)} ${a.lat.toFixed(2)}, ${a.lon.toFixed(2)}">＋ ${esc(apName(a))}</button>`).join("");
       $("flres").querySelectorAll("[data-fa]").forEach(b => b.onclick = () => { F.ids.push(b.dataset.fa); $("flq").value = ""; $("flres").innerHTML = ""; flightUpd(true); $("flq").focus(); });

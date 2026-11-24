@@ -10,6 +10,7 @@ tab when you switch it on.
 - [Live](#live-navigating-with-the-gps): the route monitored with the GPS
 - [Flight, Helicopter, Supply](#flight-helicopter-supply): airport to airport; the field's helidecks and supply runs, the shortest round trips
 - [GPS](#gps)
+- [Compass](#compass): the gyro error and the deviation from a body's azimuth; the deviation cards
 - [Almanac, Sky, Tide, Flow, Zones, Weather, DP](#the-other-tabs)
 - [Calculator](#calculator)
 
@@ -108,6 +109,32 @@ sent anywhere; nothing of them is in the page or the repository.
 | the satellites | the sky plot and the signal bars, as the calculator's SATS |
 | *The DR follows the GPS* | every 10 s the page's DR becomes the GPS's position: the Almanac, Tide, Zones and Route tabs follow |
 | **To the calculator** | to the Calculator tab's program (*Open on the calculator*: its FIX page), and **Connect the DM42n**: the page as the bridge to the real calculator over USB |
+
+## Compass
+
+![Compass](img/web_compass.png)
+
+The calculator's COMPASS and CARD pages ([2. The GPS](02-gps.md#alarms-mob-anchor-watch-gyro-error)), with the same C
+code.
+
+**The observation:**
+- the position: the top bar's (the GPS's when Position is Auto), or typed;
+- the time: now (typing the gyro bearing takes its time), or typed;
+- the body: every one above the horizon, with its Zn and Hc;
+- the gyro bearing; the gyro heading (the GPS tab's HDT when live, else typed); the compass course;
+- the results: the gyro error (LOW / HIGH), the true heading, the variation (WMM2025), the compass error, the
+  **deviation**, and both cards' deviation at that course;
+- **Save to the corrected card**.
+
+**The deviation cards:**
+- the original and the corrected drawn over each other with the ±5° lines;
+- each card's five coefficients, and over 5° the advice (the correctors, the largest first);
+- the card edited in a table (heading, deviation as 1.5E or 2W, the other card there, the difference), or pasted
+  ("000 1.5E, 045 3.0E …");
+- `DEVCARD.CSV` / `DEVCORR.CSV` in and out; **Adopt the corrected as the original** (after the compensation);
+  **To the calculator** (both files).
+
+`#tab=compass&cpdemo` opens with a made-up card and an observation of the Sun.
 
 ## The other tabs
 
