@@ -226,6 +226,8 @@ int rlib_draw(void) {
   return 0;
 }
 
+static void route_summary(int y, double nm);
+double etd_now(void);
 void draw_route(void) {
   char s[64];
   double tot = 0, crs, nm;
@@ -238,7 +240,7 @@ void draw_route(void) {
   int e = (396 - xcu) / 5;
   if (e > 0) { xla += e; xlo += 2 * e; xc += 3 * e; xd += 4 * e; xcu += 5 * e; }
   nt_r(xw, 16, "WP"); nt_c(xla - nt_w("00" NT_DEG "00.00N") / 2, 16, "LAT"); nt_c(xlo - nt_w("000" NT_DEG "00.00E") / 2, 16, "LON");
-  nt_r(xc, 16, N->cfg.gc ? "ICRS" : "CRS"); nt_r(xd, 16, "DIST"); nt_r(xcu, 16, "CUM");
+  nt_r(xc, 16, "CRS"); nt_r(xd, 16, "DIST"); nt_r(xcu, 16, "CUM");
   if (!N->nwp) {
     nt(4, 48, "No waypoints yet.");
     nt(4, 72, "HERE: the position (SET)");
@@ -254,10 +256,14 @@ void draw_route(void) {
   int vis = 10;
   if (rlib_draw()) ;
   else if (wp_edit >= 0) nt_inv(2, 192, wp_edit ? "LON DDD.MMm  +/- WEST  ENTER" : "LAT DD.MMm  +/- SOUTH  ENTER");
-  else if (wp_cur < N->nwp && N->wname[wp_cur][0]) { sprintf(s, "%d %s  1 WPTS 3 save", wp_cur + 1, N->wname[wp_cur]); nt(2, 192, s); }
-  else nt(2, 192, N->cfg.gc == 2 ? "4 6 limit 1 WPTS sh RL/GC leg" : "ENTER edit 1 WPTS sh RL/GC leg");
+  else {
+    char h[64];
+    if (wp_cur < N->nwp && N->wname[wp_cur][0]) snprintf(h, sizeof h, "%d %s   ENTER edit  1 WPTS  SHIFT RL/GC this leg", wp_cur + 1, N->wname[wp_cur]);
+    else strcpy(h, N->cfg.gc == 2 ? "4 6 the CS limit  ENTER edit  1 WPTS  SHIFT RL/GC this leg" : "ENTER edit  1 WPTS  SHIFT RL/GC this leg");
+    hint(h);
+  }
   sprintf(s, "%d WP  TOTAL %.1f NM", N->nwp, tot);
-  if (!rlib_active() && (wp_edit < 0 || nt_w(s) < 150)) nt_r(LCD_X - 2, 192, s);
+  if (!rlib_active() && wp_edit < 0) { sprintf(s, "%d WP", N->nwp); hint_r(s); }   /* the total: CUM's last row */
   if (wp_cur >= N->nwp) wp_cur = N->nwp - 1;
   int top = wp_cur - vis / 2;
   if (top > N->nwp - vis) top = N->nwp - vis;
@@ -286,6 +292,7 @@ void draw_route(void) {
       sprintf(s, "%.1f", cum); nt_r(xcu, y, s);
     }
   }
+  if (N->nwp >= 2 && wp_edit < 0 && !rlib_active()) route_summary(32 + NT_ROW * (N->nwp < vis ? N->nwp : vis) + 6, tot);
 }
 
 void wp_start_edit(void) { if (N->nwp) { wp_edit = 0; elen = 0; ebuf[0] = 0; } }
@@ -336,7 +343,9 @@ void plan_build(void) {
   plan_dirty = 0;
 }
 
-#define PLAN_HINT "5 split 4 6 step ENT csv sh nmea"
+#define PLAN_HINT "4 6 the split's step   SAIL: R rhumb, G great circle, P parallel"
+static void route_summary(int y, double nm);
+double etd_now(void);
 void draw_plan(void) {
   static const char *SPL[4] = { "", "NM", "LEGS", "DLON" };
   char s[64], r[32];
@@ -352,7 +361,7 @@ void draw_plan(void) {
   int e = (396 - xk) / 6;
   if (e > 0) { xla += e; xlo += 2 * e; xc += 3 * e; xd += 4 * e; xcu += 5 * e; xk += 6 * e; }
   nt_r(xw, 16, "WP"); nt_c(xla - nt_w("00" NT_DEG "00.00N") / 2, 16, "LAT"); nt_c(xlo - nt_w("000" NT_DEG "00.00E") / 2, 16, "LON");
-  nt_r(xc, 16, "STEER"); nt_r(xd, 16, "LEG"); nt_r(xcu, 16, "CUM");
+  nt_r(xc, 16, "STEER"); nt_r(xd, 16, "LEG"); nt_r(xcu, 16, "CUM"); draw_text_r(&TINY, LCD_X - 1, 20, "SAIL", 0);
   if (R->n < 2 && N->nwp >= 2) plan_build();             /* once more, from the start */
   if (R->n < 2) {
     if (N->nwp < 2) { sprintf(s, "Needs 2 waypoints on ROUTE (it has %d).", N->nwp); nt(4, 48, s); return; }
@@ -379,12 +388,12 @@ void draw_plan(void) {
       s[0] = w->kind; s[1] = 0; nt_r(xk, y, s);
     }
   }
+  route_summary(32 + NT_ROW * (R->n < vis ? R->n : vis) + 6, R->w[R->n - 1].cum_m / NM);
   if (!plan_msg[0] && R->full) strcpy(plan_msg, "plan full: larger split");
   if (!plan_msg[0] && plan_rc) strcpy(plan_msg, "some legs sailed GC, not CS");
   if (plan_msg[0]) nt_inv(2, 192, plan_msg);
-  else nt(2, 192, PLAN_HINT);
-  sprintf(r, "%d WP %.1f NM", R->n, R->w[R->n - 1].cum_m / NM);
-  if (nt_w(r) + nt_w(plan_msg[0] ? plan_msg : PLAN_HINT) < 388) nt_r(LCD_X - 2, 192, r);
+  else hint(PLAN_HINT);
+  (void)r;
 }
 
 static void plan_step(int dir) {
@@ -462,9 +471,8 @@ static void cmp_footer(void) {
   char s[64];
   if (cmp_msg[0]) { nt_inv(2, 192, cmp_msg); return; }
   if (cmp_edit >= 0) { nt_inv(2, 192, cmp_edit ? "1/f: 0 sphere or over 100  ENTER" : "a: 6000000..7000000 m  ENTER"); return; }
-  sprintf(s, "7 9 %s%s  8 2 leg", ellipsoids[geo_ell_index].name, geo_ell_index == ELL_CUSTOM ? " ENTER edit" : "");
-  nt(2, 192, s);
-  if (nt_w(s) < 300) nt_r(LCD_X - 2, 192, "EXIT back");
+  sprintf(s, "7 9 the ellipsoid (%s%s)   8 2 the leg", ellipsoids[geo_ell_index].name, geo_ell_index == ELL_CUSTOM ? ", ENTER edit" : "");
+  hint(s);
 }
 
 void draw_cmp(void) {
@@ -556,6 +564,7 @@ void cmp_key(int key) {
 #define CHART_H  175
 static map_t chart_m;
 int chart_back = PG_PLAN, chart_refit = 1, chart_globe;
+static int chart_labels = 1;                    /* the waypoints' names on CHART: key 3 */
 int chart_live, chart_follow;                     /* the GPS's chart: the vessel, her track; FOLLOW keeps her centred */
 uint32_t anim_frame;
 static char chart_detail;                                /* 'C' or 'L': the coastline last drawn, 0 none */
@@ -708,22 +717,40 @@ void draw_chart(void) {
   if (chart_live) gps_chart_layer(&chart_m, anim_frame, chart_follow);
   else obj_chart(&chart_m);
   map_space(&chart_m);
+  if (route && chart_labels) {                           /* your waypoints' names (else their numbers), none over another */
+    short bx[MAXWP], by[MAXWP], bw[MAXWP]; int nb = 0;
+    for (int i = 0; i < N->nwp; i++) {
+      float x, y;
+      if (!map_xy(&chart_m, N->wlat[i], N->wlon[i], &x, &y)) continue;
+      if (x < 0 || x >= LCD_X || y < CHART_Y0 + 2 || y >= CHART_Y0 + CHART_H - 2) continue;
+      char t[WP_NAME + 4];
+      if (N->wname[i][0]) snprintf(t, sizeof t, "%.10s", N->wname[i]); else sprintf(t, "%d", i + 1);
+      int w = text_width(&TINY, t), lx = (int)x + 6, ly = (int)y - 12, hit = 0;
+      if (lx + w > LCD_X - 2) lx = (int)x - 6 - w;        /* inside the frame */
+      if (ly < CHART_Y0 + 1) ly = (int)y + 5;
+      for (int k = 0; k < nb && !hit; k++) hit = lx < bx[k] + bw[k] + 2 && lx + w + 2 > bx[k] && abs(ly - by[k]) < 10;
+      if (hit) continue;
+      gfx_rect(lx - 1, ly - 1, w + 2, 9, 0);
+      draw_text(&TINY, lx, ly, t, 0);
+      bx[nb] = (short)lx; by[nb] = (short)ly; bw[nb++] = (short)w;
+    }
+  }
   lcd_fill_rect(0, CHART_Y0 + CHART_H, LCD_X, MENU_Y - CHART_Y0 - CHART_H, 0);   /* the hint's strip: nothing of the chart in it */
   gfx_rect(0, CHART_Y0 + CHART_H, LCD_X, 1, 1);
-  if (chart_live) nt(2, 192, chart_follow ? "1 FOLLOW on  7 9 zoom  R/S MOB" : "1 follow  8246 pan  7 9 zoom");
-  else nt(2, 192, chart_globe ? "4 6 turn 8 2 tilt 7 9 zoom" : "8246 pan 7 9 zoom 5 fit");
+  if (chart_live) hint(chart_follow ? "1 FOLLOW on   R/S MOB" : "1 follow   8 2 4 6 pan   R/S MOB");
+  else hint(chart_globe ? "4 6 turn   8 2 tilt   3 names" : "8 2 4 6 pan   3 names");
   if (vessel) {                                            /* the GPS's chart: MOB, else where she is */
-    if (gps_mob_line(s)) { draw_text_r(&TINY, LCD_X - 2, 195, s, 1); return; }
-    if (!chart_detail) { nt_r(LCD_X - 2, 192, "no COAST_C.BIN"); return; }
+    if (gps_mob_line(s)) { draw_text_r(&TINY, LCD_X - 2, MENU_Y - LH, s, 1); return; }
+    if (!chart_detail) { hint_r("no COAST_C.BIN"); return; }
     char a[20], b[20];
     fmt_dm3(a, vla, 1); fmt_dm3(b, vlo, 0);
     sprintf(s, "%s %s", a, b);
-    draw_text_r(&TINY, LCD_X - 2, 195, s, 0);
+    hint_r(s);
     return;
   }
   if (chart_detail) sprintf(s, "%c grid %d" NT_DEG, chart_detail, step);
   else strcpy(s, "no COAST_C.BIN");
-  nt_r(LCD_X - 2, 192, s);
+  hint_r(s);
 }
 
 void chart_key(int key) {
@@ -738,6 +765,7 @@ void chart_key(int key) {
   else if (key == KEY_9) map_zoom(&chart_m, 1.5f);
   else if (key == KEY_7) map_zoom(&chart_m, 1 / 1.5f);
   else if (key == KEY_5) chart_refit = 1;
+  else if (key == KEY_3) chart_labels ^= 1;
   else if (key == KEY_0) { chart_globe ^= 1; map_set_globe(&chart_m, chart_globe); }
   else if (key == KEY_EXIT) { go(chart_back); if (chart_back == PG_ROUTE) menu_page = 3; if (IS_GPS(chart_back)) menu_page = 4; chart_live = 0; }
 }
@@ -791,6 +819,19 @@ static void fmt_dur(char *s, double hours) {           /* 3d 04:30 */
   long mi = (long)floor(hours * 60 + 0.5);
   if (mi >= 1440) sprintf(s, "%ldd %02ld:%02ld", mi / 1440, (mi / 60) % 24, mi % 60);
   else sprintf(s, "%02ld:%02ld", mi / 60, mi % 60);
+}
+
+/* under a short table (ROUTE, PLAN): the total, the time at the passage's speed, ETD and ETA */
+static void route_summary(int y, double nm) {
+  if (y > 140 || nm <= 0 || voy_kn <= 0) return;
+  char s[64], a[20], b[20];
+  double hrs = nm / voy_kn, etd = etd_now();
+  gfx_hline_dotted(4, LCD_X - 4, y, 2); y += 6;
+  fmt_dur(a, hrs);
+  sprintf(s, "TOTAL %.1f NM   at %.1f kn: %s", nm, voy_kn, a); nt(4, y, s); y += 17;
+  fmt_dt(a, etd); fmt_dt(b, etd + hrs / 24);
+  sprintf(s, "ETD %s   ETA %s %s", a, b, N->cfg.lt ? "LT" : "UT"); nt(4, y, s); y += 17;
+  draw_text(&TINY, 4, y + 2, "the speed, the ETD: VOYAGE then ETA", 0);
 }
 
 void draw_voy(void) {
@@ -847,10 +888,11 @@ void draw_voy(void) {
   fmt_dmn2(t, lo, 3, lo < 0 ? 'W' : 'E'); nt_r(XR, y, t); y += 16;
   int pw = XR - X, px = (int)((double)pw * voy_step / VOY_STEPS);            /* the progress */
   gfx_frame(X, y + 2, pw, 8); gfx_rect(X, y + 2, px, 8, 1);
-  if (voy_step >= VOY_STEPS) strcpy(s, plane ? "LANDED  R/S again" : "ARRIVED  R/S again");
-  else sprintf(s, "%s 4 6 step ENT kn 0 ETA", voy_play ? "R/S pause" : "R/S play");
+  { char pc[24]; sprintf(pc, "%d %% sailed", voy_step * 100 / VOY_STEPS); draw_text_r(&TINY, XR, y + 12, pc, 0); }
+  if (voy_step >= VOY_STEPS) strcpy(s, plane ? "LANDED   R/S again" : "ARRIVED   R/S again");
+  else strcpy(s, "4 6 step   ENTER the speed   1 3 the departure");
   if (voy_edit) { sprintf(s, "SPEED kn: %s_  ENTER ok  EXIT", ebuf); nt_inv(2, 192, s); return; }
-  nt(2, 192, s);
+  hint(s);
 }
 
 static void voy_speed(int dir) {
@@ -936,7 +978,7 @@ void draw_eta(void) {
   sprintf(s, "a new ETD keeps the %s", eta_keep_eta ? "ETA (the speed follows)" : "SPEED (the ETA follows)");
   nt(4, 168, s);
   if (eta_msg[0]) nt_inv(2, 192, eta_msg);
-  else nt(2, 192, "8 2 field ENTER type 0 keep EXIT");
+  else hint("8 2 the field   ENTER type it   0 keep the ETA or the speed");
 }
 
 /* the typed value into its field */
@@ -1026,8 +1068,8 @@ void draw_etat(void) {
     if (k == etat_sel) { gfx_rect(2, (int)yy - 2, 396, 20, 1); nt_inv(6, (int)yy, s); nt_inv(200 - nt_w(a), (int)yy, a); nt_inv(396 - nt_w(d), (int)yy, d); }
     else { nt(6, (int)yy, s); nt_r(200, (int)yy, a); nt_r(396, (int)yy, d); }
   }
-  sprintf(s, "* set  8 2 speed 4 6 step %.2g kn 5 ENT use", etat_step);
-  nt(2, 192, s);
+  sprintf(s, "4 6 the step: %.2g kn", etat_step);
+  hint(s);
 }
 
 void etat_key(int key) {

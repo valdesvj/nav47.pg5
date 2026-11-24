@@ -123,6 +123,8 @@ double parse_dm(const char *s);
 char *read_text(const char *path);
 void cfg_save(void);
 void go(int p);
+void hint(const char *s);                 /* the help line: small, at the bottom, left */
+void hint_r(const char *s);               /* a short status there, right */
 int digit(int key);
 void step_time(double hours);
 static inline int imin(int a, int b) { return a < b ? a : b; }

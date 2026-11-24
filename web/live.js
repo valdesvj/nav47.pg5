@@ -176,10 +176,10 @@ const LIVE = (() => {
   function alarmText() {
     const a = L.alarm & ~L.ack, p = L.psg, pos = L.pos;
     if (!a) return "";
-    if (a & A.MOB) { const m = nm(pos.lat, pos.lon, L.mob.lat, L.mob.lon); return `MOB ${m.d.toFixed(2)} nm ${deg(m.brg)}`; }
+    if (a & A.MOB) { const m = nm(pos.lat, pos.lon, L.mob.lat, L.mob.lon); return `MOB ${m.d.toFixed(2)} NM ${deg(m.brg)}`; }
     if (a & A.ZONE) return `IN THE ZONE: ${L.near.find(z => z.in && z.warn).o.name}`;
     if (a & A.CPA) { const z = L.near.find(z => z.warn); return `ZONE AHEAD: ${z.o.name} in ${Math.round(z.tcpa * 60)} min`; }
-    if (a & A.XTE) return `OFF TRACK ${Math.abs(p.xte).toFixed(2)} nm ${p.xte >= 0 ? "R" : "L"}`;
+    if (a & A.XTE) return `OFF TRACK ${Math.abs(p.xte).toFixed(2)} NM ${p.xte >= 0 ? "R" : "L"}`;
     if (a & A.FINAL) return "ARRIVED: THE FINAL WAYPOINT";
     if (a & A.ARR) return `WAYPOINT: NOW TO ${wpOf(p.userNo).name}`;
     if (a & A.LOST) return "NO FIX: DEAD RECKONING";
@@ -295,36 +295,36 @@ const LIVE = (() => {
           <div class="big" style="font-size:22px;font-weight:700">${p.done ? "ARRIVED" : "TO " + (user ? to.name : `pt ${p.userNo} → ${to.name}`)}</div>
           <span class="meta">leg ${p.leg} / ${p.n - 1}</span></div>
         <table>
-          <tr><td>BRG · DTG</td><td class="num mono"><b>${deg(p.brg)}</b> · ${p.dtg.toFixed(2)} nm</td><td>CTS</td><td class="num mono">${deg(p.cts)}</td></tr>
-          <tr><td>${next ? next.name : "–"}</td><td class="num mono">${dWp.toFixed(1)} nm · ${FMT.dur(tWp || 0)}</td><td>ETA</td><td class="num mono"><b>${eta(tWp)}</b></td></tr>
-          <tr><td>Final</td><td class="num mono">${p.dtgFinal.toFixed(1)} nm · ${FMT.dur(p.ttgFinal || 0)}</td><td>ETA</td><td class="num mono"><b>${eta(p.ttgFinal)}</b></td></tr>
+          <tr><td>BRG · DTG</td><td class="num mono"><b>${deg(p.brg)}</b> · ${p.dtg.toFixed(2)} NM</td><td>CTS</td><td class="num mono">${deg(p.cts)}</td></tr>
+          <tr><td>${next ? next.name : "–"}</td><td class="num mono">${dWp.toFixed(1)} NM · ${FMT.dur(tWp || 0)}</td><td>ETA</td><td class="num mono"><b>${eta(tWp)}</b></td></tr>
+          <tr><td>Final</td><td class="num mono">${p.dtgFinal.toFixed(1)} NM · ${FMT.dur(p.ttgFinal || 0)}</td><td>ETA</td><td class="num mono"><b>${eta(p.ttgFinal)}</b></td></tr>
           <tr><td>Next leg</td><td class="num mono">${isFinite(p.next) ? deg(p.next) : "the last"}</td><td>ETA at</td><td class="num mono">${p.kn.toFixed(1)} kn</td></tr>
         </table>
-        <div style="margin:8px 0 2px;display:flex;justify-content:space-between"><b class="mono" style="${p.alarm & 1 ? "color:var(--now)" : ""}">XTE ${Math.abs(p.xte).toFixed(3)} nm ${p.xte >= 0 ? "R" : "L"}</b>
+        <div style="margin:8px 0 2px;display:flex;justify-content:space-between"><b class="mono" style="${p.alarm & 1 ? "color:var(--now)" : ""}">XTE ${Math.abs(p.xte).toFixed(3)} NM ${p.xte >= 0 ? "R" : "L"}</b>
           <span>${Math.abs(p.xte) > 0.01 ? (p.xte > 0 ? "◀ steer to port" : "steer to starboard ▶") : "on track"}</span></div>
         <div style="position:relative;height:22px;border:1px solid var(--line);border-radius:6px;background:var(--chip)">
           <div style="position:absolute;left:25%;top:0;bottom:0;border-left:2px solid var(--now)"></div>
           <div style="position:absolute;left:75%;top:0;bottom:0;border-left:2px solid var(--now)"></div>
           <div style="position:absolute;left:50%;top:0;bottom:0;border-left:1px solid var(--soft)"></div>
           <div style="position:absolute;left:calc(${50 + 46 * f}% - 7px);top:3px;width:14px;height:14px;background:var(--track);clip-path:polygon(50% 0,100% 100%,0 100%)"></div></div>
-        <div class="meta">the limits ±${cfg.xte} nm</div>`;
+        <div class="meta">the limits ±${cfg.xte} NM</div>`;
     } else body = `<div class="meta">${ROUTE.pts.length < 2 ? "Plan a route: two waypoints or more." : "Start: the leg nearest the vessel."}</div>`;
     const near = L.near.length ? `<h3>The nearest objects</h3><table>${L.near.slice(0, 3).map(z => `<tr style="${z.warn ? "color:var(--now);font-weight:700" : ""}">
-      <td>${z.o.name}</td><td class="num mono">${deg(z.brg)}</td><td class="num mono">${z.d.toFixed(2)} nm</td>
+      <td>${z.o.name}</td><td class="num mono">${deg(z.brg)}</td><td class="num mono">${z.d.toFixed(2)} NM</td>
       <td class="num mono">${z.tcpa > 0 && z.tcpa < 24 ? `CPA ${z.cpa.toFixed(2)} in ${Math.round(z.tcpa * 60)}′` : "opening"}</td></tr>`).join("")}</table>` : "";
     el.innerHTML = `<h2>Live ${chip} <span class="meta mono">${FMT.pos(pos.lat, pos.lon)}</span></h2>
       ${at ? `<div style="background:#c62828;color:#fff;font-weight:700;border-radius:8px;padding:6px 10px;margin:6px 0;display:flex;justify-content:space-between">${at}<button id="liveack" class="small">OK</button></div>` : ""}
       ${body}
       <table style="margin-top:6px"><tr><td>SOG · COG</td><td class="num mono"><b>${n1(pos.sog)}</b> kn · ${deg(pos.cog)}</td><td>HDG</td><td class="num mono">${deg(pos.hdg)}</td></tr>
         <tr><td>Set · drift</td><td class="num mono">${isFinite(pos.set) ? deg(pos.set) + " · " + pos.drift.toFixed(1) + " kn" : "–"}</td><td>STW</td><td class="num mono">${isFinite(pos.stw) ? n1(pos.stw) + " kn" : "–"}</td></tr>
-        ${pos.drErr ? `<tr><td colspan="4" class="meta">the DR was ${pos.drErr.d.toFixed(2)} nm ${deg(pos.drErr.brg)} off</td></tr>` : ""}</table>
+        ${pos.drErr ? `<tr><td colspan="4" class="meta">the DR was ${pos.drErr.d.toFixed(2)} NM ${deg(pos.drErr.brg)} off</td></tr>` : ""}</table>
       ${near}
       <div class="controls" style="margin-top:8px"><button id="livestart" title="the leg nearest the vessel">Start</button>
         <button id="liveprev">◀ Prev</button><button id="livenext">Next ▶</button>
         <label><input type="checkbox" id="livefollow" ${cfg.follow ? "checked" : ""}> follow</label>
         <button id="livemob" style="background:#c62828;color:#fff;font-weight:700">MOB</button>${L.mob ? '<button id="livemobx" class="small">clear MOB</button>' : ""}</div>
-      <div class="controls" style="margin-top:6px"><label>XTE limit <input class="num" id="livexte" type="number" step="0.05" min="0.02" max="5" value="${cfg.xte}"> nm</label>
-        <label>arrival <input class="num" id="livearr" type="number" step="0.05" min="0.02" max="5" value="${cfg.arr}"> nm</label>
+      <div class="controls" style="margin-top:6px"><label>XTE limit <input class="num" id="livexte" type="number" step="0.05" min="0.02" max="5" value="${cfg.xte}"> NM</label>
+        <label>arrival <input class="num" id="livearr" type="number" step="0.05" min="0.02" max="5" value="${cfg.arr}"> NM</label>
         <label><input type="checkbox" id="liveauto" ${cfg.auto ? "checked" : ""}> next leg by itself</label>
         <label>DR speed <input class="num" id="livedr" type="number" step="0.5" min="0" max="40" value="${cfg.drKn}"> kn</label>
         <label><input type="checkbox" id="livebeep" ${cfg.alarms ? "checked" : ""}> beeps</label></div>`;

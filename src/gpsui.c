@@ -225,11 +225,11 @@ const char *gps_alarm_text(void) {
   if (!P) return NULL;
   int a = P->alarm & ~P->ack;
   if (!a) return NULL;
-  if (a & A_MOB) { double b, d = nm_brg(P->f.lat, P->f.lon, P->mob_lat, P->mob_lon, &b); sprintf(s, "MOB %.2f nm %03.0f" NT_DEG, d, b); }
+  if (a & A_MOB) { double b, d = nm_brg(P->f.lat, P->f.lon, P->mob_lat, P->mob_lon, &b); sprintf(s, "MOB %.2f NM %03.0f" NT_DEG, d, b); }
   else if (a & A_ZONE) snprintf(s, sizeof s, "IN THE ZONE: %s", P->zone_name);
   else if (a & A_ANCHOR) strcpy(s, "ANCHOR DRAGGING");
   else if (a & A_CPA) snprintf(s, sizeof s, "ZONE AHEAD: %s %.0f min", P->cpa_name, P->cpa_min);
-  else if (a & A_XTE) { char x[16]; fmt_xte(x, P->p.xte); sprintf(s, "OFF TRACK %s nm %s", x, P->p.xte >= 0 ? "R" : "L"); }
+  else if (a & A_XTE) { char x[16]; fmt_xte(x, P->p.xte); sprintf(s, "OFF TRACK %s NM %s", x, P->p.xte >= 0 ? "R" : "L"); }
   else if (a & A_FINAL) strcpy(s, "ARRIVED: THE FINAL WAYPOINT");
   else if (a & A_ARR) sprintf(s, "WAYPOINT: NOW TO WP%d", P->p.user_no);
   else if (a & A_LOST) strcpy(s, "NO FIX: DEAD RECKONING");
@@ -306,11 +306,11 @@ static void fmt_ttg(char *s, double h) {
 static void fmt_deg(char *s, double v) { if (isnan(v)) strcpy(s, "---"); else sprintf(s, "%03.0f" NT_DEG, fmod(v + 360.0, 360.0)); }
 static void fmt_kn(char *s, double v) { if (isnan(v)) strcpy(s, "--.-"); else sprintf(s, "%.1f", v); }
 
-/* MOB: its bearing and distance from the vessel, "MOB 232° 0.45 nm"; 0 no MOB */
+/* MOB: its bearing and distance from the vessel, "MOB 232° 0.45 NM"; 0 no MOB */
 static int mob_text(char *s) {                       /* s: 24 */
   if (!P->mob) return 0;
   double b, d = nm_brg(P->f.lat, P->f.lon, P->mob_lat, P->mob_lon, &b);
-  sprintf(s, d < 10 ? "MOB %03.0f" NT_DEG " %.2f nm" : "MOB %03.0f" NT_DEG " %.1f nm", b, d);
+  sprintf(s, d < 10 ? "MOB %03.0f" NT_DEG " %.2f NM" : "MOB %03.0f" NT_DEG " %.1f NM", b, d);
   return 1;
 }
 int gps_mob_line(char *s) { return P && mob_text(s); }
@@ -388,8 +388,10 @@ static void draw_fix(void) {
     nt(50, y, s);
     char c[16], k[16];
     fmt_deg(c, f->cog); fmt_kn(k, f->sog);
-    sprintf(s, "DR %s %c  %s kn %c", c, f->dr_crs_src ? f->dr_crs_src : '?', k, f->dr_kn_src ? f->dr_kn_src : '?');
-    nt_r(LCD_X - 4, y, s);
+    const char *cs = f->dr_crs_src == 'G' ? "gyro" : f->dr_crs_src == 'C' ? "COG" : f->dr_crs_src == 'M' ? "set" : "?";
+    const char *ks = f->dr_kn_src == 'L' ? "log" : f->dr_kn_src == 'S' ? "SOG" : f->dr_kn_src == 'M' ? "set" : "?";
+    sprintf(s, "DR %s (%s)  %s kn (%s)", c, cs, k, ks);   /* where the DR's course and speed come from, in words */
+    tiny_r(LCD_X - 4, y + 4, s);
   } else if (f->src == SRC_SET) nt(70, y, "GPS SET: POS OFF, SET's position");
   if (P->input && f->src != SRC_DR) {
     long age = g->rx_ms ? (long)((now - g->rx_ms) / 1000) : -1;
@@ -442,7 +444,7 @@ static void draw_fix(void) {
     sprintf(s, "ANCHOR %.0f m of %.0f m, %03.0f" NT_DEG, d * 1852, P->anc_r, b);
     if (P->alarm & A_ANCHOR) nt_inv(4, y, s); else nt(4, y, s);
   } else if (!isnan(f->dr_err_nm) && now - f->dr_err_ms < 600000) {
-    sprintf(s, "the DR was %.2f nm %03.0f" NT_DEG " off", f->dr_err_nm, f->dr_err_brg);
+    sprintf(s, "the DR was %.2f NM %03.0f" NT_DEG " off", f->dr_err_nm, f->dr_err_brg);
     nt(4, y, s);
   } else row_used = 0;
   VBody bd[8];
@@ -598,7 +600,7 @@ static void draw_sats(void) {
   }
   gfx_rect(bx, by, LCD_X - 4 - bx, 1, 1);
   mob_box(212, 76);
-  tiny(2, BOT - LHT + 1, P->stars ? "0 satellites only" : "0 + Sun Moon stars");
+  tiny(2, BOT - LHT + 1, P->stars ? "0 hide the Sun, Moon, stars" : "0 show the Sun, Moon, stars");
   tiny_r(LCD_X - 2, BOT - LHT + 1, "4 6 system  bars dB-Hz, filled: used");
   alarm_bar();
 }
@@ -656,10 +658,10 @@ static void draw_nav(void) {
     y += 16;                                            /* 68: the next waypoint, the final one: distance, ETA */
     { const char *wn = nav_wp_name(p->user_no - 1);
       fmt_eta(t, p->ttg_user);
-      if (wn[0]) snprintf(s, sizeof s, "%.7s %.1f nm", wn, p->dtg_user); else sprintf(s, "WP%d %.1f nm", p->user_no, p->dtg_user);
+      if (wn[0]) snprintf(s, sizeof s, "%.7s %.1f NM", wn, p->dtg_user); else sprintf(s, "WP%d %.1f NM", p->user_no, p->dtg_user);
       nt(4, y, s); nt_r(200, y, t); }
     y += 16;                                            /* 84 */
-    fmt_eta(t, p->ttg_final); sprintf(s, "FINAL %.1f nm", p->dtg_final); nt(4, y, s); nt_r(200, y, t);
+    fmt_eta(t, p->ttg_final); sprintf(s, "FINAL %.1f NM", p->dtg_final); nt(4, y, s); nt_r(200, y, t);
     y += 17;                                            /* 101: the times to go, the speed */
     char a1[16], a2[16];
     fmt_ttg(a1, p->ttg_user); fmt_ttg(a2, p->ttg_final);
@@ -712,14 +714,15 @@ static void draw_nav(void) {
       if (z[i].tcpa > 0 && z[i].tcpa < 24) sprintf(c, "CPA %.2f in %.0f'", z[i].cpa, z[i].tcpa * 60);
       else strcpy(c, "opening");
       static const char *TY[] = { "PLAT", "RIG", "WELL", "SPM", "WRECK", "BUOY", "LIGHT", "PORT" };
-      sprintf(s, "%-12.12s %-5s %03.0f" SYM_DEG " %5.2f nm  %s", z[i].o->name, TY[z[i].o->type < 8 ? z[i].o->type : 0], z[i].brg, z[i].nm, c);
+      sprintf(s, "%-12.12s %-5s %03.0f" SYM_DEG " %5.2f NM  %s", z[i].o->name, TY[z[i].o->type < 8 ? z[i].o->type : 0], z[i].brg, z[i].nm, c);
+      if (z[i].warn) gfx_rect(0, 122 + i * 9 - 1, LCD_X, 9, 1);   /* a warning: the whole row inverted, not a strip */
       draw_text(&TINY, 4, 122 + i * 9, s, z[i].warn);
     }
   }
   /* the XTE bar */
   if (R && p->active && !p->done) {
     int yb = 178;
-    sprintf(s, "XTE %.3f nm %s", fabs(p->xte), p->xte >= 0 ? "R" : "L");
+    sprintf(s, "XTE %.3f NM %s", fabs(p->xte), p->xte >= 0 ? "R" : "L");
     if (P->alarm & A_XTE) nt_inv(6, yb - 26, s); else nt(6, yb - 26, s);
     double steer = p->xte;
     if (fabs(steer) > 0.01) { sprintf(s, steer > 0 ? "<< STEER PORT" : "STEER STBD >>"); nt_r(XR, yb - 26, s); }
@@ -844,7 +847,7 @@ static void draw_bow(uint32_t frame) {
   double hdg = !isnan(f->hdg) ? f->hdg : !isnan(f->cog) ? f->cog : 0;
   if (R && p->active && !p->done) {
     fmt_eta(t, p->ttg_user);
-    sprintf(s, "BOW WP%d %s", p->user_no, t);
+    sprintf(s, "BOW WP%d", p->user_no);                  /* short: the top bar keeps room for it beside the GPS tag */
   } else strcpy(s, "BOW");
   nav_header(s);
   gfx_rect(0, HOR, LCD_X, 1, 1);
@@ -991,8 +994,8 @@ static void set_text(int f, char *s) {
   case S_TIMEOUT: sprintf(s, "%d s", P->fc.timeout); break;
   case S_DRCRS: if (P->fc.dr_crs < 0) strcpy(s, "GYRO / COG"); else sprintf(s, "%03.0f" NT_DEG, P->fc.dr_crs); break;
   case S_DRKN: if (P->fc.dr_kn <= 0) strcpy(s, "LOG / SOG"); else sprintf(s, "%.1f kn", P->fc.dr_kn); break;
-  case S_XTE: sprintf(s, "%.2f nm", P->p.xte_lim); break;
-  case S_ARR: sprintf(s, "%.2f nm", P->p.arr_r); break;
+  case S_XTE: sprintf(s, "%.2f NM", P->p.xte_lim); break;
+  case S_ARR: sprintf(s, "%.2f NM", P->p.arr_r); break;
   case S_ADV: strcpy(s, P->p.auto_adv ? "AUTO" : "BY HAND (6)"); break;
   case S_ANCR: sprintf(s, "%.0f m", P->anc_r); break;
   case S_ALARMS: strcpy(s, P->alarms ? "ON" : "OFF"); break;
@@ -1202,8 +1205,8 @@ no_mob:
   sprintf(s, "%s  %s kn", navfix_src_name(&P->f), (fmt_kn(t, P->f.sog), t)); chart_line(bx, by, s, 0);
   if (R && P->p.active && !P->p.done) {
     fmt_deg(t, P->p.brg); sprintf(s, "WP%d BRG %s", P->p.user_no, t); chart_line(bx, by + 11, s, 1);
-    fmt_eta(t, P->p.ttg_user); sprintf(s, "%.1f nm %s", P->p.dtg_user, t); chart_line(bx, by + 27, s, 1);
-    fmt_xte(xs, P->p.xte); sprintf(s, "XTE %s%s  FINAL %.1f nm", xs, P->p.xte >= 0 ? "R" : "L", P->p.dtg_final); chart_line(bx, by + 44, s, 0);
+    fmt_eta(t, P->p.ttg_user); sprintf(s, "%.1f NM %s", P->p.dtg_user, t); chart_line(bx, by + 27, s, 1);
+    fmt_xte(xs, P->p.xte); sprintf(s, "XTE %s%s  FINAL %.1f NM", xs, P->p.xte >= 0 ? "R" : "L", P->p.dtg_final); chart_line(bx, by + 44, s, 0);
   } else {
     fmt_deg(t, P->f.cog); sprintf(s, "COG %s", t); chart_line(bx, by + 11, s, 1);
     fmt_deg(t, P->f.hdg); sprintf(s, "HDG %s", t); chart_line(bx, by + 27, s, 1);

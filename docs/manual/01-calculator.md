@@ -60,6 +60,9 @@ on the right. The position is SET's, the one every page computes with. While the
 it: **GPS**, **DGPS**, **DR**… when SET follows the GPS (GPSSET → SET FOLLOWS), **SET** when it does not. On the GPS
 pages the bar shows the vessel's own position, every second ([2. The GPS](02-gps.md#the-gps-pages)).
 
+**The help line**, just above the menu, in small type: the keys the page uses that are not on the menu. Data is in the
+large type; NM is the unit of distance on every page.
+
 **Time.** LIVE takes the calculator clock minus CLOCK TZ. FIXED (SET → TIME) uses a date and UT you type, to plan or
 to check against the Nautical Almanac. With a GPS, GPSSET → UT FROM GPS takes UT from the GPS instead.
 
@@ -102,7 +105,8 @@ sunset, meridian passage, twilight, the semi-diameters, the Moon's phase and age
 **MOON** (MOON47): the disc as seen from your latitude, the phase and the time to the next one ("FULL IN 2.4 d"),
 % illuminated, age, HP and SD, the next four phases. NEW MOON, FIRST QUARTER, FULL MOON and LAST QUARTER are instants:
 the page names them within half a day of the instant, and in between says crescent or gibbous (two days before the
-full: WAXING GIBBOUS, FULL IN 2 d). **0** shows it as seen from the south. **ANIM** plays the Sun and the Moon across the sky: 24 frames, 30
+full: WAXING GIBBOUS, FULL IN 2 d). The disc is drawn as the almanacs do: the lit part white, the dark part black
+(○ full, ● new). **0** shows it as seen from the south. **ANIM** plays the Sun and the Moon across the sky: 24 frames, 30
 minutes apart.
 
 ---
@@ -193,14 +197,16 @@ letter. The number keys type digits; **←** deletes; **ENTER** accepts.
 The route as it will be sailed: every point, each leg's course to steer and distance, the cumulative distance and
 the ETA at the voyage speed. **SPLIT** divides the legs (every so many NM, into equal legs, or on whole meridians);
 **4 6** change the step. **CSV** (or ENTER) and **NMEA** (or SHIFT ENTER) write `/NAV47/ROUTES/PLAN.CSV` and `PLAN.NMEA` (`$GPWPL` and
-`$GPRTE`, also sent on USB channel 2). **CMP** compares the sailings; **CHART** draws it.
+`$GPRTE`, also sent on USB channel 2). **CMP** compares the sailings; **CHART** draws it. **SAIL** (small, on the
+right): **R** rhumb line, **G** great circle, **P** the parallel of a composite sailing. Under a short route, ROUTE
+and PLAN show the total, the time at the voyage speed, the ETD and the ETA (change them on VOYAGE → ETA).
 
 ### CHART and VOYAGE
 
 | | |
 |---|---|
 | ![CHART](img/calc_chart.png) | ![VOYAGE](img/calc_voyage.png) |
-| **CHART**: Mercator or the globe (**0**), the coastline (`COAST_C.BIN` / `COAST_L.BIN` on the disk), the plan thick, the other sailings dashed and dotted, your platforms with their zones, the world's ports (`/NAV47/PORTS.CSV`, from the web page's Port to port card: a small square, the names when few are in view). **8 2 4 6** pan, **7 9** zoom, **5** fit. **R/S**: VOYAGE. | **VOYAGE**: the plan sailed at the voyage speed on a globe that follows the vessel: departure, arrival, gone, to go, run, DTG, course, position. **R/S** play, **4 6** step, **+ −** the speed, **1 3** the departure one hour earlier / later, **ENTER** type the speed, **0** ETA. |
+| **CHART**: Mercator or the globe (**0**), the coastline (`COAST_C.BIN` / `COAST_L.BIN` on the disk), the plan thick, the other sailings dashed and dotted, your platforms with their zones, the world's ports (`/NAV47/PORTS.CSV`, from the web page's Port to port card: a small square, the names when few are in view). Your waypoints' names (their numbers when unnamed), none over another: **3** hides or shows them. **8 2 4 6** pan, **7 9** zoom, **5** fit. **R/S**: VOYAGE. | **VOYAGE**: the plan sailed at the voyage speed on a globe that follows the vessel: departure, arrival, gone, to go, run, DTG, course, position, and the share sailed under the bar. **R/S** play, **4 6** step, **+ −** the speed, **1 3** the departure one hour earlier / later, **ENTER** type the speed, **0** ETA. |
 
 ### ETA
 
@@ -232,7 +238,7 @@ calculator (the IANA rules), and the cities of that zone.
 | | |
 |---|---|
 | ![SET](img/calc_set.png) | ![FILES](img/calc_files.png) |
-| **SET**: your position, the clock's zone, UT or local times, LIVE or FIXED time, **DUT1**, the wind (for FLOW and DP). **8 2** a field, **ENTER** edit. | **FILES**: load tide stations (**TID**) and a FLOW atlas (**FLW**) from `/NAV47/TIDES/`; **CLEAR** forgets them; **WPTS** your waypoints; **LOAD** reads your files in `/NAV47/` again. |
+| **SET**: your position, the clock's zone, UT or local times, LIVE or FIXED time, **DUT1**, the wind (for FLOW and DP). **8 2** a field, **ENTER** edit; the help of the chosen field at the bottom. | **FILES**: load tide stations (**TID**) and a FLOW atlas (**FLW**) from `/NAV47/TIDES/`; **CLEAR** forgets them; **WPTS** your waypoints; **LOAD** reads your files in `/NAV47/` again. The page lists, in rows: the tide regions built in and loaded, the stream atlas, your objects and waypoints, the pictures. |
 
 **DUT1** (UT1 − UTC, seconds, −0.9 to +0.9): the clock is UTC, and the almanac is computed at UT1 = UTC + DUT1
 (0.1 s moves every GHA 1.5″). Get today's value on the web page's Almanac tab (**From IERS**) and type it here;

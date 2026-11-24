@@ -624,17 +624,15 @@ function fit(list) {
     V.lat0 = latOfPsi((psi(s) + psi(n)) / 2); V.lon0 = (w + e) / 2;
     V.k = Math.min(CH.W / Math.max(1e-5, (e - w) * D2R), CH.H / Math.max(1e-7, psi(n) - psi(s)));
   } else {
-    let x = 0, y = 0, z = 0;
-    for (const p of list) { const a = p.lat * D2R, b = p.lon * D2R; x += Math.cos(a) * Math.cos(b); y += Math.cos(a) * Math.sin(b); z += Math.sin(a); }
-    V.lat0 = Math.atan2(z, Math.hypot(x, y)) * R2D; V.lon0 = Math.atan2(y, x) * R2D;
+    V.lat0 = (s + n) / 2; V.lon0 = ((w + e) / 2 + 540) % 360 - 180;   /* the extent's middle: many points in one sea don't pull it */
     let k = 6e8;
     for (const p of list) {
       const P = p.lat * D2R, d = (p.lon - V.lon0) * D2R, p0 = V.lat0 * D2R;
       const vis = Math.sin(p0) * Math.sin(P) + Math.cos(p0) * Math.cos(P) * Math.cos(d);
       if (vis < 0.17) { k = 0; break; }
       const px = Math.abs(Math.cos(P) * Math.sin(d)), py = Math.abs(Math.cos(p0) * Math.sin(P) - Math.sin(p0) * Math.cos(P) * Math.cos(d));
-      if (px > 1e-9) k = Math.min(k, (CH.W / 2 - 30) / px);
-      if (py > 1e-9) k = Math.min(k, (CH.H / 2 - 30) / py);
+      if (px > 1e-9) k = Math.min(k, (CH.W / 2 - 70) / px);   /* room for the names at the ends */
+      if (py > 1e-9) k = Math.min(k, (CH.H / 2 - 36) / py);
     }
     V.k = k;
   }
@@ -772,6 +770,8 @@ function placeLabel(text, x, y, must) {
   if (!at && must) at = cand.find(inside) || [Math.max(2, Math.min(CH.W - 2 - w, x + 8)), Math.max(13, Math.min(CH.H - 4, y + 13))];
   if (!at) return;
   L.push([at[0], at[1] - 11, w, h]);
+  g.save(); g.strokeStyle = css("--sea"); g.lineWidth = 3; g.lineJoin = "round";   /* a halo: a line under it doesn't cross it */
+  g.strokeText(text, at[0], at[1]); g.restore();
   g.fillText(text, at[0], at[1]);
 }
 function drawObj(o, sel) {
@@ -1222,6 +1222,7 @@ function routeCard() {
       <button id="pgo" class="on">Plan</button>
       <span class="meta" style="flex-basis:100%">The shortest way between the two, clear of every zone by ${R.clear} m; it starts and ends
         ${R.margin} m outside their zones, on the side that makes it shortest.</span></div>` : ""}
+    <details id="rtset" ${localStorage.getItem("nav47web:rtset") === "0" ? "" : "open"}><summary class="sumline"><b>Settings</b> <span class="meta">${["RL", "GC", "CS " + R.lim + "°"][R.sail]} · ${ells[R.ell] ? ells[R.ell].name : ""}${R.split ? " · split" : ""} · ${R.avoid ? "zones kept by " + R.clear + " m" : "zones not kept"}</span></summary>
     <div class="controls">
       <label>Sailing <select id="sail"><option value="0">RL rhumb line</option><option value="1">GC great circle</option><option value="2">CS composite</option></select></label>
       <label ${R.sail === 2 ? "" : "hidden"}>limit <input class="num" id="lim" type="number" min="10" max="85" step="1" value="${R.lim}">°</label>
@@ -1237,6 +1238,7 @@ function routeCard() {
       <label ${R.avoid ? "" : "hidden"}>start / end <input class="num" id="margin" type="number" min="0" step="10" value="${R.margin}"> m outside the object's zone</label>
       <label ${R.avoid ? "" : "hidden"} title="the most turning points round the zones on each leg (between two of your waypoints): fewer turns, maybe a little longer">turning points <select id="turns"><option value="0">no limit</option>${[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(k => `<option value="${k}">at most ${k}</option>`).join("")}</select> a leg</label>
     </div>
+    </details>
     <h3>Waypoints <span class="meta">(click on the chart with ＋ Waypoint; on an object: from / to it)</span></h3>
     <div class="scroll" style="max-height:260px"><table id="wptab"><tr><th>#</th><th>Name</th><th>Position</th><th>Leg</th><th>Object</th><th></th></tr>
     ${R.wps.map((w, i) => `<tr class="${S.sel && S.sel.t === "w" && S.sel.i === i ? "sel" : ""}"><td>${i + 1}</td>
@@ -1250,6 +1252,7 @@ function routeCard() {
       <button id="rtsave" title="for the DM42n: /NAV47/ROUTE.TXT (the planned points, round the zones)">Save ROUTE.TXT</button></div>
     <div class="controls" style="margin-top:6px"><button id="wprev">Reverse</button><button id="wpclr">Clear</button>
       <button id="wpex">Example: Cape Town – Melbourne</button></div>`;
+  $("rtset").ontoggle = () => localStorage.setItem("nav47web:rtset", $("rtset").open ? "1" : "0");
   $("sail").value = R.sail; $("ell").value = R.ell; $("split").value = R.split;
   if ($("pgo")) {
     $("pfrom").onchange = e => { S.pass.from = e.target.value; };
@@ -1771,5 +1774,6 @@ const APP = {
     if (zm) { S.view.k *= +zm[1]; clampView(); draw(); }
   },
   route: () => ROUTE.plan.rows,
+  redraw: () => { showTab(S.tab); if (S.tab === "route") draw(); },                                 /* the colours changed (night): the tab drawn again */
   download, fmt: FMT, nav: NAV, state: S, parsePos, tfiles: TFILES, streams: STREAMS, loadCoast, arrowPath, rateCol, showTab,
 };

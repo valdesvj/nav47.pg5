@@ -430,6 +430,7 @@ void view_allsky(Al *al) {
   int x, y;
   for (int g = 0; g < 358; g += 3) { apos(al->lat, al->lon, off, 0, g, &hc, &x, &y); c47_dot4(y, x); }
   double ty = (al->j - 2451545.0) / 365.25 / 3600.0;
+  short bx[58], by[58]; int nb = 0;                       /* the numbers placed: none over another */
   for (int n = 1; n <= 58; n++) {
     double ra = ST[n - 1][0], dec = ST[n - 1][1];
     double dec2 = dcos(ra) * 20.0431 * ty + dec;
@@ -437,9 +438,12 @@ void view_allsky(Al *al) {
     apos(al->lat, al->lon, off, dec2, pmod(s->aries - ra2, 360.0), &hc, &x, &y);
     if (y < CY(190) || y > CY(17)) continue;
     c47_glyph(&SYMS, '*', y - 3, x - 3);
-    int lx = x + 5;
+    int lx = x + 5, hit = 0;
     if (lx > 388) lx -= 17;
+    for (int k = 0; k < nb && !hit; k++) hit = abs(bx[k] - lx) < 13 && abs(by[k] - y) < 8;   /* a number there: skip */
+    if (hit) continue;
     c47_tiny_num(y - 3, lx, n);
+    bx[nb] = (short)lx; by[nb++] = (short)y;
   }
   for (int p = 1; p <= 4; p++) {
     apos(al->lat, al->lon, off, al->planets[p][1], al->planets[p][0], &hc, &x, &y);
@@ -541,22 +545,33 @@ void view_sky2(Al *al) {
 /* ---------------------------------------------------------------- MOON47 (python/moon47.py page, moon47_screen) */
 static const char *const PHSHORT[4] = { "NEW", "1ST QTR", "FULL", "LAST QTR" };
 
+/* the Moon's disc as the almanacs draw it: the lit part white, the dark part black, the rim black
+   (moon47_disc_runs gives the lit part and the rim: the rest inside is the dark) */
+static void moon_disc(int cx, int cy, int r, double age, int south) {
+  int runs[2][2];
+  for (int dx = -r; dx <= r; dx++) {
+    int n = moon47_disc_runs(r, age, south, dx, runs);
+    int ymax = (int)floor(sqrt((r + 0.3) * (r + 0.3) - dx * dx));
+    double qi = (r - 1.2) * (r - 1.2) - dx * dx;
+    int inner = qi < 0 ? -1 : (int)floor(sqrt(qi));
+    for (int a = 0; a <= ymax; a++) {
+      int lit = 0;
+      for (int i = 0; i < n; i++) lit |= a >= runs[i][0] && a <= runs[i][1];
+      if (a > inner || !lit) { c47_pixel(cy + a, cx + dx); if (a) c47_pixel(cy - a, cx + dx); }
+    }
+  }
+}
+
 void view_moon(Al *al, int south) {
   Moon47 p;
   moon47_page(al->j, south, &p);
   int ni = moon47_name_index(&p);
   c47_clear();
-  const int cx = 70, cy = CY(98), r = 60;
-  int runs[2][2];
-  for (int dx = -r; dx <= r; dx++) {
-    int n = moon47_disc_runs(r, p.age, south, dx, runs);
-    for (int i = 0; i < n; i++)
-      for (int a = runs[i][0]; a <= runs[i][1]; a++) { c47_pixel(cy + a, cx + dx); if (a) c47_pixel(cy - a, cx + dx); }
-  }
-  for (int i = 0; i < 8; i++) {                       /* the eight phases, today's inverted */
-    int x = 6 + i * 20;
-    c47_glyph(&SYMB, '0' + (south ? (8 - i) % 8 : i), BL(176), x);
-    if ((south ? (8 - i) % 8 : i) == ni) c47_xor_box(BL(176) - 2, x - 3, 18, 16);
+  moon_disc(70, CY(98), 60, p.age, south);
+  for (int i = 0; i < 8; i++) {                       /* the eight phases (o full, * new), today's boxed */
+    int x = 6 + i * 20, k = south ? (8 - i) % 8 : i;
+    moon_disc(x + 6, BL(176) + 6, 6, k * M47_LUN / 8, 0);
+    if (k == ni) c47_xor_box(BL(176) - 2, x - 3, 18, 16);
   }
   c47_show();
   char s[64], t[16];
@@ -579,6 +594,5 @@ void view_moon(Al *al, int south) {
     sprintf(s, "%-8s %02d-%02d %s", PHSHORT[p.next_k[k]], dd, m, t);
     nt(X, 92 + R * k, s);
   }
-  nt(1, 192, south ? "AS SEEN FROM THE SOUTH" : "AS SEEN FROM THE NORTH");
-  nt_r(399, 192, "0 FLIP");
+  draw_text(&TINY, 2, 199, south ? "seen from the south   0 from the north" : "seen from the north   0 from the south", 0);
 }
