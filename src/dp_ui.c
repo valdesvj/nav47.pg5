@@ -372,7 +372,7 @@ void draw_dp(void) {
     char b[48];
     if (d->msg[0]) snprintf(b, sizeof b, "%s", d->msg);
     else if (r->mid > d->p.standoff + 0.05f || r->clear < d->p.standoff - 0.05f) snprintf(b, sizeof b, "MID %.1fm CORNER %.1fm", r->mid, r->clear);
-    else strcpy(b, ". ABS SKP   + H or L");
+    else strcpy(b, ". ABS SKP   BST: H / L");
     gfx_rect(0, MENU_Y - LH - 1, 165, LH, 0);                /* the weather push's tonnes keep their place (x 166+) */
     draw_text(&TINY, 2, MENU_Y - LH, b, 0);
   }
@@ -405,7 +405,6 @@ void dp_key(int key) {
   else if (key == KEY_3) d->tonnes ^= 1;                       /* the bars: % of full thrust or tonnes */
   else if (key == KEY_1) { d->p.par ^= 1; dp_save_plat(); dp_reset(); }  /* side to: parallel to the face, or within TOL */
   else if (key == KEY_DOT) { if (abs_run()) go(PG_DPABS); }  /* ABS SKP: the vessel's capability, every direction */
-  else if (key == KEY_ADD) { d->bmode ^= 1; dp_best(); }      /* +: BEST H or BEST L */
   else if (key == KEY_EXIT) go(PG_VALM);
 }
 
@@ -414,7 +413,7 @@ const char *dp_best_label(void) { return DP && DP->bmode ? "L" : "H"; }
 void dp_soft(int fn) {
   DpS *d = DP;
   if (!d) { go(PG_VALM); return; }
-  if (fn == 0) dp_best();
+  if (fn == 0) { if (!d->manual) d->bmode ^= 1; dp_best(); }   /* BST: H, then L, H...: a BEST shown, the other one */
   else if (fn == 1) { d->p.face = d->p.face >= 3 ? -1 : d->p.face + 1; dp_save_plat(); if (d->p.face >= 0) d->face = d->p.face; dp_reset(); }
   else if (fn == 2) { d->p.side = (d->p.side + 1) % DPS_N; dp_save_plat(); dp_reset(); }
   else if (fn == 3) { go(PG_DPIN); d->sel = 0; d->edit = -1; }
