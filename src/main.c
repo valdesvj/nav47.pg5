@@ -476,7 +476,7 @@ static const char *MENUS[6][6] = {
   { "SET", "FILES", "INFO", "DP", "USB", ">>" },
   { "ADD", "EDIT", "DEL", "RL/GC", "HERE", ">>" },
   { "FIX", "SATS", "NAV", "BOW", "GPSSET", ">>" },
-  { "WPTS", "LOAD", "SAVE", "NEW", "COMPAS", ">>" },          /* your waypoints, the routes' library (/NAV47/ROUTES) */
+  { "WPTS", "LOAD", "SAVE", "NEW", "CMPS", ">>" },            /* your waypoints, the routes' library (/NAV47/ROUTES) */
 };
 static const char *FILE_MENU[6] = { "TID", "FLW", "CLEAR", "WPTS", "LOAD", "BACK" };
 static int wpdb_back = PG_ROUTE;
