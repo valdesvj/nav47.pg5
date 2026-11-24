@@ -83,8 +83,128 @@ const VIEWS = (() => {
   }
   const S2 = { tab: "" };
 
+  /* ================================================================ Airways
+     one network from the free sources: the FAA's US airways (airways_us.js, built in, loaded with the Flight tab) and
+     your own files in X-Plane's format (earth_awy.dat with earth_fix.dat and earth_nav.dat: a simulator's or
+     Navigraph's, worldwide; kept in this browser's IndexedDB, never sent anywhere). A source: { src, pts "id|lat|lon",
+     awy "name:i,j;k,l|..." }. A leg: the departure to an airway point within 100 NM, the airways by the shortest way
+     (Dijkstra, A*), a point within 100 NM to the arrival; none: direct. Planning only, as an airline's planner would
+     not: no SIDs and STARs, no directions of the one-way routes in the FAA's data, no levels. */
+  const AW = { srcs: [], lat: null, lon: null, id: [], adj: null, names: [], grid: null, built: false, file: null };
+  const RE = 3440.065, D2 = Math.PI / 180;
+  const hav = (la1, lo1, la2, lo2) => { const a = Math.sin((la2 - la1) * D2 / 2) ** 2 + Math.cos(la1 * D2) * Math.cos(la2 * D2) * Math.sin((lo2 - lo1) * D2 / 2) ** 2; return 2 * RE * Math.asin(Math.min(1, Math.sqrt(a))); };
+  function awBuild() {
+    const lat = [], lon = [], id = [], edges = [], names = [], seen = new Map();
+    for (const S of AW.srcs) {
+      const base = lat.length, P = S.pts.split("\n");
+      for (const l of P) { const f = l.split("|"); id.push(f[0]); lat.push(+f[1]); lon.push(+f[2]); }
+      /* the same point in two sources (an X-Plane file over the FAA's): joined, by its name within 0.5 NM */
+      for (let i = base; i < lat.length; i++) {
+        const k = id[i] + "@" + Math.round(lat[i] * 20) + "," + Math.round(lon[i] * 20), j = seen.get(k);
+        if (j !== undefined && hav(lat[i], lon[i], lat[j], lon[j]) < 0.5) edges.push([i, j, -1]); else seen.set(k, i);
+      }
+      for (const a of S.awy ? S.awy.split("|") : []) {
+        const c = a.indexOf(":"), nm = a.slice(0, c), n = names.length; names.push(nm);
+        for (const seq of a.slice(c + 1).split(";")) { const q = seq.split(",").map(Number); for (let i = 1; i < q.length; i++) edges.push([base + q[i - 1], base + q[i], n]); }
+      }
+    }
+    const n = lat.length, adj = Array.from({ length: n }, () => []);
+    for (const [a, b, k] of edges) { const w = k < 0 ? 0 : hav(lat[a], lon[a], lat[b], lon[b]); adj[a].push(b, w, k); adj[b].push(a, w, k); }
+    const grid = new Map();
+    for (let i = 0; i < n; i++) { const g = Math.floor(lat[i]) + "," + Math.floor(lon[i]); (grid.get(g) || grid.set(g, []).get(g)).push(i); }
+    Object.assign(AW, { lat: Float64Array.from(lat), lon: Float64Array.from(lon), id, adj, names, grid, built: true });
+  }
+  function awNear(p, max) {                                  /* the airway points within max NM, nearest first (8) */
+    const out = [], r = Math.ceil(max / 60) + 1, la0 = Math.floor(p.lat), lo0 = Math.floor(p.lon);
+    for (let a = -r; a <= r; a++) for (let b = -r - 1; b <= r + 1; b++) {
+      const c = AW.grid.get((la0 + a) + "," + (lo0 + b)); if (!c) continue;
+      for (const i of c) { const d = hav(p.lat, p.lon, AW.lat[i], AW.lon[i]); if (d <= max) out.push([d, i]); }
+    }
+    return out.sort((x, y) => x[0] - y[0]).slice(0, 8);
+  }
+  function awRoute(A, B) {                                   /* { pts, nm, via } or null */
+    if (!AW.built || !AW.lat.length) return null;
+    const sa = awNear(A, 100), sb = awNear(B, 100); if (!sa.length || !sb.length) return null;
+    const n = AW.lat.length, dist = new Float64Array(n).fill(Infinity), prev = new Int32Array(n).fill(-1), via = new Int32Array(n).fill(-1);
+    const end = new Map(sb.map(([d, i]) => [i, d])), h = i => hav(AW.lat[i], AW.lon[i], B.lat, B.lon);
+    const heap = [], push = (f, i) => { heap.push([f, i]); let k = heap.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+    const pop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
+    for (const [d, i] of sa) { dist[i] = d; push(d + h(i), i); }
+    let best = Infinity, bestI = -1, steps = 0;
+    while (heap.length && steps++ < 400000) {
+      const [f, i] = pop(); if (f >= best) break; const d = dist[i]; if (f - h(i) > d + 1e-9) continue;
+      if (end.has(i) && d + end.get(i) < best) { best = d + end.get(i); bestI = i; }
+      const L = AW.adj[i];
+      for (let k = 0; k < L.length; k += 3) { const j = L[k], nd = d + L[k + 1]; if (nd < dist[j]) { dist[j] = nd; prev[j] = i; via[j] = L[k + 2]; push(nd + h(j), j); } }
+    }
+    if (bestI < 0) return null;
+    const pts = [], aw = [];
+    for (let i = bestI; i >= 0; i = prev[i]) { pts.push({ lat: AW.lat[i], lon: AW.lon[i], name: AW.id[i] }); if (via[i] >= 0) aw.push(AW.names[via[i]]); }
+    pts.reverse(); aw.reverse();
+    const names = aw.filter((x, k) => k === 0 || x !== aw[k - 1]);
+    const all = [A].concat(pts.filter((p, k) => k === 0 || p.lat !== pts[k - 1].lat || p.lon !== pts[k - 1].lon), [B]);
+    let nm = 0; for (let k = 1; k < all.length; k++) nm += leg(all[k - 1], all[k]).nm;
+    return { pts: all, nm, via: names, first: pts[0].name, last: pts[pts.length - 1].name };
+  }
+  /* the sources: the FAA's built in, your file from IndexedDB */
+  function idb(op, val) {
+    return new Promise(res => {
+      const r = indexedDB.open("nav47web", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("kv");
+      r.onerror = () => res(null);
+      r.onsuccess = () => { const t = r.result.transaction("kv", op === "get" ? "readonly" : "readwrite").objectStore("kv");
+        const q = op === "get" ? t.get("airways") : op === "put" ? t.put(val, "airways") : t.delete("airways"); q.onsuccess = () => res(q.result); q.onerror = () => res(null); };
+    });
+  }
+  let awLoading = null;
+  function awLoad() {
+    if (awLoading) return awLoading;
+    awLoading = new Promise(res => {
+      const sc = document.createElement("script"); sc.src = "airways_us.js?v=1.0";
+      sc.onload = sc.onerror = () => res();
+      document.head.append(sc);
+    }).then(() => idb("get")).then(f => {
+      AW.srcs = (typeof AWY_US !== "undefined" ? [AWY_US] : []).concat(f ? [f] : []); AW.file = f || null;
+      awBuild();
+    });
+    return awLoading;
+  }
+  /* X-Plane's files (format 1100 / 1101 / 1150, and the older): the airways' ends found by ident, region, kind */
+  function xplane(files) {
+    const pos = new Map(), byId = new Map(), add = (k, id, la, lo) => { pos.set(k, [la, lo]); (byId.get(id) || byId.set(id, []).get(id)).push([la, lo]); };
+    let awyText = "", name = "";
+    for (const f of files) {
+      const lines = f.text.split(/\r?\n/);
+      const kind = /earth_awy|awy/i.test(f.name) ? "awy" : /earth_fix|fix/i.test(f.name) ? "fix" : /earth_nav|nav/i.test(f.name) ? "nav" : "";
+      if (kind === "awy") { awyText = f.text; name = f.name; continue; }
+      for (const l of lines) {
+        const t = l.trim().split(/\s+/); if (t.length < 3 || t[0] === "99") continue;
+        if (kind === "fix") { const la = +t[0], lo = +t[1]; if (!isFinite(la) || !isFinite(lo)) continue; add(t[2] + "|" + (t[4] || "") + "|11", t[2], la, lo); }
+        else if (kind === "nav") { const ty = +t[0]; if (![2, 3, 12, 13].includes(ty)) continue; const la = +t[1], lo = +t[2]; if (!isFinite(la)) continue;
+          const id = t[7], rg = t.length > 10 ? t[9] : "", k = ty === 2 ? 2 : 3; const key = id + "|" + rg + "|" + k; if (ty >= 12 && pos.has(key)) continue; add(key, id, la, lo); }
+      }
+    }
+    if (!awyText) return { err: "no earth_awy.dat among the files" };
+    const pts = [], idx = new Map(), seqs = new Map(); let lost = 0, segs = 0;
+    const pt = (id, rg, ty) => {
+      const k = id + "|" + rg + "|" + ty; let p = pos.get(k);
+      if (!p) { const c = byId.get(id); if (c && c.length === 1) p = c[0]; }
+      if (!p) return -1;
+      const key = id + "@" + p[0].toFixed(4) + "," + p[1].toFixed(4);
+      if (!idx.has(key)) { idx.set(key, pts.length); pts.push(id + "|" + p[0].toFixed(5) + "|" + p[1].toFixed(5)); }
+      return idx.get(key);
+    };
+    for (const l of awyText.split(/\r?\n/)) {
+      const t = l.trim().split(/\s+/); if (t.length < 10 || t[0] === "99") continue;
+      const a = pt(t[0], t[1], +t[2]), b = pt(t[3], t[4], +t[5]); if (a < 0 || b < 0) { lost++; continue; }
+      for (const nm of t[t.length - 1].split("-")) { (seqs.get(nm) || seqs.set(nm, []).get(nm)).push(a + "," + b); segs++; }
+    }
+    const awy = [...seqs].map(([n, l]) => n + ":" + l.join(";")).join("|");
+    return { src: "your file " + name + " (" + segs + " segments" + (lost ? ", " + lost + " without a position" : "") + ")", pts: pts.join("\n"), awy, n: seqs.size, pn: pts.length };
+  }
+
   /* ================================================================ Flight */
-  const F = keep("flight", { ids: [], kn: 450, turn: 60, etd: null });
+  const F = keep("flight", { ids: [], kn: 450, turn: 60, etd: null, awy: true });
   function apMatch(q) {
     q = q.trim().toLowerCase(); if (q.length < 2) return [];
     const u = q.toUpperCase(), score = a => a.id === u || a.iata === u ? 0 : a.name.toLowerCase().startsWith(q) || a.city.toLowerCase().startsWith(q) ? 1 : 2;
@@ -104,6 +224,10 @@ const VIEWS = (() => {
       <div class="controls"><input id="flq" placeholder="find an airport: Dubai, OMDB, DXB" style="width:20em" autocomplete="off"></div>
       <div id="flres" class="chips"></div>
       <div class="scroll" style="margin-top:6px"><table id="flroute"></table></div>
+      <div class="controls" style="margin-top:6px"><label><input type="checkbox" id="flawy" ${F.awy ? "checked" : ""}> by airways</label>
+        <span class="meta" id="flsrc"></span></div>
+      <div class="controls"><label title="X-Plane's earth_awy.dat with earth_fix.dat and earth_nav.dat (a simulator's, or Navigraph's): kept in this browser only">Your airways <input type="file" id="flfile" multiple accept=".dat,.txt"></label>
+        <button class="small" id="flforget" ${AW.file ? "" : "disabled"}>Forget my file</button></div>
       <div class="controls" style="margin-top:6px">
         <label>Cruise <input class="num" id="flkn" type="number" min="60" max="700" step="5" value="${F.kn}"> kn</label>
         <label>on the ground <input class="num" id="flturn" type="number" min="0" max="1440" step="5" value="${F.turn}"> min</label>
@@ -118,6 +242,17 @@ const VIEWS = (() => {
     $("flkn").onchange = e => { F.kn = Math.max(60, Math.min(700, +e.target.value || 450)); flightUpd(); };
     $("flturn").onchange = e => { F.turn = Math.max(0, +e.target.value || 0); flightUpd(); };
     depBind("fl", F, flightUpd);
+    const srcLine = () => { if ($("flsrc")) $("flsrc").textContent = AW.built ? `${AW.srcs.map(s => s.src).join(" · ")}: ${AW.names.length} airways, ${AW.lat.length} points` : "the airways: loading…"; if ($("flforget")) $("flforget").disabled = !AW.file; };
+    srcLine();
+    awLoad().then(() => { srcLine(); flightTable(); draw(); });
+    $("flawy").onchange = e => { F.awy = e.target.checked; flightUpd(); };
+    $("flfile").onchange = e => Promise.all([...e.target.files].map(f => f.text().then(text => ({ name: f.name, text })))).then(fs => {
+      const x = xplane(fs);
+      if (x.err) { $("flsrc").textContent = "⛔ " + x.err + ": choose earth_awy.dat, earth_fix.dat and earth_nav.dat together"; return; }
+      const keepIt = { src: x.src, pts: x.pts, awy: x.awy };
+      idb("put", keepIt).then(() => { AW.file = keepIt; AW.srcs = (typeof AWY_US !== "undefined" ? [AWY_US] : []).concat([keepIt]); awBuild(); srcLine(); flightUpd(); });
+    });
+    $("flforget").onclick = () => idb("del").then(() => { AW.file = null; AW.srcs = typeof AWY_US !== "undefined" ? [AWY_US] : []; awBuild(); srcLine(); flightUpd(); });
     $("flfit").onclick = fitView;
     $("flrev").onclick = () => { F.ids.reverse(); flightUpd(); };
     $("flclr").onclick = () => { F.ids = []; flightUpd(); };
@@ -125,6 +260,21 @@ const VIEWS = (() => {
     flightTable();
   }
   function flightUpd(fit) { put("flight", F); flightTable(); if (fit && F.ids.length >= 2) fitView(); else draw(); }
+  /* the flight's legs: by airways where there are (and AW loaded), else great circles */
+  let legsKey = "", legsVal = null;
+  function flightLegs() {                                    /* kept until the airports, the option or the sources change */
+    const key = F.ids.join(",") + "|" + F.awy + "|" + (AW.built ? AW.lat.length + ":" + AW.srcs.length : "-");
+    if (key === legsKey && legsVal) return legsVal;
+    legsKey = key; legsVal = flightLegs0(); return legsVal;
+  }
+  function flightLegs0() {
+    const A = F.ids.map(id => apById.get(id)).filter(Boolean), out = [];
+    for (let i = 1; i < A.length; i++) {
+      const gc = leg(A[i - 1], A[i]), r = F.awy ? awRoute(A[i - 1], A[i]) : null;
+      out.push({ a: A[i - 1], b: A[i], gc: gc.nm, crs: gc.crs, nm: r ? r.nm : gc.nm, pts: r ? r.pts : [A[i - 1], A[i]], via: r ? r.via : null, r });
+    }
+    return out;
+  }
   function flightTable() {
     const A = F.ids.map(id => apById.get(id)).filter(Boolean);
     $("flroute").innerHTML = `<tr><th>#</th><th>Airport</th><th></th></tr>` + A.map((a, i) => `<tr><td>${i + 1}</td><td title="${FMT.pos(a.lat, a.lon)}">${esc(apName(a))}</td>
@@ -133,15 +283,18 @@ const VIEWS = (() => {
     $("flroute").querySelectorAll("[data-fd]").forEach(b => b.onclick = () => { const i = +b.dataset.fd; if (i < F.ids.length - 1) { [F.ids[i + 1], F.ids[i]] = [F.ids[i], F.ids[i + 1]]; flightUpd(); } });
     $("flroute").querySelectorAll("[data-fx]").forEach(b => b.onclick = () => { F.ids.splice(+b.dataset.fx, 1); flightUpd(); });
     if (A.length < 2) { $("fltab").innerHTML = `<div class="meta">Two airports or more: find them above, or click them on the chart.</div>`; return; }
-    let t = etdOf(F.etd), nm = 0, air = 0, rows = "";
-    for (let i = 1; i < A.length; i++) {
-      const l = leg(A[i - 1], A[i]), h = l.nm / F.kn, dep = t; t += h / 24; nm += l.nm; air += h;
-      rows += `<tr><td>${esc(A[i - 1].iata || A[i - 1].id)} → ${esc(A[i].iata || A[i].id)}</td><td class="num mono">${FMT.crs(l.crs)}</td><td class="num mono">${l.nm.toFixed(0)}</td>
+    let t = etdOf(F.etd), nm = 0, gcs = 0, air = 0, rows = "";
+    const L = flightLegs();
+    L.forEach((l, i) => {
+      const h = l.nm / F.kn, dep = t; t += h / 24; nm += l.nm; gcs += l.gc; air += h;
+      const how = !F.awy ? "great circle" : l.r ? `<span title="${esc(l.r.via.join(" "))}">${esc(l.r.first)} ${esc(l.r.via.slice(0, 6).join(" "))}${l.r.via.length > 6 ? " …" : ""} ${esc(l.r.last)}</span>` : `<span class="meta">direct: no airway within 100 NM</span>`;
+      rows += `<tr><td>${esc(l.a.iata || l.a.id)} → ${esc(l.b.iata || l.b.id)}</td><td style="white-space:normal;max-width:22em">${how}</td><td class="num mono">${l.nm.toFixed(0)}</td><td class="num mono">${l.gc.toFixed(0)}</td>
         <td class="num mono">${FMT.dur(h)}</td><td class="num mono">${FMT.dt(dep, off())}</td><td class="num mono">${FMT.dt(t, off())}</td></tr>`;
-      if (i < A.length - 1) t += F.turn / 1440;
-    }
-    $("fltab").innerHTML = `<table><tr><th>Leg</th><th class="num">Initial course</th><th class="num">NM</th><th class="num">Flight</th><th class="num">Departs ${lab()}</th><th class="num">Arrives ${lab()}</th></tr>${rows}
-      <tr><td><b>Total</b></td><td></td><td class="num mono"><b>${nm.toFixed(0)}</b></td><td class="num mono"><b>${FMT.dur(air)}</b></td><td></td><td class="num mono"><b>${FMT.dt(t, off())}</b></td></tr></table>`;
+      if (i < L.length - 1) t += F.turn / 1440;
+    });
+    $("fltab").innerHTML = `<table><tr><th>Leg</th><th>Route</th><th class="num">NM</th><th class="num">GC NM</th><th class="num">Flight</th><th class="num">Departs ${lab()}</th><th class="num">Arrives ${lab()}</th></tr>${rows}
+      <tr><td><b>Total</b></td><td></td><td class="num mono"><b>${nm.toFixed(0)}</b></td><td class="num mono">${gcs.toFixed(0)}</td><td class="num mono"><b>${FMT.dur(air)}</b></td><td></td><td class="num mono"><b>${FMT.dt(t, off())}</b></td></tr></table>
+      ${F.awy ? `<div class="meta">${nm > gcs + 0.5 ? `By airways ${(nm - gcs).toFixed(0)} NM (${((nm / gcs - 1) * 100).toFixed(1)} %) longer than the great circles. ` : ""}Airways: ${AW.srcs.map(s => esc(s.src)).join(" · ") || "loading…"}.</div>` : ""}`;
   }
   function flightLayer(g) {
     const V = St().view, many = V.k > 900;                    /* zoomed in: the medium airports too */
@@ -151,8 +304,12 @@ const VIEWS = (() => {
       const [x, y, v] = proj(a.lat, a.lon); if (!v || x < 0 || y < 0 || x > CH.W || y > CH.H) continue;
       g.fillRect(x - 1.5, y - 1.5, 3, 3);
     }
-    const A = F.ids.map(id => apById.get(id)).filter(Boolean);
-    path(A, css("--track"), 3);
+    const A = F.ids.map(id => apById.get(id)).filter(Boolean), L = flightLegs();
+    if (F.awy) { g.setLineDash([4, 5]); path(A, css("--soft"), 1.3); g.setLineDash([]); }   /* the great circles, to compare */
+    for (const l of L) {
+      path(l.pts, css("--track"), 3);
+      if (l.r && St().labels === "all") for (const p of l.pts.slice(1, -1)) { const [x, y, v] = proj(p.lat, p.lon); if (v) { g.fillStyle = css("--track"); g.fillRect(x - 2, y - 2, 4, 4); } }
+    }
     A.forEach((a, i) => mark(a, `${i + 1} ${a.iata || a.id}`, css("--track"), true));
   }
   function flightClick(x, y) {
@@ -414,10 +571,13 @@ const VIEWS = (() => {
     if (S2.tab === "flight") {
       const A = F.ids.map(id => apById.get(id)).filter(Boolean); if (A.length < 2) return null;
       icon = "plane"; kn = F.kn; t0 = etdOf(F.etd);
-      for (let i = 1; i < A.length; i++) {
-        const l = leg(A[i - 1], A[i]); move(A[i - 1], A[i], l.nm, l.nm / F.kn * 60, `${nm(A[i - 1])} → ${nm(A[i])}`);
-        if (i < A.length - 1) stay(A[i], F.turn, `on the ground at ${nm(A[i])}`);
-      }
+      flightLegs().forEach((l, i, L) => {
+        for (let k = 1; k < l.pts.length; k++) {
+          const p0 = l.pts[k - 1], p1 = l.pts[k], d = leg(p0, p1).nm;
+          move(p0, p1, d, d / F.kn * 60, `${nm(l.a)} → ${nm(l.b)}${l.r ? ` · ${p1.name || nm(p1)}` : ""}`);
+        }
+        if (i < L.length - 1) stay(l.b, F.turn, `on the ground at ${nm(l.b)}`);
+      });
     } else if (S2.tab === "heli") {
       const r = heliPlan(); if (!r) return null;
       icon = "heli"; kn = H.kn; t0 = etdOf(H.etd);
@@ -536,5 +696,5 @@ const VIEWS = (() => {
     if (pts.length >= 2) { fit(pts.map(p => ({ lat: p.lat, lon: p.lon }))); draw(); }   /* one point: the view kept */
   }
   const owns = t => t === "flight" || t === "heli" || t === "supply";
-  return { owns, show, card, table, drawLayer, click, fitView, bestOrder, heliPlan, supplyPlan, timeline, sim: SIM, airports: () => AP, state: () => ({ F, H, U }), last: null };
+  return { owns, show, card, table, drawLayer, click, fitView, bestOrder, heliPlan, supplyPlan, timeline, sim: SIM, awRoute, awLoad, airways: AW, xplane, airports: () => AP, state: () => ({ F, H, U }), last: null };
 })();
