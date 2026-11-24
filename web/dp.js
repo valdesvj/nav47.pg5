@@ -11,7 +11,7 @@ const DPTAB = (() => {
   const KEY = "nav47web:dp", VKEY = "nav47web:dpv";
   const D0 = { name: "EXAMPLE PQ", lat: null, lon: null, shape: "rect", len: 40, wid: 30, orient: 30, height: 45, solid: false,
                face: -1, side: 1, par: true, standoff: 10, mincl: 5, tol: 30, smin: 30, slen: 5, loa: 95, lims: "TUN 30",
-               wfrom: 330, wkn: 25, cauto: true, cset: 135, ckn: 1.0, sauto: true, vfrom: 330, hs: 2, tp: 7, hdg: null,
+               target: 25, band: 5, wfrom: 330, wkn: 25, cauto: true, cset: 135, ckn: 1.0, sauto: true, vfrom: 330, hs: 2, tp: 7, hdg: null,
                acur: -1, amargin: 20 };                    /* ABS SKP: the current (-1 today's, 0.5 .. 3 kn), the margin % */
   let P = Object.assign({}, D0, JSON.parse(localStorage.getItem(KEY) || "{}"));
   let VES = localStorage.getItem(VKEY) || "";
@@ -76,24 +76,63 @@ const DPTAB = (() => {
       return { label, sd, par, ok: true, rank: r.rank, hdg: r.hdg, normal: r.normal, worst: r.worst, fgrp: r.fgrp, blow: r.blow };
     });
     [P.side, P.par] = keep;
-    /* Best heading (P.bestAll): the best on the face of every set-up, side to parallel or within the tolerance, stern
-       to, bow to: the one that holds best (holds after a failure, holds, beyond the limits), then the least loaded;
-       its side taken, so the vessel goes to that heading */
-    if (best && P.bestAll) {
-      let top = null;
-      for (const [sd, par] of [[1, true], [2, true], [1, false], [2, false], [0, false], [3, false]]) {
-        P.side = sd; P.par = par;
-        if (!setC()) continue;
-        weather(); Module._api_dp_best(); const r = read();
-        const better = !top || r.rank > top.rank || (r.rank === top.rank && r.worst < top.worst - 1e-4);
-        if (better) top = { sd, par, rank: r.rank, worst: r.worst };
-      }
-      if (top) { P.side = top.sd; P.par = top.par; save(); } else [P.side, P.par] = keep;
-    }
     if (!setC()) { res = null; return; }
     const wx = weather();
-    if (best || P.hdg === null) { Module._api_dp_best(); res = read(); P.hdg = null; limw = Module._api_dp_limit(); }
-    else { Module._api_dp_eval(P.face < 0 ? (res ? res.face : 0) : P.face, +P.hdg); res = read(); limw = Module._api_dp_limit(); }
+    /* Best heading (P.bestMin): on the working face and the side set, the heading that holds best (after a failure,
+       holds, beyond the limits) with the least load on the thrusters, every degree within the tolerance of square;
+       side to and parallel turns within the tolerance too (parallel alone has no freedom to turn) */
+    /* Best of every set-up (P.bestAll): first the side, the set-up that holds best with the least load on the face
+       (side to within the tolerance, stern to, bow to); then that side's least load as Best heading */
+    if (best && P.bestAll) {
+      let top = null;
+      for (const sd of [1, 2, 0, 3]) {
+        P.side = sd; P.par = false;
+        if (!setC()) continue;
+        weather(); Module._api_dp_best(); const r = read();
+        if (!top || r.rank > top.rank || (r.rank === top.rank && r.worst < top.worst - 1e-5)) top = { sd, rank: r.rank, worst: r.worst };
+      }
+      P.side = top ? top.sd : keep[0]; P.par = top ? (top.sd === 1 || top.sd === 2) && keep[1] : keep[1]; setC(); weather();
+      P.bestMin = true;
+    }
+    if (best && P.bestMin) {
+      const sideTo = P.side === 1 || P.side === 2, keepPar = P.par;
+      if (sideTo) { P.par = false; setC(); weather(); }
+      Module._api_dp_best(); let br = read();                    /* every 5 degrees */
+      const face = br.face, nom = (br.normal + [0, 90, -90, 180][P.side] + 360) % 360, tol = +P.tol;
+      const off = h => Math.abs(((h - nom) % 360 + 540) % 360 - 180);
+      const better = (q, r) => q.rank > r.rank || (q.rank === r.rank && q.worst < r.worst - 1e-5);
+      for (let d = -4; d <= 4; d++) {                            /* then every degree round it */
+        const h = (br.hdg + d + 360) % 360; if (!d || off(h) > tol + 1e-6) continue;
+        Module._api_dp_eval(face, h); const q = read(); if (better(q, br)) br = q;
+      }
+      P.par = keepPar; setC(); weather();
+      P.hdg = Math.round(br.hdg * 10) / 10; P.bestEdge = off(P.hdg) > tol - 0.5; P.bestFace = face;
+    }
+    /* To the target (P.bestTarget): on this face and side, the smallest turn from the present heading that brings the
+       most loaded thruster down to the target + its band (% of full power, as the bars) and holds in the limits;
+       none within the tolerance: the least load (Best heading), said so */
+    if (best && P.bestTarget) {
+      const nThr = vessel().thr.length, load = q => 100 * Math.max(0, ...q.use.slice(0, nThr));
+      const from = P.from !== undefined && P.from !== null ? +P.from : (res ? res.hdg : null);
+      const sideTo = P.side === 1 || P.side === 2, keepPar = P.par;
+      if (sideTo) { P.par = false; setC(); weather(); }
+      Module._api_dp_best(); const b5 = read();
+      const face = P.face >= 0 ? P.face : b5.face, nom = (b5.normal + [0, 90, -90, 180][P.side] + 360) % 360, tol = +P.tol;
+      const off = h => Math.abs(((h - nom) % 360 + 540) % 360 - 180);
+      const start = from === null || off(from) > tol ? nom : from;
+      let hit = null, least = null;
+      for (let d = 0; d <= 180 && !hit; d++) for (const sg of d ? [1, -1] : [1]) {
+        const h = (start + sg * d + 360) % 360; if (off(h) > tol + 1e-6) continue;
+        Module._api_dp_eval(face, h); const q = read(); q.load = load(q);
+        if (!least || q.rank > least.rank || (q.rank === least.rank && q.worst < least.worst - 1e-5)) least = q;   /* as Best heading: in limits first */
+        if (!hit && q.rank >= 2 && q.load <= +P.target + +P.band) { hit = q; break; }
+      }
+      P.par = keepPar; setC(); weather();
+      const r = hit || least;
+      P.hdg = Math.round(r.hdg * 10) / 10; P.bestFace = face; P.tgtHit = !!hit; P.tgtLoad = r.load; P.tgtTurn = Math.abs(((r.hdg - start) % 360 + 540) % 360 - 180);
+    }
+    if (P.hdg === null) { Module._api_dp_best(); res = read(); limw = Module._api_dp_limit(); }
+    else { Module._api_dp_eval(P.face >= 0 ? P.face : P.bestMin && P.bestFace >= 0 ? P.bestFace : res ? res.face : 0, +P.hdg); res = read(); limw = Module._api_dp_limit(); }
     res.wx = wx;
     const n = Module._api_dp_sweep(res.face), o = N().o();
     sweep = Array.from({ length: n }, (_, i) => ({ h: o[3 * i], rank: o[3 * i + 1], worst: o[3 * i + 2] }));
@@ -281,7 +320,7 @@ const DPTAB = (() => {
       ${err ? `<div class="meta" style="color:var(--now)">${esc(err)}</div>` : ""}
       ${res ? `<div class="pill ${st[0]}" style="margin:8px 0;padding:6px 10px;border-radius:8px;font-weight:600;background:${st[0] === "ok" ? "#dff3e6" : st[0] === "warn" ? "#fdf0d5" : "#f8dcd8"}">${st[1]}</div>
       <div style="display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;margin:4px 2px 0;font-size:14px">
-       <span class="meta">Heading</span><span><b class="mono">${String(Math.round(res.hdg)).padStart(3, "0")}°</b> ${P.hdg === null ? (P.bestAll ? "the best on this face, of every set-up" : "the best for this set-up") : "yours"}</span>
+       <span class="meta">Heading</span><span><b class="mono">${String(Math.round(res.hdg)).padStart(3, "0")}°</b> ${P.bestTarget ? (P.tgtHit ? `to the target: ${Math.round(P.tgtLoad)} % (${P.target} ± ${P.band} %), turned ${Math.round(P.tgtTurn)}°` : `the target ${P.target} ± ${P.band} % not reached on this side: the least load, ${Math.round(P.tgtLoad)} %`) : P.bestMin ? `the best${P.bestAll ? " of every set-up" : ""}: the least load on this face and side${P.bestEdge ? ` (at the ±${P.tol}° limit: a wider tolerance may lower it)` : ""}` : P.hdg === null ? "the best for this set-up" : "yours"}</span>
        <span class="meta">Set-up</span><span>off the face looking to <span class="mono">${String(Math.round(res.normal)).padStart(3, "0")}°</span>${P.face < 0 ? " (AUTO: the best face)" : ""}, ${setupName()}, ${res.mid.toFixed(1)} m off</span>
        ${res.mid > +P.standoff + 0.05 ? `<span class="meta">Moved out</span><span>the heading turned: the ${P.side === 0 ? "stern" : P.side === 3 ? "bow" : "middle of the side"} <b>${res.mid.toFixed(1)} m</b> off, the nearest corner ${res.clear.toFixed(1)} m (corners ≥ ${P.mincl} m)</span>` : ""}
        <span class="meta">Wind in the lee</span><span>${res.wleft < 0.999 ? `${Math.round(res.wleft * 100)} % of it reaches her` : "none: all of the wind"}</span>
@@ -300,7 +339,9 @@ const DPTAB = (() => {
       <div class="meta">The four buttons: each set-up's best on ${P.face < 0 ? "the best face" : "this face"} (a click takes it). The ring: the answer at each heading of the bow on this face (green holds, and after a failure; yellow holds;
        orange only beyond the limits; red no hold). The thrusters: their load a disc (green, amber near the limit, red over it), their force an arrow in tonnes; the red arrow: the weather's whole push. The shaded area: the platform's lee
        (taller than the vessel: ${P.smin} % of the wind left close in, all of it ${P.slen} heights downwind).</div>` : ""}
-      <div class="controls" style="margin-top:8px"><button id="dp_best" class="on">Best heading</button>
+      <div class="controls" style="margin-top:8px"><button id="dp_best" class="${P.bestMin && !P.bestAll ? "on" : ""}" title="this face and this side: the heading of the least load within the tolerance">Best heading</button><button id="dp_bestall" class="${P.bestAll ? "on" : ""}" title="every set-up on this face (side to, stern to, bow to): the best, then its heading of the least load">Best of every set-up</button>
+       <button id="dp_besttgt" class="${P.bestTarget ? "on" : ""}" title="the smallest turn from the present heading that brings the most loaded thruster down to the target">To the target</button>
+       <label>${num("target", P.target, 1)} ± ${num("band", P.band, 1)} % of full</label>
        <label>Heading ${num("hdg", res ? Math.round(res.hdg) : 0, 5)}°</label><button class="small" id="dp_hm">−5°</button><button class="small" id="dp_hp">+5°</button></div>
      </div>
      <div>
@@ -375,7 +416,7 @@ const DPTAB = (() => {
   }
   function bind() {
     const $ = id => document.getElementById("dp_" + id), on = (id, f) => { const e = $(id); if (e) e.onchange = f; };
-    const numf = ["wfrom", "wkn", "cset", "ckn", "vfrom", "hs", "tp", "len", "wid", "orient", "height", "smin", "slen", "standoff", "mincl", "tol", "loa"];
+    const numf = ["target", "band", "wfrom", "wkn", "cset", "ckn", "vfrom", "hs", "tp", "len", "wid", "orient", "height", "smin", "slen", "standoff", "mincl", "tol", "loa"];
     numf.forEach(k => on(k, e => { const v = parseFloat(e.target.value); if (isFinite(v)) { P[k] = v; save(); render(true); } }));
     /* the weather: the best heading again while you type (a pause of 0.6 s), not only at Enter; the field keeps the cursor */
     ["wfrom", "wkn", "cset", "ckn", "vfrom", "hs", "tp"].forEach(k => { const e = $(k); if (e) e.oninput = () => {
@@ -401,16 +442,18 @@ const DPTAB = (() => {
     $("shape").value = P.shape; on("shape", e => { P.shape = e.target.value; save(); render(true); });
     $("face").value = String(P.face); on("face", e => { P.face = +e.target.value; P.hdg = null; save(); render(true); });
     $("side").value = `${P.side}:${(P.side === 1 || P.side === 2) && P.par ? 1 : 0}`;
-    on("side", e => { const [a, b] = e.target.value.split(":"); P.side = +a; P.par = b === "1"; P.hdg = null; P.bestAll = false; save(); render(true); });
-    document.querySelectorAll(".dpq").forEach(b => b.onclick = () => { const q = quick[+b.dataset.q]; P.side = q.sd; P.par = q.par; P.hdg = null; P.bestAll = false; save(); render(true); });
+    on("side", e => { const [a, b] = e.target.value.split(":"); P.side = +a; P.par = b === "1"; P.hdg = null; P.bestMin = false; P.bestAll = false; P.bestTarget = false; save(); render(true); });
+    document.querySelectorAll(".dpq").forEach(b => b.onclick = () => { const q = quick[+b.dataset.q]; P.side = q.sd; P.par = q.par; P.hdg = null; P.bestMin = false; P.bestAll = false; P.bestTarget = false; save(); render(true); });
     on("solid", e => { P.solid = e.target.checked; save(); render(true); });
     on("cauto", e => { P.cauto = e.target.checked; save(); render(true); });
     on("sauto", e => { P.sauto = e.target.checked; save(); render(true); });
     on("lims", e => { P.lims = e.target.value; save(); render(true); });
-    $("best").onclick = () => { P.hdg = null; P.bestAll = true; save(); render(true); };   /* every set-up on the face */
-    on("hdg", e => { P.hdg = ((parseFloat(e.target.value) || 0) % 360 + 360) % 360; P.bestAll = false; save(); render(); });
-    $("hm").onclick = () => { P.hdg = ((res ? res.hdg : 0) + 355) % 360; P.bestAll = false; save(); render(); };
-    $("hp").onclick = () => { P.hdg = ((res ? res.hdg : 0) + 5) % 360; P.bestAll = false; save(); render(); };
+    $("best").onclick = () => { P.hdg = null; P.bestMin = true; P.bestAll = false; P.bestTarget = false; save(); render(true); };   /* the face and the side kept: the least load */
+    $("bestall").onclick = () => { P.hdg = null; P.bestAll = true; P.bestTarget = false; save(); render(true); };   /* every set-up, then its least load */
+    $("besttgt").onclick = () => { P.from = res ? res.hdg : null; P.hdg = null; P.bestTarget = true; P.bestMin = false; P.bestAll = false; save(); render(true); };   /* the least turn to the target */
+    on("hdg", e => { P.hdg = ((parseFloat(e.target.value) || 0) % 360 + 360) % 360; P.bestMin = false; P.bestAll = false; P.bestTarget = false; save(); render(); });
+    $("hm").onclick = () => { P.hdg = ((res ? res.hdg : 0) + 355) % 360; P.bestMin = false; P.bestAll = false; P.bestTarget = false; save(); render(); };
+    $("hp").onclick = () => { P.hdg = ((res ? res.hdg : 0) + 5) % 360; P.bestMin = false; P.bestAll = false; P.bestTarget = false; save(); render(); };
     $("vapply").onclick = () => { VES = $("ves").value; localStorage.setItem(VKEY, VES); render(true); };
     $("vex").onclick = () => { VES = ""; localStorage.removeItem(VKEY); render(true); };
     on("vfile", e => { const f = e.target.files[0]; if (f) f.text().then(t => { VES = t.replace(/\r/g, ""); localStorage.setItem(VKEY, VES); render(true); }); });
