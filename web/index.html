@@ -102,6 +102,8 @@
     <button id="now" class="on" title="follow the clock">Now</button>
     <label>UT <input type="datetime-local" id="ut" step="60"></label>
     <span id="ztclock" class="meta mono" title="the zone time of the DR (its longitude / 15)"></span>
+    <label>Position <select id="posmode" title="Auto: the GPS's position while one runs (Manual meanwhile without one); Manual: yours"><option value="auto">Auto (GPS)</option><option value="man">Manual</option></select></label>
+    <span id="drtag" class="chip" hidden style="align-self:flex-end;margin-bottom:6px;font-weight:700"></span>
     <label>DR <input class="pos" id="dr" placeholder="27 12.0N 049 42.0E"></label>
     <label>Times <select id="times"><option value="ut">UT</option><option value="lt">LT</option></select></label>
     <button id="bigtext" title="larger text, for the bridge">A+</button>

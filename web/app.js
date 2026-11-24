@@ -1711,6 +1711,14 @@ function showTab(t) {
   else if (t === "gps") GPS.show();
   else if (typeof TABS2 !== "undefined" && TABS2[t]) TABS2[t]();
 }
+let hdrShow = () => {};
+/* the position from the GPS (gps.js, every second): the field and the zone time now, the tab computed again when redraw */
+function setPos(p, redraw) {
+  S.pos = [p[0], p[1]];
+  const dr = $("dr"); if (dr && document.activeElement !== dr) dr.value = FMT.pos(p[0], p[1]);
+  hdrShow();
+  if (redraw) { save(); if (S.tab !== "calc" && S.tab !== "live") rerender(); }
+}
 function header() {
   const ut = $("ut"), dr = $("dr"), now = $("now"), times = $("times");
   times.innerHTML = '<option value="ut">all times UT</option><option value="zt">all times ZT (the DR\'s zone)</option>';
@@ -1722,7 +1730,13 @@ function header() {
   dr.value = FMT.pos(S.pos[0], S.pos[1]); times.value = S.times; show();
   now.onclick = () => { S.live = !S.live; S.jd = jdOf(Date.now()); show(); rerender(); };
   ut.onchange = () => { const t = Date.parse(ut.value + "Z"); if (isFinite(t)) { S.live = false; S.jd = jdOf(t); } show(); rerender(); };
-  dr.onchange = () => { const p = parsePos(dr.value); if (p) S.pos = p; dr.value = FMT.pos(S.pos[0], S.pos[1]); save(); show(); rerender(); };
+  dr.onchange = () => {                                           /* typed: yours (Position: Manual while a GPS runs) */
+    if (typeof GPS !== "undefined" && GPS.following()) GPS.setFollow(false);
+    const p = parsePos(dr.value); if (p) S.pos = p; dr.value = FMT.pos(S.pos[0], S.pos[1]); save(); show(); rerender(); };
+  const pm = $("posmode");                                         /* Position: Auto (GPS) or Manual, as the calculator */
+  pm.value = typeof GPS !== "undefined" && !GPS.auto() ? "man" : "auto";
+  pm.onchange = () => { if (typeof GPS !== "undefined") GPS.setFollow(pm.value === "auto"); };
+  hdrShow = show;
   times.onchange = () => { S.times = times.value; save(); rerender(); };
   setInterval(() => { if (S.live) { show(); if (S.tab !== "route" && S.tab !== "calc") rerender(); } }, 5000);
 }
@@ -1793,6 +1807,7 @@ const APP = {
     if (zm) { S.view.k *= +zm[1]; clampView(); draw(); }
   },
   route: () => ROUTE.plan.rows,
+  setPos,
   redraw: () => { showTab(S.tab); if (S.tab === "route") draw(); },                                 /* the colours changed (night): the tab drawn again */
   download, fmt: FMT, nav: NAV, state: S, parsePos, tfiles: TFILES, streams: STREAMS, loadCoast, arrowPath, rateCol, showTab,
 };

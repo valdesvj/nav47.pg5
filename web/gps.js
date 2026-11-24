@@ -9,7 +9,7 @@ const GPS = (() => {
   const D2R = Math.PI / 180, SYS = ["GPS", "GLO", "GAL", "BDS", "QZS", "SBAS", "NAVIC"];
   const KEEP = /^(RMC|GGA|GNS|GSA|VTG|ZDA|GST|HDT|THS|HDG|VHW|GSV)$/;
   let built = false, src = null, stopSrc = null, t0 = performance.now(), last = [], st = null, sats = [];
-  let calcPort = null, calcWriter = null, queue = new Map(), gsvLast = {}, gsvOpen = {}, toCalcTab = true, follow = false, followT = 0;
+  let calcPort = null, calcWriter = null, queue = new Map(), gsvLast = {}, gsvOpen = {}, toCalcTab = true, follow = localStorage.getItem("nav47web:gpsfollow") !== "0", followT = 0;   /* Position AUTO (GPS), as the calculator: the default */
   let cur = { e: 0, n: 0, ok: false };
   const ms = () => performance.now() - t0;
 
@@ -233,12 +233,29 @@ const GPS = (() => {
     $("gpsraw").textContent = last.join("\n");
     followStep(g);
   }
+  /* Position AUTO (the calculator's POSITION AUTO, SET FOLLOWS): the top bar's DR the GPS's every second, its tag (GPS,
+     DGPS, RTK... green; DR amber: the fix lost, the Live tab's dead reckoning), the tab shown computed again every 10 s */
   function followStep(g) {
-    const live = g && g.fixAge >= 0 && g.fixAge < 10;
-    if (follow && live && performance.now() - followT > 10000) {           /* the DR follows: every 10 s */
-      followT = performance.now();
-      const dr = $("dr"); dr.value = F().pos(g.lat, g.lon); dr.dispatchEvent(new Event("change"));
-    }
+    const tag = $("drtag"); if (!tag) return;
+    if (!src) { tag.hidden = true; return; }
+    const fresh = g && g.fixAge >= 0 && g.fixAge < 10, L = typeof LIVE !== "undefined" ? LIVE.state() : null;
+    let p = null, name = "";
+    if (fresh) { p = [g.lat, g.lon]; name = Module.UTF8ToString(Module._api_qual_name(g.q)); }
+    else if (L && L.pos && L.pos.src === "DR") { p = [L.pos.lat, L.pos.lon]; name = "DR"; }
+    tag.hidden = false;
+    tag.textContent = !follow ? "MAN" : p ? name : "NO FIX";
+    tag.className = "chip " + (!follow ? "" : !p || name === "DR" ? "warn" : "ok");
+    tag.title = !follow ? "the GPS runs; the position is yours (Position: Manual)" : p ? "the position is the " + name + "'s" : "no fix yet";
+    if (!follow || !p) return;
+    const now = performance.now(), redraw = now - followT > 10000;
+    if (redraw) followT = now;
+    APP.setPos(p, redraw);
+  }
+  function setFollow(on) {
+    follow = !!on; followT = 0; localStorage.setItem("nav47web:gpsfollow", follow ? "1" : "0");
+    if ($("gpsfollow")) $("gpsfollow").checked = follow;
+    if ($("posmode")) $("posmode").value = follow ? "auto" : "man";
+    followStep(st);
   }
 
   function build() {
@@ -256,8 +273,9 @@ const GPS = (() => {
             <label>speed <select id="gpsspeed"><option>1</option><option>2</option><option>5</option><option>10</option></select></label></div>
           <div class="meta" id="gpsstat">no source</div>
           <div id="gpsfix"></div>
-          <label style="display:block;margin-top:8px"><input type="checkbox" id="gpsfollow"> The DR follows the GPS (every 10 s: the
-            almanac, tides, zones and the route's DR)</label>
+          <label style="display:block;margin-top:8px"><input type="checkbox" id="gpsfollow" ${follow ? "checked" : ""}> The DR follows the GPS: the
+            top bar's <b>Position</b> AUTO (GPS), as the calculator's; the almanac, tides, zones and the route's DR with it (a lost fix:
+            the dead reckoning). MANUAL, or a DR typed: yours</label>
         </div>
         <div class="card"><h2>To the calculator</h2>
           <label><input type="checkbox" id="gpscalctab" checked> To the Calculator tab's program (its FIX SATS NAV BOW pages;
@@ -280,7 +298,7 @@ const GPS = (() => {
     $("gpsdemo").onclick = demo;
     $("gpsstop").onclick = stop;
     $("gpslog").onchange = e => { const f = e.target.files[0]; if (f) replay(f); };
-    $("gpsfollow").onchange = e => { follow = e.target.checked; followT = 0; };
+    $("gpsfollow").onchange = e => setFollow(e.target.checked);
     $("gpscalctab").onchange = e => { toCalcTab = e.target.checked; };
     $("gpscalc").onclick = connectCalc;
     $("gpsopen").onclick = () => { toCalcTab = true; $("gpscalctab").checked = true; APP.showTab("calc"); CALC.keys(["EXIT", "F6", "F6", "F6", "F1"]); };
@@ -289,11 +307,11 @@ const GPS = (() => {
   setInterval(() => {
     if (!window.Module || !Module.ready || typeof APP === "undefined" || !window.NAV47_UP) return;
     if (S().tab === "gps") { show(); }
-    else if (src || follow) { st = read(); followStep(st); }
+    else { st = read(); followStep(st); }
     if (typeof LIVE !== "undefined" && st) LIVE.tick(st, sats);
   }, 1000);
   /* #gpsdemo: the demo at once (tests, pictures), when the page is up */
   if (/gpsdemo/.test(location.hash)) { const w = setInterval(() => { if (window.NAV47_UP) { clearInterval(w); demo(); } }, 200); }
 
-  return { show, line, demo, stop, sky, state: () => st, sats: () => sats, running: () => !!src };
+  return { show, line, demo, stop, sky, setFollow, auto: () => follow, following: () => follow && !!src, state: () => st, sats: () => sats, running: () => !!src };
 })();

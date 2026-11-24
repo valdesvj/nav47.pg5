@@ -12,8 +12,12 @@ tab when you switch it on.
 - [Almanac, Sky, Tide, Flow, Zones, Weather, DP](#the-other-tabs)
 - [Calculator](#calculator)
 
-The top bar, on every tab: **Now** (the clock) or a fixed UT; the **DR**, your position for every tab; the times in
-**UT** or **ZT** (the DR's zone); **A+** a larger text, and **☾ Night**: red on black, the charts too, to keep the eyes
+The top bar, on every tab: **Now** (the clock) or a fixed UT; **Position**: **Auto (GPS)** or **Manual**, as the
+calculator's POSITION AUTO and SET FOLLOWS; the **DR**, the position every tab computes with. With Auto and a GPS
+running (the GPS tab: a GPS, a log, the Demo), the DR is the GPS's position, every second, a tag before it saying
+whence: **GPS**, **DGPS**, **RTK**… green, **DR** amber (the fix lost: the dead reckoning), **NO FIX**; the tab shown
+(the Almanac, the tides, the zones…) is computed again every 10 s. **Manual** (**MAN** while a GPS runs), or a DR
+typed: the position is yours. No GPS: no tag, the DR is yours. The times in **UT** or **ZT** (the DR's zone); **A+** a larger text, and **☾ Night**: red on black, the charts too, to keep the eyes
 dark-adapted on the bridge (both kept in this browser).
 
 **Cards fold** at their title (▾ / ▸): the Route tab's long column shortens to the cards in use, and the page
