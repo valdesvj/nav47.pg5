@@ -594,12 +594,17 @@ const LIVE = (() => {
     { const [X, Y] = P2(188, 176); g.strokeStyle = "#20262c"; g.lineWidth = 2; g.strokeRect(X, Y, 25 * S2, 11 * S2); }
     }
     /* the numbers */
-    const box = (x, y, lines) => {
-      g.fillStyle = "rgba(10,20,30,0.7)"; g.fillRect(x, y, 178, 22 * lines.length + 10);
-      g.fillStyle = "#fff"; g.font = "bold 17px ui-monospace, monospace"; lines.forEach((t, i) => g.fillText(t, x + 10, y + 24 + 22 * i));
+    const box = (x, y, lines) => {                       /* as the calculator's: black on white, framed */
+      const h = 22 * lines.length + 10;
+      g.fillStyle = "rgba(255,255,255,0.92)"; g.fillRect(x, y, 178, h); g.strokeStyle = "#111"; g.lineWidth = 1.5; g.strokeRect(x, y, 178, h);
+      g.fillStyle = "#111"; g.font = "bold 17px ui-monospace, monospace"; lines.forEach((t, i) => g.fillText(t, x + 10, y + 24 + 22 * i));
     };
-    box(12, BV.H - 150, p && p.active && !p.done ? [`XTE ${Math.abs(p.xte).toFixed(2)} ${p.xte >= 0 ? "R" : "L"}`, `CTS ${deg(p.cts)}`, `DTG ${p.dtg.toFixed(2)}`].concat([FMT.dm(pos.lat, 2, 3) + (pos.lat < 0 ? "S" : "N")]) : ["no route", "", "", FMT.dm(pos.lat, 2, 3) + (pos.lat < 0 ? "S" : "N")]);
-    box(BV.W - 190, BV.H - 150, [`SOG ${n1(pos.sog)}`, `${isFinite(pos.hdg) ? "HDG" : "COG"} ${deg(hdg)}`, `COG ${deg(pos.cog)}`, (() => { const lo = ((pos.lon + 540) % 360) - 180; return FMT.dm(lo, 3, 3) + (lo < 0 ? "W" : "E"); })()]);
+    box(12, BV.H - 128, p && p.active && !p.done ? [`XTE ${Math.abs(p.xte).toFixed(2)} ${p.xte >= 0 ? "R" : "L"}`, `CTS ${deg(p.cts)}`, `DTG ${p.dtg.toFixed(2)}`] : ["no route", "", ""]);
+    {                                                    /* her own: latitude, longitude, HDG, SOG (as the calculator) */
+      const lo = ((pos.lon + 540) % 360) - 180;
+      box(BV.W - 190, BV.H - 150, [FMT.dm(pos.lat, 2, 3) + (pos.lat < 0 ? "S" : "N"), FMT.dm(lo, 3, 3) + (lo < 0 ? "W" : "E"),
+        `${isFinite(pos.hdg) ? "HDG" : "COG"} ${deg(hdg)}`, `SOG ${n1(pos.sog)}`]);
+    }
     strip(g, pos);
     if (p && p.active && !p.done && isFinite(p.next) && p.dtg < 3 * cfg.arr + 0.5) {
       g.fillStyle = "#ffcf33"; g.fillRect(12, 12, 230, 32); g.fillStyle = "#20262c"; g.font = "bold 18px system-ui"; g.fillText(`TURN AHEAD ${deg(p.next)}`, 22, 34);
