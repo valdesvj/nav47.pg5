@@ -46,6 +46,14 @@ int main(void) {
   printf("vessel %s: %d thrusters; platform %s %.0f x %.0f m, face 0 to %03.0f\n", v.name, v.nthr, p.name, p.len, p.wid, p.orient);
   for (int i = 0; i < v.nthr; i++) printf("  %-4s %s  full %.0f kN  limit %.0f %%\n", v.thr[i].name, DP_TYPE[v.thr[i].type], v.thr[i].tf, p.lim[i] * 100);
   CHECK(p.lim[0] == 0.3f && p.lim[1] == 0.3f && p.lim[2] == 0.3f && p.lim[3] == 1 && p.lim[4] == 1, "LIM TUN 30 on the three tunnels only");
+  {                                                   /* several on a line; a thruster's name over its type */
+    DpPlat q;
+    char t[] = "NAV47 DPOPS 1\nLIM TUN 30, AZD 45\nLIM AZS 40\n", bad[] = "NAV47 DPOPS 1\nLIM TUN 30, AZD\n";
+    CHECK(dpo_parse(t, &q, err, sizeof err) == 0 && q.nlim == 3, "LIM TUN 30, AZD 45: %s", err);
+    dpo_limits(&v, &q);
+    CHECK(q.lim[0] == 0.3f && q.lim[3] == 0.45f && q.lim[4] == 0.4f, "LIM TUN 30, AZD 45, AZS 40: %.2f %.2f %.2f", q.lim[0], q.lim[3], q.lim[4]);
+    CHECK(dpo_parse(bad, &q, err, sizeof err) != 0, "LIM TUN 30, AZD: an error");
+  }
 
   /* 1. against dp_held */
   DpPlat q = p;
