@@ -20,6 +20,13 @@ const VIEWS = (() => {
   const etdOf = v => v ? v : nowJd();
   const isoOf = jd => new Date(msOf(jd)).toISOString().slice(0, 16);
   const hm = min => FMT.dur(min / 60);
+  /* the departure: the field always shows it; "now" (lit) follows the clock, a time typed fixes it */
+  const depHtml = (p, o) => `<label>Departure UT <input type="datetime-local" id="${p}etd" value="${isoOf(etdOf(o.etd))}" step="60"></label>
+    <button class="small ${o.etd ? "" : "on"}" id="${p}now" title="the departure now: it follows the clock">now</button>`;
+  function depBind(p, o, upd) {
+    $(p + "etd").onchange = e => { const t = Date.parse(e.target.value + "Z"); o.etd = isFinite(t) ? jdOf(t) : null; $(p + "now").classList.toggle("on", !o.etd); upd(); };
+    $(p + "now").onclick = () => { o.etd = null; $(p + "etd").value = isoOf(nowJd()); $(p + "now").classList.add("on"); upd(); };
+  }
 
   /* ---------------------------------------------------------------- the order of the stops
      a round trip from node 0 (the base) through 1..n and back: Held-Karp, exact, to 13 stops; more: the nearest
@@ -72,6 +79,7 @@ const VIEWS = (() => {
     if (S2.tab === "flight") flightLayer(g);
     else if (S2.tab === "heli") heliLayer(g);
     else if (S2.tab === "supply") supplyLayer(g);
+    simLayer(g);
   }
   const S2 = { tab: "" };
 
@@ -99,7 +107,8 @@ const VIEWS = (() => {
       <div class="controls" style="margin-top:6px">
         <label>Cruise <input class="num" id="flkn" type="number" min="60" max="700" step="5" value="${F.kn}"> kn</label>
         <label>on the ground <input class="num" id="flturn" type="number" min="0" max="1440" step="5" value="${F.turn}"> min</label>
-        <label>Departure UT <input type="datetime-local" id="fletd" value="${F.etd ? isoOf(F.etd) : ""}" step="60"></label><button class="small" id="flnow">now</button></div>
+        ${depHtml("fl", F)}</div>
+      ${simHtml()}
       <div class="controls" style="margin-top:6px"><button id="flfit">Fit the flight</button><button id="flrev">Reverse</button><button id="flclr">Clear</button></div>
       <div class="meta">Great circles at the cruise speed: no airways, winds or climb; for planning, not for navigation.</div>`;
     $("flq").oninput = () => {
@@ -108,11 +117,11 @@ const VIEWS = (() => {
     };
     $("flkn").onchange = e => { F.kn = Math.max(60, Math.min(700, +e.target.value || 450)); flightUpd(); };
     $("flturn").onchange = e => { F.turn = Math.max(0, +e.target.value || 0); flightUpd(); };
-    $("fletd").onchange = e => { const t = Date.parse(e.target.value + "Z"); F.etd = isFinite(t) ? jdOf(t) : null; flightUpd(); };
-    $("flnow").onclick = () => { F.etd = null; $("fletd").value = ""; flightUpd(); };
+    depBind("fl", F, flightUpd);
     $("flfit").onclick = fitView;
     $("flrev").onclick = () => { F.ids.reverse(); flightUpd(); };
     $("flclr").onclick = () => { F.ids = []; flightUpd(); };
+    simBind();
     flightTable();
   }
   function flightUpd(fit) { put("flight", F); flightTable(); if (fit && F.ids.length >= 2) fitView(); else draw(); }
@@ -227,7 +236,8 @@ const VIEWS = (() => {
         <label>reserve <input class="num" id="heres" type="number" min="0" max="120" step="5" value="${H.reserve}"> min</label>
         <label>on deck <input class="num" id="hedeck" type="number" min="0" max="120" step="1" value="${H.deck}"> min</label>
         <label>refuel <input class="num" id="heref" type="number" min="0" max="120" step="1" value="${H.refuel}"> min</label>
-        <label>Departure UT <input type="datetime-local" id="heetd" value="${H.etd ? isoOf(H.etd) : ""}" step="60"></label></div>
+        ${depHtml("he", H)}</div>
+      ${simHtml()}
       <div class="controls" style="margin-top:6px"><button id="hefit">Fit</button><button id="heclr">Clear the stops</button></div>
       <div class="meta">The order of least flying (exact up to 13 stops), back to the base; every ACP refuels: a refuelling where the
         endurance less the reserve would not reach the next deck and then fuel. Great circles, no wind: for planning.</div>`;
@@ -247,9 +257,10 @@ const VIEWS = (() => {
     document.querySelectorAll("[name=heord]").forEach(r => r.onchange = () => { H.mine = r.value === "mine" && r.checked; heliUpd(); });
     const num = (id, k, lo, hi) => { $(id).onchange = e => { H[k] = Math.max(lo, Math.min(hi, +e.target.value || 0)); heliUpd(); }; };
     num("hekn", "kn", 60, 200); num("heend", "endur", 30, 400); num("heres", "reserve", 0, 120); num("hedeck", "deck", 0, 120); num("heref", "refuel", 0, 120);
-    $("heetd").onchange = e => { const t = Date.parse(e.target.value + "Z"); H.etd = isFinite(t) ? jdOf(t) : null; heliUpd(); };
+    depBind("he", H, heliUpd);
     $("hefit").onclick = fitView;
     $("heclr").onclick = () => { H.stops = []; heliCard(); heliUpd(); };
+    simBind();
     heliTable();
   }
   function heliUpd() { put("heli", Object.assign({}, H)); heliTable(); draw(); }
@@ -329,7 +340,8 @@ const VIEWS = (() => {
         <label>Speed <input class="num" id="sukn" type="number" min="1" max="30" step="0.5" value="${U.kn}"> kn</label>
         <label>alongside <input class="num" id="sualong" type="number" min="0" max="72" step="0.25" value="${U.along}"> h each</label>
         <label title="0: one trip, however long">a trip at most <input class="num" id="sumax" type="number" min="0" max="240" step="1" value="${U.max}"> h</label>
-        <label>Departure UT <input type="datetime-local" id="suetd" value="${U.etd ? isoOf(U.etd) : ""}" step="60"></label></div>
+        ${depHtml("su", U)}</div>
+      ${simHtml()}
       <div class="controls" style="margin-top:6px"><button id="sufit">Fit</button><button id="suroute" title="the schedule into the Route tab: its legs planned round the zones, to the calculator as ROUTE.TXT">To the route</button><button id="suclr">Clear the stops</button></div>
       <div class="meta">The order of least steaming (exact up to 13 stops), back to the base; the miles straight from platform to platform
         (To the route: round the zones, a little more). Time alongside per platform in the table.</div>`;
@@ -344,10 +356,11 @@ const VIEWS = (() => {
     $("sukn").onchange = e => { U.kn = Math.max(1, Math.min(30, +e.target.value || 12)); supplyUpd(); };
     $("sualong").onchange = e => { U.along = Math.max(0, +e.target.value || 0); supplyUpd(); };
     $("sumax").onchange = e => { U.max = Math.max(0, +e.target.value || 0); supplyUpd(); };
-    $("suetd").onchange = e => { const t = Date.parse(e.target.value + "Z"); U.etd = isFinite(t) ? jdOf(t) : null; supplyUpd(); };
+    depBind("su", U, supplyUpd);
     $("sufit").onclick = fitView;
     $("suclr").onclick = () => { U.stops = []; supplyUpd(); };
     $("suroute").onclick = toRoute;
+    simBind();
     supplyTable();
   }
   function supplyUpd() { put("supply", U); supplyTable(); draw(); }
@@ -389,6 +402,105 @@ const VIEWS = (() => {
     showTab("route"); refresh(true); fitRoute(); draw();
   }
 
+  /* ---------------------------------------------------------------- the simulation
+     each view's trip as a timeline (minutes from the departure): moving legs (great circles) and stays (the ground,
+     a deck, alongside); played over SIM.dur seconds, the plane, the helicopter or the vessel on the chart, a box
+     with the time, the leg, the position, what is left */
+  function timeline() {
+    const segs = []; let t = 0, kn = 0, icon = "", t0 = nowJd();
+    const move = (a, b, nm, min, label) => { segs.push({ k: "move", a, b, nm, t0: t, t1: t + min, label }); t += min; };
+    const stay = (p, min, label) => { if (min > 0) { segs.push({ k: "stay", a: p, b: p, t0: t, t1: t + min, label }); t += min; } };
+    const nm = p => p.iata || p.name || p.id;
+    if (S2.tab === "flight") {
+      const A = F.ids.map(id => apById.get(id)).filter(Boolean); if (A.length < 2) return null;
+      icon = "plane"; kn = F.kn; t0 = etdOf(F.etd);
+      for (let i = 1; i < A.length; i++) {
+        const l = leg(A[i - 1], A[i]); move(A[i - 1], A[i], l.nm, l.nm / F.kn * 60, `${nm(A[i - 1])} → ${nm(A[i])}`);
+        if (i < A.length - 1) stay(A[i], F.turn, `on the ground at ${nm(A[i])}`);
+      }
+    } else if (S2.tab === "heli") {
+      const r = heliPlan(); if (!r) return null;
+      icon = "heli"; kn = H.kn; t0 = etdOf(H.etd);
+      r.legs.forEach((l, i) => {
+        if (l.fueledAt) stay(l.a, H.refuel, `refuelling on ${nm(l.a)}`);
+        move(l.a, l.b, l.nm, l.t, `${nm(l.a)} → ${nm(l.b)}`);
+        if (l.b !== r.base) stay(l.b, l.detour ? H.refuel : H.deck, l.detour ? `refuelling on ${nm(l.b)}` : `on deck at ${nm(l.b)}`);
+      });
+    } else if (S2.tab === "supply") {
+      const r = supplyPlan(); if (!r) return null;
+      icon = "ship"; kn = U.kn; t0 = etdOf(U.etd);
+      for (const l of r.legs) { move(l.a, l.b, l.nm, l.h * 60, `${nm(l.a)} → ${nm(l.b)}`); if (l.b !== r.base) stay(l.b, l.along * 60, `alongside ${nm(l.b)}`); }
+    }
+    return { segs, total: t, kn, icon, t0 };
+  }
+  const SIM = { f: 0, playing: false, dur: 40, follow: true, last: 0, tab: "" };
+  function simHtml() {
+    return `<div class="controls" style="margin-top:6px"><b>Simulation</b><button id="simplay">${SIM.playing ? "Pause" : "Play"}</button>
+      <input type="range" id="simf" min="0" max="1000" value="${Math.round(SIM.f * 1000)}" style="flex:1;min-width:120px">
+      <label title="the whole trip played in">in <select id="simdur">${[20, 40, 80, 160].map(d => `<option ${d === SIM.dur ? "selected" : ""}>${d}</option>`).join("")}</select> s</label>
+      <label><input type="checkbox" id="simfollow" ${SIM.follow ? "checked" : ""}> follow</label></div>`;
+  }
+  function simBind() {
+    if (SIM.tab !== S2.tab) { SIM.tab = S2.tab; SIM.f = 0; SIM.playing = false; }
+    $("simplay").onclick = () => { if (!timeline()) return; if (SIM.f >= 1) SIM.f = 0; SIM.playing = !SIM.playing; $("simplay").textContent = SIM.playing ? "Pause" : "Play"; SIM.last = performance.now(); if (SIM.playing) requestAnimationFrame(simStep); };
+    $("simf").oninput = e => { SIM.f = +e.target.value / 1000; draw(); };
+    $("simdur").onchange = e => { SIM.dur = +e.target.value; };
+    $("simfollow").onchange = e => { SIM.follow = e.target.checked; };
+  }
+  function simStep(now) {
+    if (!SIM.playing || S2.tab !== SIM.tab || St().tab !== S2.tab) { SIM.playing = false; return; }
+    SIM.f = Math.min(1, SIM.f + (now - SIM.last) / 1000 / SIM.dur); SIM.last = now;
+    if ($("simf")) $("simf").value = Math.round(SIM.f * 1000);
+    if (SIM.f >= 1) { SIM.playing = false; if ($("simplay")) $("simplay").textContent = "Play"; }
+    draw();
+    if (SIM.playing) requestAnimationFrame(simStep);
+  }
+  function simAt(T, m) {                                     /* where, the course, the segment, at m minutes */
+    let s = T.segs.find(x => m <= x.t1) || T.segs[T.segs.length - 1];
+    if (s.k === "stay") { const nx = T.segs[T.segs.indexOf(s) + 1], pv = T.segs[T.segs.indexOf(s) - 1];
+      const crs = nx && nx.k === "move" ? leg(nx.a, nx.b).crs : pv && pv.k === "move" ? leg(pv.a, pv.b).crs : 0;
+      return { lat: s.a.lat, lon: s.a.lon, crs, s }; }
+    const q = APP.nav.inv(s.a.lat, s.a.lon, s.b.lat, s.b.lon), f = (m - s.t0) / Math.max(1e-9, s.t1 - s.t0);
+    const p = APP.nav.dir(s.a.lat, s.a.lon, q.a1, q.s * Math.max(0, Math.min(1, f)));
+    return { lat: p.lat, lon: p.lon, crs: (p.az + 360) % 360, s, f };
+  }
+  function heliIcon(g, x, y, crs) {
+    const a = (crs - 90) * Math.PI / 180, rot = performance.now() / 60;
+    g.save(); g.translate(x, y);
+    g.fillStyle = "rgba(255,255,255,.85)"; g.strokeStyle = "#d63a2a"; g.lineWidth = 2;   /* a white disc: seen among the platforms */
+    g.beginPath(); g.arc(0, 0, 30, 0, 2 * Math.PI); g.fill(); g.stroke();
+    g.strokeStyle = "#20262c"; g.lineWidth = 4; g.beginPath(); g.moveTo(0, 0); g.lineTo(-Math.cos(a) * 26, -Math.sin(a) * 26); g.stroke();   /* the tail */
+    g.lineWidth = 2; g.beginPath(); g.moveTo(-Math.cos(a) * 26 - Math.sin(a) * 6, -Math.sin(a) * 26 + Math.cos(a) * 6); g.lineTo(-Math.cos(a) * 26 + Math.sin(a) * 6, -Math.sin(a) * 26 - Math.cos(a) * 6); g.stroke();
+    g.fillStyle = "#d63a2a"; g.beginPath(); g.ellipse(0, 0, 12, 8, a, 0, 2 * Math.PI); g.fill(); g.strokeStyle = "#20262c"; g.lineWidth = 1.5; g.stroke();
+    g.strokeStyle = "rgba(20,25,30,.8)"; g.lineWidth = 3;                                       /* the rotor, turning */
+    for (const r of [rot, rot + Math.PI / 2]) { g.beginPath(); g.moveTo(Math.cos(r) * 24, Math.sin(r) * 24); g.lineTo(-Math.cos(r) * 24, -Math.sin(r) * 24); g.stroke(); }
+    g.restore();
+  }
+  function simLayer(g) {
+    if (SIM.tab !== S2.tab || (!SIM.playing && SIM.f <= 0)) return;
+    const T = timeline(); if (!T || !T.segs.length) return;
+    const m = SIM.f * T.total, p = simAt(T, m);
+    if (SIM.follow && SIM.playing) {
+      const [x, y, v] = proj(p.lat, p.lon);
+      if (!v || x < CH.W * 0.2 || x > CH.W * 0.8 || y < CH.H * 0.2 || y > CH.H * 0.8) { St().view.lat0 = p.lat; St().view.lon0 = p.lon; clampView(); requestAnimationFrame(draw); return; }
+    }
+    const [x, y, v] = proj(p.lat, p.lon);
+    if (v) {
+      if (T.icon === "heli") heliIcon(g, x, y, p.crs);
+      else drawVessel(p.lat, p.lon, p.crs, T.icon === "plane", p.s.k === "stay");
+    }
+    /* the box */
+    const left = T.total - m, now = T.t0 + m / 1440;
+    let togo = 0; for (const s of T.segs) if (s.k === "move") togo += s.t1 <= m ? 0 : s.t0 >= m ? s.nm : s.nm * (1 - (m - s.t0) / (s.t1 - s.t0));
+    const lines = [`${{ plane: "✈", heli: "🚁", ship: "🚢" }[T.icon]} ${FMT.dt(now, off())} ${lab()}`, p.s.label,
+      p.s.k === "move" ? `${FMT.crs(p.crs)} · ${T.kn} kn` : `${hm(p.s.t1 - m)} left here`, FMT.pos(p.lat, p.lon),
+      `to go ${togo.toFixed(togo < 100 ? 1 : 0)} NM · ${hm(left)}`, `${T.icon === "plane" ? "arrives" : "back at the base"} ${FMT.dt(T.t0 + T.total / 1440, off())} ${lab()}`];
+    g.font = "13px system-ui"; const w = Math.max(...lines.map(t => g.measureText(t).width)) + 20;
+    g.fillStyle = css("--card"); g.globalAlpha = 0.92; g.fillRect(10, 10, w, lines.length * 18 + 10); g.globalAlpha = 1;
+    g.strokeStyle = css("--line"); g.lineWidth = 1; g.strokeRect(10, 10, w, lines.length * 18 + 10);
+    g.fillStyle = css("--ink"); lines.forEach((t, i) => { g.font = i === 0 ? "bold 14px system-ui" : "13px system-ui"; g.fillText(t, 20, 30 + i * 18); });
+  }
+
   /* ---------------------------------------------------------------- the tabs */
   function show(t) {
     S2.tab = t;
@@ -419,5 +531,5 @@ const VIEWS = (() => {
     if (pts.length >= 2) { fit(pts.map(p => ({ lat: p.lat, lon: p.lon }))); draw(); }   /* one point: the view kept */
   }
   const owns = t => t === "flight" || t === "heli" || t === "supply";
-  return { owns, show, card, table, drawLayer, click, fitView, bestOrder, heliPlan, supplyPlan, airports: () => AP, state: () => ({ F, H, U }), last: null };
+  return { owns, show, card, table, drawLayer, click, fitView, bestOrder, heliPlan, supplyPlan, timeline, sim: SIM, airports: () => AP, state: () => ({ F, H, U }), last: null };
 })();

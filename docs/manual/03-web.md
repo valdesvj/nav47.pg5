@@ -76,7 +76,13 @@ field's route 30 times faster).
 
 Three planning views on the same chart (its route and tools step aside; **Fit** fits the view's own route). Each
 finds its order of stops by itself (**shortest**: exact up to 13 stops, then a good one) or keeps yours (**my
-order**), and lists every leg with its distance, time and ETA under the chart.
+order**), and lists every leg with its distance, time and ETA under the chart. **Departure**: the field shows it; **now** (lit)
+follows the clock, a time typed fixes it, **now** again goes back to the clock.
+
+**Simulation** (each view): **Play** flies the plane, the helicopter (its rotor turning) or sails the supply vessel
+along the trip, the whole of it in 20 to 160 s; the slider goes to any moment; **follow** keeps her on the chart. A
+box gives the time (UT or ZT), the leg or the stay (on the ground, on deck, refuelling, alongside) and the time left
+there, the course and speed, the position, the miles and time to go, the arrival or the return to the base.
 
 ![Flight](img/web_flight.png)
 
