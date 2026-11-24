@@ -573,6 +573,18 @@ static int bar_tag_changed(void) {
   return bar_shown_lat != 99 && (N->cfg.lat != bar_shown_lat || N->cfg.lon != bar_shown_lon);   /* SET followed the GPS */
 }
 
+/* the six softkeys, drawn by NAV47 in the page's font (the top bar's, C47 standard) instead of DMCP's larger one:
+   the same black boxes, the label white and centred */
+static void menu_keys(const char *keys[]) {
+  int w = LCD_X / 6, y0 = MENU_Y + 2, h = LCD_MENU_LINES - 4;
+  lcd_fill_rect(0, MENU_Y, LCD_X, LCD_MENU_LINES, 0);
+  for (int i = 0; i < 6; i++) {
+    int x0 = i * w + 2;
+    lcd_fill_rect((uint32_t)x0, (uint32_t)y0, (uint32_t)(w - 4), (uint32_t)h, 1);
+    if (keys[i] && keys[i][0]) nt_inv(x0 + (w - 4 - nt_w(keys[i])) / 2, y0 + (h - NT_ROW) / 2, keys[i]);
+  }
+}
+
 static void redraw(void) {
   lcd_clear_buf();
   { /* the top bar's position: the GPS pages and the GPS's chart show the vessel's (GPS or DR), the others SET's;
@@ -624,10 +636,10 @@ static void redraw(void) {
   MENUS[0][2] = page == PG_VSKY ? "SKY2" : "SKY";
   CHART_MENU[3] = chart_globe ? "MERC" : "GLOBE";
   VOY_MENU[0] = voy_play ? "PAUSE" : "PLAY";
-  lcd_draw_menu_keys(page == PG_ROUTE && rlib_active() ? (const char **)rlib_menu() : page == PG_WPDB ? (const char **)wpdb_menu() : (page == PG_GCOMP || page == PG_GDEV) ? compass_menu() : page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0 || (page == PG_DPIN && dp_editing()) || (IS_GPS(page) && gps_editing())) ? EDIT_MENU :
+  menu_keys(page == PG_ROUTE && rlib_active() ? (const char **)rlib_menu() : page == PG_WPDB ? (const char **)wpdb_menu() : (page == PG_GCOMP || page == PG_GDEV) ? compass_menu() : page == PG_FILES ? FILE_MENU : (edit_field >= 0 || wp_edit >= 0 || cmp_edit >= 0 || voy_edit || eta_edit >= 0 || (page == PG_DPIN && dp_editing()) || (IS_GPS(page) && gps_editing())) ? EDIT_MENU :
                      page == PG_PLAN ? PLAN_MENU : page == PG_CMP ? CMP_MENU : page == PG_CHART ? CHART_MENU : page == PG_VOY ? VOY_MENU : page == PG_ETA ? ETA_MENU : page == PG_ETAT ? ETAT_MENU : page == PG_DP ? DP_MENU : page == PG_DPIN ? DPIN_MENU : page == PG_DPABS ? ABS_MENU : MENUS[menu_page]);
   if (page == PG_DP)                                      /* BEST's mode, H or L (+ switches), small in the key's corner */
-    draw_text_r(&TINY, LCD_X / 6 - 4, MENU_Y + LCD_MENU_LINES - 4 - TINY.box, dp_best_label(), 1);
+    draw_text_r(&TINY, LCD_X / 6 - 5, MENU_Y + LCD_MENU_LINES - 5 - TINY.box, dp_best_label(), 1);
   lcd_refresh();
   lcd_refresh_wait();        /* the LCD goes out by DMA: done before the next frame clears the buffer (no flicker) */
   usbview_send();
