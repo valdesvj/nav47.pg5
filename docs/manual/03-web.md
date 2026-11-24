@@ -151,6 +151,17 @@ the platform for DP OPS (`DPOPS.TXT` for the calculator), and the vessel's **ABS
 polar of the limiting 1-minute wind intact and after the worst failure, SKP(a, b, c, d, e, NS), the current and the
 margin chosen; the same C as the calculator's ABS SKP page, the same numbers.
 
+**DP's three headings** (on the working face; a heading of your own, or a side or a set-up button, turns them off;
+a change of the weather computes them again):
+- **Best heading**: your face and your side, the heading of the **least load** on the thrusters within the
+  tolerance of square (side to and parallel turns within the tolerance too); it says when the best is at the
+  tolerance's edge (a wider tolerance may lower the load).
+- **Best of every set-up**: the side (to, stern to, bow to) that holds best with the least load on the face, then
+  that side's least load.
+- **To the target**: the **smallest turn** from the present heading that brings the most loaded thruster down to the
+  target (25 ± 5 % of full power by default, as the bars, both to change) and holds in the limits; out of reach on
+  that side, the least load, said so.
+
 ## Calculator
 
 ![Calculator](img/web_calc.png)
