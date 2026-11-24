@@ -76,6 +76,20 @@ const DPTAB = (() => {
       return { label, sd, par, ok: true, rank: r.rank, hdg: r.hdg, normal: r.normal, worst: r.worst, fgrp: r.fgrp, blow: r.blow };
     });
     [P.side, P.par] = keep;
+    /* Best heading (P.bestAll): the best on the face of every set-up, side to parallel or within the tolerance, stern
+       to, bow to: the one that holds best (holds after a failure, holds, beyond the limits), then the least loaded;
+       its side taken, so the vessel goes to that heading */
+    if (best && P.bestAll) {
+      let top = null;
+      for (const [sd, par] of [[1, true], [2, true], [1, false], [2, false], [0, false], [3, false]]) {
+        P.side = sd; P.par = par;
+        if (!setC()) continue;
+        weather(); Module._api_dp_best(); const r = read();
+        const better = !top || r.rank > top.rank || (r.rank === top.rank && r.worst < top.worst - 1e-4);
+        if (better) top = { sd, par, rank: r.rank, worst: r.worst };
+      }
+      if (top) { P.side = top.sd; P.par = top.par; save(); } else [P.side, P.par] = keep;
+    }
     if (!setC()) { res = null; return; }
     const wx = weather();
     if (best || P.hdg === null) { Module._api_dp_best(); res = read(); P.hdg = null; limw = Module._api_dp_limit(); }
@@ -246,6 +260,7 @@ const DPTAB = (() => {
     return lo.slice(0, -1).concat(up.slice(0, -1));
   }
 
+  let typing = 0;
   function render(best) {
     const el = document.getElementById("t-dp");
     const open = [...el.querySelectorAll("details")].map(d => d.open);   /* the sections you opened stay open */
@@ -266,7 +281,7 @@ const DPTAB = (() => {
       ${err ? `<div class="meta" style="color:var(--now)">${esc(err)}</div>` : ""}
       ${res ? `<div class="pill ${st[0]}" style="margin:8px 0;padding:6px 10px;border-radius:8px;font-weight:600;background:${st[0] === "ok" ? "#dff3e6" : st[0] === "warn" ? "#fdf0d5" : "#f8dcd8"}">${st[1]}</div>
       <div style="display:grid;grid-template-columns:max-content 1fr;gap:3px 14px;margin:4px 2px 0;font-size:14px">
-       <span class="meta">Heading</span><span><b class="mono">${String(Math.round(res.hdg)).padStart(3, "0")}°</b> ${P.hdg === null ? "the best" : "yours"}</span>
+       <span class="meta">Heading</span><span><b class="mono">${String(Math.round(res.hdg)).padStart(3, "0")}°</b> ${P.hdg === null ? (P.bestAll ? "the best on this face, of every set-up" : "the best for this set-up") : "yours"}</span>
        <span class="meta">Set-up</span><span>off the face looking to <span class="mono">${String(Math.round(res.normal)).padStart(3, "0")}°</span>${P.face < 0 ? " (AUTO: the best face)" : ""}, ${setupName()}, ${res.mid.toFixed(1)} m off</span>
        ${res.mid > +P.standoff + 0.05 ? `<span class="meta">Moved out</span><span>the heading turned: the ${P.side === 0 ? "stern" : P.side === 3 ? "bow" : "middle of the side"} <b>${res.mid.toFixed(1)} m</b> off, the nearest corner ${res.clear.toFixed(1)} m (corners ≥ ${P.mincl} m)</span>` : ""}
        <span class="meta">Wind in the lee</span><span>${res.wleft < 0.999 ? `${Math.round(res.wleft * 100)} % of it reaches her` : "none: all of the wind"}</span>
@@ -362,6 +377,15 @@ const DPTAB = (() => {
     const $ = id => document.getElementById("dp_" + id), on = (id, f) => { const e = $(id); if (e) e.onchange = f; };
     const numf = ["wfrom", "wkn", "cset", "ckn", "vfrom", "hs", "tp", "len", "wid", "orient", "height", "smin", "slen", "standoff", "mincl", "tol", "loa"];
     numf.forEach(k => on(k, e => { const v = parseFloat(e.target.value); if (isFinite(v)) { P[k] = v; save(); render(true); } }));
+    /* the weather: the best heading again while you type (a pause of 0.6 s), not only at Enter; the field keeps the cursor */
+    ["wfrom", "wkn", "cset", "ckn", "vfrom", "hs", "tp"].forEach(k => { const e = $(k); if (e) e.oninput = () => {
+      clearTimeout(typing);
+      typing = setTimeout(() => {
+        const i = $(k), v = parseFloat(i ? i.value : ""); if (!isFinite(v) || v === +P[k]) return;
+        const at = i.selectionStart; P[k] = v; save(); render(true);
+        const j = $(k); if (j) { j.focus(); try { j.setSelectionRange(at, at); } catch (x) { /* number fields: no caret */ } }
+      }, 600);
+    }; });
     on("name", e => { P.name = e.target.value.trim() || "PLATFORM"; save(); render(); });
     on("pos", e => { const p = APP.parsePos(e.target.value); if (p) { P.lat = p[0]; P.lon = p[1]; save(); } render(true); });
     $("dr").onclick = () => { P.lat = null; P.lon = null; save(); render(true); };
@@ -377,16 +401,16 @@ const DPTAB = (() => {
     $("shape").value = P.shape; on("shape", e => { P.shape = e.target.value; save(); render(true); });
     $("face").value = String(P.face); on("face", e => { P.face = +e.target.value; P.hdg = null; save(); render(true); });
     $("side").value = `${P.side}:${(P.side === 1 || P.side === 2) && P.par ? 1 : 0}`;
-    on("side", e => { const [a, b] = e.target.value.split(":"); P.side = +a; P.par = b === "1"; P.hdg = null; save(); render(true); });
-    document.querySelectorAll(".dpq").forEach(b => b.onclick = () => { const q = quick[+b.dataset.q]; P.side = q.sd; P.par = q.par; P.hdg = null; save(); render(true); });
+    on("side", e => { const [a, b] = e.target.value.split(":"); P.side = +a; P.par = b === "1"; P.hdg = null; P.bestAll = false; save(); render(true); });
+    document.querySelectorAll(".dpq").forEach(b => b.onclick = () => { const q = quick[+b.dataset.q]; P.side = q.sd; P.par = q.par; P.hdg = null; P.bestAll = false; save(); render(true); });
     on("solid", e => { P.solid = e.target.checked; save(); render(true); });
     on("cauto", e => { P.cauto = e.target.checked; save(); render(true); });
     on("sauto", e => { P.sauto = e.target.checked; save(); render(true); });
     on("lims", e => { P.lims = e.target.value; save(); render(true); });
-    $("best").onclick = () => { P.hdg = null; save(); render(true); };
-    on("hdg", e => { P.hdg = ((parseFloat(e.target.value) || 0) % 360 + 360) % 360; save(); render(); });
-    $("hm").onclick = () => { P.hdg = ((res ? res.hdg : 0) + 355) % 360; save(); render(); };
-    $("hp").onclick = () => { P.hdg = ((res ? res.hdg : 0) + 5) % 360; save(); render(); };
+    $("best").onclick = () => { P.hdg = null; P.bestAll = true; save(); render(true); };   /* every set-up on the face */
+    on("hdg", e => { P.hdg = ((parseFloat(e.target.value) || 0) % 360 + 360) % 360; P.bestAll = false; save(); render(); });
+    $("hm").onclick = () => { P.hdg = ((res ? res.hdg : 0) + 355) % 360; P.bestAll = false; save(); render(); };
+    $("hp").onclick = () => { P.hdg = ((res ? res.hdg : 0) + 5) % 360; P.bestAll = false; save(); render(); };
     $("vapply").onclick = () => { VES = $("ves").value; localStorage.setItem(VKEY, VES); render(true); };
     $("vex").onclick = () => { VES = ""; localStorage.removeItem(VKEY); render(true); };
     on("vfile", e => { const f = e.target.files[0]; if (f) f.text().then(t => { VES = t.replace(/\r/g, ""); localStorage.setItem(VKEY, VES); render(true); }); });
