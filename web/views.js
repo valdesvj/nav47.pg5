@@ -434,24 +434,29 @@ const VIEWS = (() => {
     return { segs, total: t, kn, icon, t0 };
   }
   const SIM = { f: 0, playing: false, dur: 40, follow: true, last: 0, tab: "" };
+  const sid = n => S2.tab + n;                              /* each tab its own player: no id shared with the others */
   function simHtml() {
-    return `<div class="controls" style="margin-top:6px"><b>Simulation</b><button id="simplay">${SIM.playing ? "Pause" : "Play"}</button>
-      <input type="range" id="simf" min="0" max="1000" value="${Math.round(SIM.f * 1000)}" style="flex:1;min-width:120px">
-      <label title="the whole trip played in">in <select id="simdur">${[20, 40, 80, 160].map(d => `<option ${d === SIM.dur ? "selected" : ""}>${d}</option>`).join("")}</select> s</label>
-      <label><input type="checkbox" id="simfollow" ${SIM.follow ? "checked" : ""}> follow</label></div>`;
+    return `<div class="controls" style="margin-top:6px"><b>Simulation</b><button id="${sid("simplay")}">${SIM.playing ? "Pause" : "Play"}</button>
+      <input type="range" id="${sid("simf")}" min="0" max="1000" value="${Math.round(SIM.f * 1000)}" style="flex:1;min-width:120px">
+      <label title="the whole trip played in">in <select id="${sid("simdur")}">${[20, 40, 80, 160].map(d => `<option ${d === SIM.dur ? "selected" : ""}>${d}</option>`).join("")}</select> s</label>
+      <label><input type="checkbox" id="${sid("simfollow")}" ${SIM.follow ? "checked" : ""}> follow</label></div>`;
   }
   function simBind() {
     if (SIM.tab !== S2.tab) { SIM.tab = S2.tab; SIM.f = 0; SIM.playing = false; }
-    $("simplay").onclick = () => { if (!timeline()) return; if (SIM.f >= 1) SIM.f = 0; SIM.playing = !SIM.playing; $("simplay").textContent = SIM.playing ? "Pause" : "Play"; SIM.last = performance.now(); if (SIM.playing) requestAnimationFrame(simStep); };
-    $("simf").oninput = e => { SIM.f = +e.target.value / 1000; draw(); };
-    $("simdur").onchange = e => { SIM.dur = +e.target.value; };
-    $("simfollow").onchange = e => { SIM.follow = e.target.checked; };
+    $(sid("simplay")).onclick = () => {
+      if (!timeline()) {                                     /* nothing to play: say so, not a silent button */
+        const b = $(sid("simplay")); b.textContent = S2.tab === "flight" ? "2 airports first" : S2.tab === "heli" ? "tick the decks first" : "add platforms first";
+        setTimeout(() => { if (b.isConnected) b.textContent = "Play"; }, 2500); return;
+      } if (SIM.f >= 1) SIM.f = 0; SIM.playing = !SIM.playing; $(sid("simplay")).textContent = SIM.playing ? "Pause" : "Play"; SIM.last = performance.now(); if (SIM.playing) requestAnimationFrame(simStep); };
+    $(sid("simf")).oninput = e => { SIM.f = +e.target.value / 1000; draw(); };
+    $(sid("simdur")).onchange = e => { SIM.dur = +e.target.value; };
+    $(sid("simfollow")).onchange = e => { SIM.follow = e.target.checked; };
   }
   function simStep(now) {
     if (!SIM.playing || S2.tab !== SIM.tab || St().tab !== S2.tab) { SIM.playing = false; return; }
     SIM.f = Math.min(1, SIM.f + (now - SIM.last) / 1000 / SIM.dur); SIM.last = now;
-    if ($("simf")) $("simf").value = Math.round(SIM.f * 1000);
-    if (SIM.f >= 1) { SIM.playing = false; if ($("simplay")) $("simplay").textContent = "Play"; }
+    if ($(sid("simf"))) $(sid("simf")).value = Math.round(SIM.f * 1000);
+    if (SIM.f >= 1) { SIM.playing = false; if ($(sid("simplay"))) $(sid("simplay")).textContent = "Play"; }
     draw();
     if (SIM.playing) requestAnimationFrame(simStep);
   }
