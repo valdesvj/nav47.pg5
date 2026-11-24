@@ -165,11 +165,12 @@ const LIVE = (() => {
     if (a & ~L.ack & ~L.alarm) beep();
     L.alarm = a;
     /* follow */
-    if (cfg.follow && S.tab === "route" && CH.W) {
+    if (cfg.follow && (S.tab === "route" || S.tab === "live") && CH.W) {
       const [x, y, v] = proj(pos.lat, pos.lon);
       if (!v || x < CH.W * 0.25 || x > CH.W * 0.75 || y < CH.H * 0.25 || y > CH.H * 0.75) { S.view.lat0 = pos.lat; S.view.lon0 = pos.lon; clampView(); }
     }
-    if (S.tab === "route") { card(); draw(); }
+    if (S.tab === "route" || S.tab === "live") { card(); draw(); }
+    if (S.tab === "live") { wpList(); gpsBox(); }
     if (now - L.sunT > 30000) sunNow();
   }
 
@@ -349,6 +350,75 @@ const LIVE = (() => {
     L.started = true;
   }
 
+  /* the bow view's bottom strip, as the calculator's top bar: the time (UT and the DR's zone), the fix's quality */
+  function strip(g, pos) {
+    const d = new Date(), z = Math.round(pos.lon / 15), p2 = n => String(n).padStart(2, "0");
+    const hms = t => `${p2(t.getUTCHours())}:${p2(t.getUTCMinutes())}:${p2(t.getUTCSeconds())}`;
+    const t = `${hms(d)} UT · ${hms(new Date(d.getTime() + z * 36e5))} ZT (${z >= 0 ? "+" : ""}${z})`;
+    const st = typeof GPS !== "undefined" && GPS.state ? GPS.state() : null;
+    let q, col;
+    if (pos.src === "DR") { q = `DR · no fix for ${Math.round(pos.since || 0)} s`; col = "#f0b43c"; }
+    else {
+      q = pos.src + (st ? ` ${st.dim >= 2 ? st.dim + "D" : ""} · ${st.nused} sats · HDOP ${isFinite(st.hdop) ? st.hdop.toFixed(1) : "–"} · ${Math.max(0, Math.round(st.fixAge))} s` : "");
+      col = /RTK|DGPS|GPS|SBAS|PPS/.test(pos.src) ? "#5fd39a" : "#ff7b6b";
+    }
+    g.fillStyle = "rgba(10,20,30,0.82)"; g.fillRect(0, BV.H - 30, BV.W, 30);
+    g.font = "bold 16px ui-monospace, monospace"; g.fillStyle = "#fff"; g.textAlign = "left"; g.fillText(t, 12, BV.H - 10);
+    g.fillStyle = col; g.textAlign = "right"; g.fillText(q, BV.W - 12, BV.H - 10); g.textAlign = "left";
+    g.beginPath(); g.arc(BV.W - 22 - g.measureText(q).width, BV.H - 15, 6, 0, 2 * Math.PI); g.fill();   /* the quality's dot */
+  }
+
+  /* Live tab: the plan's points from the vessel (BRG, DTG along the plan, ETA at the speed made good); a click: next */
+  function wpList() {
+    const el = $("livewps"); if (!el) return;
+    const pts = ROUTE.pts, pos = L.pos, p = L.psg, off = zd(), lab = off ? "ZT" : "UT";
+    if (pts.length < 2) { el.innerHTML = `<h2>Plan waypoints</h2><div class="meta">No route: plan one on the Route tab.</div>`; return; }
+    const cur = p && p.active ? (p.done ? pts.length : p.leg) : -1;
+    let n = 0;
+    const rows = pts.map((q, k) => {
+      if (q.user) n++;
+      const name = q.name || (q.user ? `WP${n}` : `pt ${k + 1}`);
+      let brg = "–", dtg = "–", eta = "–";
+      if (pos) {
+        const b = nm(pos.lat, pos.lon, q.lat, q.lon); brg = deg(b.brg);
+        const along = cur >= 0 && k >= cur ? p.dtg + (ptCum(k) - ptCum(cur)) / NM : k < cur ? NaN : b.d;
+        if (isFinite(along)) { dtg = along.toFixed(along < 10 ? 2 : 1); const kn = p && p.kn > 0.1 ? p.kn : pos.sog; if (kn > 0.1) eta = FMT.dt(nowJd() + along / kn / 24, off); }
+      }
+      const cls = k === cur ? "sel" : k < cur ? "dim" : "";
+      return `<tr class="${cls} click" data-lk="${k}"><td>${k + 1}</td><td>${q.user ? "<b>" + esc(name) + "</b>" : esc(name)}</td><td class="num mono">${brg}</td><td class="num mono">${dtg}</td><td class="num mono">${eta}</td></tr>`;
+    }).join("");
+    const top = el.querySelector(".scroll") ? el.querySelector(".scroll").scrollTop : null;
+    el.innerHTML = `<h2>Plan waypoints <span class="meta">${pts.length} · from the vessel; click one: steer for it</span></h2>
+      <div class="scroll" style="max-height:330px"><table><tr><th>#</th><th>Name</th><th class="num">BRG</th><th class="num">DTG NM</th><th class="num">ETA ${lab}</th></tr>${rows}</table></div>`;
+    const sc = el.querySelector(".scroll");
+    if (top !== null) sc.scrollTop = top; else { const r = el.querySelector("tr.sel"); if (r) sc.scrollTop = r.offsetTop - 60; }
+    el.querySelectorAll("[data-lk]").forEach(r => r.onclick = () => {
+      if (!L.pos || !L.psg || !L.psg.active) return;
+      const d = +r.dataset.lk - L.psg.leg;
+      for (let i = 0; i < Math.abs(d); i++) step(Math.sign(d));
+      tick(GPS.state(), GPS.sats());
+    });
+  }
+
+  /* Live tab: the GPS in short (the GPS tab has the rest) */
+  function gpsBox() {
+    const el = $("livegps"); if (!el) return;
+    const st = typeof GPS !== "undefined" && GPS.state ? GPS.state() : null, pos = L.pos;
+    if (!el.dataset.built) {
+      el.innerHTML = `<h2>GPS <span class="meta" id="lgsrc"></span></h2><div style="display:flex;gap:12px;align-items:flex-start">
+        <canvas id="lgsky" width="200" height="200" style="width:150px;height:150px"></canvas><div id="lgtxt" class="mono" style="font-size:13px"></div></div>
+        <div class="controls" style="margin-top:6px"><button id="lggps">The GPS tab: connect, replay, demo</button></div>`;
+      el.dataset.built = "1";
+      $("lggps").onclick = () => showTab("gps");
+    }
+    $("lgsrc").textContent = pos ? pos.src : "no position";
+    const n1 = v => isFinite(v) ? v.toFixed(1) : "–";
+    $("lgtxt").innerHTML = st && pos ? `${FMT.dm(pos.lat, 2, 3)}${pos.lat < 0 ? "S" : "N"}<br>${(() => { const lo = ((pos.lon + 540) % 360) - 180; return FMT.dm(lo, 3, 3) + (lo < 0 ? "W" : "E"); })()}<br>
+      ${st.dim >= 2 ? st.dim + "D · " : ""}${st.nused} sats<br>HDOP ${n1(st.hdop)} · PDOP ${n1(st.pdop)}<br>fix ${Math.max(0, Math.round(st.fixAge))} s ago${st.age > 0 ? `<br>DGPS age ${Math.round(st.age)} s` : ""}`
+      : "No GPS: connect one, replay a log, or the Demo.";
+    if (GPS.sky) GPS.sky($("lgsky"));
+  }
+
   /* ---------------------------------------------------------------- the Bow view */
   const BV = { W: 900, H: 420, HOR: 120, FOC: 470, K: 48, CAM: 20 };
   function bproj(la, lo, h, hdg, height) {               /* metres up (height): drawn as seen from 20 m */
@@ -525,11 +595,12 @@ const LIVE = (() => {
     }
     /* the numbers */
     const box = (x, y, lines) => {
-      g.fillStyle = "rgba(10,20,30,0.7)"; g.fillRect(x, y, 170, 22 * lines.length + 10);
+      g.fillStyle = "rgba(10,20,30,0.7)"; g.fillRect(x, y, 178, 22 * lines.length + 10);
       g.fillStyle = "#fff"; g.font = "bold 17px ui-monospace, monospace"; lines.forEach((t, i) => g.fillText(t, x + 10, y + 24 + 22 * i));
     };
-    box(12, BV.H - 70 - 22, p && p.active && !p.done ? [`XTE ${Math.abs(p.xte).toFixed(2)} ${p.xte >= 0 ? "R" : "L"}`, `CTS ${deg(p.cts)}`, `DTG ${p.dtg.toFixed(2)}`] : ["no route", "", ""]);
-    box(BV.W - 182, BV.H - 70 - 22, [`SOG ${n1(pos.sog)}`, `${isFinite(pos.hdg) ? "HDG" : "COG"} ${deg(hdg)}`, pos.src]);
+    box(12, BV.H - 150, p && p.active && !p.done ? [`XTE ${Math.abs(p.xte).toFixed(2)} ${p.xte >= 0 ? "R" : "L"}`, `CTS ${deg(p.cts)}`, `DTG ${p.dtg.toFixed(2)}`].concat([FMT.dm(pos.lat, 2, 3) + (pos.lat < 0 ? "S" : "N")]) : ["no route", "", "", FMT.dm(pos.lat, 2, 3) + (pos.lat < 0 ? "S" : "N")]);
+    box(BV.W - 190, BV.H - 150, [`SOG ${n1(pos.sog)}`, `${isFinite(pos.hdg) ? "HDG" : "COG"} ${deg(hdg)}`, `COG ${deg(pos.cog)}`, (() => { const lo = ((pos.lon + 540) % 360) - 180; return FMT.dm(lo, 3, 3) + (lo < 0 ? "W" : "E"); })()]);
+    strip(g, pos);
     if (p && p.active && !p.done && isFinite(p.next) && p.dtg < 3 * cfg.arr + 0.5) {
       g.fillStyle = "#ffcf33"; g.fillRect(12, 12, 230, 32); g.fillStyle = "#20262c"; g.font = "bold 18px system-ui"; g.fillText(`TURN AHEAD ${deg(p.next)}`, 22, 34);
     }
@@ -540,7 +611,7 @@ const LIVE = (() => {
   /* the animation: the bow view 4 times a second, the chart's wake twice */
   let tk = 0, shown = "";
   setInterval(() => {
-    if (!window.NAV47_UP || S.tab !== "route") return;
+    if (!window.NAV47_UP || (S.tab !== "route" && S.tab !== "live")) return;
     const bc = $("bowcard");
     if (bc) { bc.hidden = !L.pos; picsUI(); }                            /* the Bow view: with a position */
     if (!L.pos) { if (shown !== "none" && $("livecard")) { card(); shown = "none"; } return; }
@@ -551,5 +622,5 @@ const LIVE = (() => {
 
   /* the GPS live: a position in the last 15 s (the voyage player and its box step aside) */
   const active = () => !!L.pos && performance.now() - (L.posT || 0) < 15000;
-  return { tick, drawChart, card, bow, state: () => L, cfg, active };
+  return { tick, drawChart, card, bow, wpList, gpsBox, state: () => L, cfg, active };
 })();

@@ -287,7 +287,7 @@ void obj_chart(const map_t *m) {
       }
     }
     /* the outline to scale, when it shows */
-    int drawn = 0;
+    int drawn = 0, xr = 0;                              /* xr: the outline's right edge, the name after it */
     if (o->orient >= 0) {
       double c[4][2];
       float px[4], py[4];
@@ -304,6 +304,7 @@ void obj_chart(const map_t *m) {
         for (int k = 0; k < 4; k++) gfx_line((int)px[k], (int)py[k], (int)px[(k + 1) % 4], (int)py[(k + 1) % 4], 1);
         gfx_line((int)px[0], (int)py[0], (int)px[1], (int)py[1], 1);
         drawn = 1;
+        for (int k = 0; k < 4; k++) if ((int)px[k] > xr) xr = (int)px[k];
       }
       (void)c;
     }
@@ -314,7 +315,9 @@ void obj_chart(const map_t *m) {
       float x2, y2;
       off(o->lat, o->lon, 0, o->zone, &la, &lo);
       map_xy(m, la, lo, &x2, &y2);
-      if (fabsf(y2 - y) >= 7 && x + 7 + text_width(&TINY, o->name) < m->x0 + m->w) draw_text(&TINY, (int)x + 7, (int)y - 4, o->name, 0);
+      int lx = drawn && xr + 3 > (int)x + 7 ? xr + 3 : (int)x + 7, w = text_width(&TINY, o->name);
+      int ly = (int)y - 13 >= m->y0 + 1 ? (int)y - 13 : (int)y + 5;   /* above and right: a route through its centre misses it */
+      if (fabsf(y2 - y) >= 7 && lx + w < m->x0 + m->w) { gfx_rect(lx - 1, ly - 1, w + 2, 9, 0); draw_text(&TINY, lx, ly, o->name, 0); }
     }
   }
 }

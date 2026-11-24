@@ -263,7 +263,6 @@ void draw_route(void) {
     hint(h);
   }
   sprintf(s, "%d WP  TOTAL %.1f NM", N->nwp, tot);
-  if (!rlib_active() && wp_edit < 0) { sprintf(s, "%d WP", N->nwp); hint_r(s); }   /* the total: CUM's last row */
   if (wp_cur >= N->nwp) wp_cur = N->nwp - 1;
   int top = wp_cur - vis / 2;
   if (top > N->nwp - vis) top = N->nwp - vis;
@@ -730,7 +729,7 @@ void draw_chart(void) {
       if (ly < CHART_Y0 + 1) ly = (int)y + 5;
       for (int k = 0; k < nb && !hit; k++) hit = lx < bx[k] + bw[k] + 2 && lx + w + 2 > bx[k] && abs(ly - by[k]) < 10;
       if (hit) continue;
-      gfx_rect(lx - 1, ly - 1, w + 2, 9, 0);
+      gfx_rect(lx - 2, ly - 1, w + 4, 9, 0);             /* a clear pixel round it: no line touching the name */
       draw_text(&TINY, lx, ly, t, 0);
       bx[nb] = (short)lx; by[nb] = (short)ly; bw[nb++] = (short)w;
     }
