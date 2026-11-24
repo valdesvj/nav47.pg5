@@ -956,18 +956,19 @@ static void draw_bow(uint32_t frame) {
   bow_ship();
   /* the numbers, in boxes beside the bow (the horizon stays clear) */
   const int BY = 150;
-  gfx_rect(2, BY, 104, 43, 0); gfx_frame(2, BY, 104, 43);
-  gfx_rect(LCD_X - 106, BY, 104, 43, 0); gfx_frame(LCD_X - 106, BY, 104, 43);
-  { char a[20], b[20];                                  /* where she is: a line of each box */
-    fmt_pos(a, f->lat, 1); tiny(6, BY + 33, a);
-    fmt_pos(b, f->lon, 0); tiny(LCD_X - 102, BY + 33, b); }
+  gfx_rect(2, BY, 104, 35, 0); gfx_frame(2, BY, 104, 35);
+  const int RW = 124, RX = LCD_X - RW - 2, RY = BY - 32;   /* her own: latitude, longitude, HDG, SOG, black on white */
+  gfx_rect(RX, RY, RW, 67, 0); gfx_frame(RX, RY, RW, 67);
+  { char a[20];
+    fmt_pos(a, f->lat, 1); nt(RX + 4, RY + 1, a);
+    fmt_pos(a, f->lon, 0); nt(RX + 4, RY + 17, a); }
   if (R && p->active && !p->done) {
     { char x[16]; fmt_xte(x, p->xte); sprintf(s, "XTE %s%s", x, p->xte >= 0 ? "R" : "L"); nt(6, BY + 1, s); }
     fmt_deg(t, p->cts); sprintf(s, "CTS %s", t); nt(6, BY + 17, s);
   } else if (R && !p->done) { nt(6, BY + 1, "the route:"); nt(6, BY + 17, "NAV 5 start"); }
   else { nt(6, BY + 1, R ? "ARRIVED" : "no route"); fmt_deg(t, f->cog); sprintf(s, "COG %s", t); nt(6, BY + 17, s); }
-  fmt_kn(t, f->sog); sprintf(s, "SOG %s", t); nt(LCD_X - 102, BY + 1, s);
-  fmt_deg(t, hdg); sprintf(s, "%s %s", !isnan(f->hdg) ? "HDG" : "COG", t); nt(LCD_X - 102, BY + 17, s);
+  fmt_deg(t, hdg); sprintf(s, "%s %s", !isnan(f->hdg) ? "HDG" : "COG", t); nt(RX + 4, RY + 33, s);
+  fmt_kn(t, f->sog); sprintf(s, "SOG %s", t); nt(RX + 4, RY + 49, s);
   if (R && p->active && !p->done && !isnan(p->next_crs) && p->dtg < 3 * p->arr_r + 0.5) {
     fmt_deg(t, p->next_crs);
     sprintf(s, "TURN AHEAD %s", t);

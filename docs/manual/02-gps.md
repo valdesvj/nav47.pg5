@@ -232,7 +232,7 @@ through the turns (the corners mitred). The
 waypoints have flags. Your platforms stand on jackets with their deck modules, at their outline, seen from 20 m;
 they grow as the vessel closes and slide out of the view as she passes. Their zones are dotted on the sea. The Sun
 and the Moon stand at their bearings. The sea moves at her speed. **TURN AHEAD 096°** shows near a waypoint. The
-boxes beside the bow give XTE, CTS, SOG, HDG and her latitude (left) and longitude (right).
+boxes beside the bow: on the left XTE and CTS; on the right her own latitude, longitude, HDG and SOG, together.
 
 ### The live CHART
 
