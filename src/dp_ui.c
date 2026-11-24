@@ -17,6 +17,7 @@ typedef struct {
   DpWx w;
   DpRes r;
   int loaded, face, manual, showfail, tonnes, sel, edit;
+  int bmode;                                    /* BEST: 0 H (the smallest turn, every thruster 5 under its limit), 1 L (the least thrust) */
   float hdg, limw;
   char msg[48], csrc[24], vsrc[24];
 } DpS;
@@ -128,12 +129,23 @@ static void dp_busy(int n, int tot) {
   lcd_refresh();
 }
 
-/* BEST: every heading the side and the tolerance allow (every face with FACE AUTO), then the wind she holds to */
+/* BEST H: this face and side, the smallest turn from the present heading that puts every thruster 5 points under its
+   working limit (1 deg steps); none: the least loaded. BEST L: every side on the face (every face with FACE AUTO), the
+   least total thrust while holding (2 deg, 5 with AUTO). Then the wind she holds to. The web's DP tab the same C. */
 static void dp_best(void) {
   dp_weather();
   dp_abort = 0;
-  if (strstr(DP->msg, "stopped")) DP->msg[0] = 0;          /* a stop's note: gone with the next run */
-  dpo_best(&DP->v, &DP->p, &DP->w, 5, &DP->r, dp_busy);
+  if (strstr(DP->msg, "stopped") || strstr(DP->msg, "BEST")) DP->msg[0] = 0;   /* the last run's note: gone */
+  if (DP->bmode == 0) {
+    int face = DP->p.face >= 0 ? DP->p.face : DP->face;
+    int hit = dpo_best_h(&DP->v, &DP->p, &DP->w, face, DP->hdg, 0.05f, 1, &DP->r, dp_busy);
+    if (!hit && !dp_abort) snprintf(DP->msg, sizeof DP->msg, "BEST H: not 5 under on this side");
+  } else {
+    int side;
+    dpo_best_l(&DP->v, &DP->p, &DP->w, DP->p.face < 0 ? 5 : 2, &DP->r, &side, dp_busy);
+    if (side != DP->p.side) { DP->p.side = side; DP->p.par = 0; }   /* her set-up (not saved: SIDE sets yours) */
+    if (!dp_abort) snprintf(DP->msg, sizeof DP->msg, "BEST L: %.1ft thrust", dpo_thrust_sum(&DP->v, &DP->r) / 9.80665f);
+  }
   DP->face = DP->r.face; DP->hdg = DP->r.hdg; DP->manual = 0;
   if (dp_abort) {                                          /* stopped: the best of the headings tried, no wind limit */
     DP->limw = -1;
@@ -286,11 +298,6 @@ static void dp_picture(void) {
     gfx_rect(lx - 1, ly - 1, 7, 9, 0);
     draw_text(&TINY, lx, ly, wx[k].l, 0);
   }
-  if (r->mid > d->p.standoff + 0.05f || r->clear < d->p.standoff - 0.05f) {   /* turned: moved out for a corner */
-    char s[32];
-    sprintf(s, "MID %.1fm CORNER %.1fm", r->mid, r->clear);
-    gfx_rect(0, 198, 120, 9, 0); draw_text(&TINY, 1, 199, s, 0);
-  }
   gfx_rect(0, 17, 22, 24, 0);
   arrow(8, 36, 0, 14); draw_text(&TINY, 12, 20, "N", 0);
   for (int y = 17; y < MENU_Y; y += 2) lcd_fill_rect(201, (uint32_t)y, 1, 1, 1);
@@ -307,7 +314,7 @@ void draw_dp(void) {
   sprintf(s, "FACE %03.0f%s %s%s", dpo_face_normal(&d->p, d->face), d->p.face < 0 ? "*" : "", DPO_SIDE[d->p.side],
           dpo_tol(&d->p) == 0 && d->p.side != DPS_STERN && d->p.side != DPS_BOW ? " PAR" : "");
   nt(X, 18, s);
-  sprintf(s, "HDG %03.0f%s  %.0fm OFF", r->hdg, d->manual ? " SET" : " BEST", r->mid);
+  sprintf(s, "HDG %03.0f%s  %.0fm OFF", r->hdg, d->manual ? " SET" : d->bmode ? " BEST L" : " BEST H", r->mid);
   nt(X, 34, s);
   gfx_hline_dotted(X - 2, LCD_X - 1, 49, 2);             /* the set-up | the weather | the result */
   sprintf(s, "WIND %03.0f %.0fkn", d->w.wfrom, d->w.wkn);
@@ -345,8 +352,14 @@ void draw_dp(void) {
     draw_text(&TINY, x + w + 1, top + H - 6, s, 0);
     draw_text(&TINY, x, top + H + 3, d->v.thr[i].name, 0);
   }
-  if (d->msg[0]) draw_text(&TINY, 80, MENU_Y - LH, d->msg, 0);
-  else draw_text(&TINY, 2, MENU_Y - LH, ". ABS SKP", 0);
+  {                                                       /* the bottom line: the run's note, else her offset, else the keys */
+    char b[48];
+    if (d->msg[0]) snprintf(b, sizeof b, "%s", d->msg);
+    else if (r->mid > d->p.standoff + 0.05f || r->clear < d->p.standoff - 0.05f) snprintf(b, sizeof b, "MID %.1fm CORNER %.1fm", r->mid, r->clear);
+    else strcpy(b, ". ABS SKP   + BEST H / BEST L");
+    gfx_rect(0, MENU_Y - LH - 1, 165, LH, 0);                /* the weather push's tonnes keep their place (x 166+) */
+    draw_text(&TINY, 2, MENU_Y - LH, b, 0);
+  }
 }
 
 static int abs_run(void);
@@ -376,8 +389,11 @@ void dp_key(int key) {
   else if (key == KEY_3) d->tonnes ^= 1;                       /* the bars: % of full thrust or tonnes */
   else if (key == KEY_1) { d->p.par ^= 1; dp_save_plat(); dp_best(); }   /* side to: parallel to the face, or within TOL */
   else if (key == KEY_DOT) { if (abs_run()) go(PG_DPABS); }  /* ABS SKP: the vessel's capability, every direction */
+  else if (key == KEY_ADD) { d->bmode ^= 1; dp_best(); }      /* +: BEST H or BEST L */
   else if (key == KEY_EXIT) go(PG_VALM);
 }
+
+const char *dp_best_label(void) { return DP && DP->bmode ? "BEST L" : "BEST H"; }
 
 void dp_soft(int fn) {
   DpS *d = DP;
