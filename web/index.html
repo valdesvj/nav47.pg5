@@ -47,6 +47,8 @@
   .card > h2 { cursor: pointer; user-select: none; } .card > h2::before { content: "▾ "; color: var(--soft); font-size: 13px; }
   .card.folded > h2::before { content: "▸ "; } .card.folded > :not(h2) { display: none !important; } .card.folded > h2 { margin: 0; }
   details > summary.sumline { cursor: pointer; margin: 4px 0; }
+  #chartcard.alt [data-tool], #chartcard.alt #objtype, #chartcard.alt #lock, #chartcard.alt #del, #chartcard.alt #streams, #chartcard.alt .legend { display: none; }
+  #flroute td:nth-child(2) { white-space: normal; }
   header label { display: inline-flex; flex-direction: column; gap: 1px; font-size: 12px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
   .chip { background: var(--chip); border-radius: 999px; padding: 2px 10px; font-size: 13px; }
@@ -102,6 +104,8 @@
     <button id="now" class="on" title="follow the clock">Now</button>
     <label>UT <input type="datetime-local" id="ut" step="60"></label>
     <span id="ztclock" class="meta mono" title="the zone time of the DR (its longitude / 15)"></span>
+    <label>Position <select id="posmode" title="Auto: the GPS's position while one runs (Manual meanwhile without one); Manual: yours"><option value="auto">Auto (GPS)</option><option value="man">Manual</option></select></label>
+    <span id="drtag" class="chip" hidden style="align-self:flex-end;margin-bottom:6px;font-weight:700"></span>
     <label>DR <input class="pos" id="dr" placeholder="27 12.0N 049 42.0E"></label>
     <label>Times <select id="times"><option value="ut">UT</option><option value="lt">LT</option></select></label>
     <button id="bigtext" title="larger text, for the bridge">A+</button>
@@ -112,6 +116,9 @@
 <main>
   <section id="t-route"></section>
   <section id="t-live" hidden></section>
+  <section id="t-flight" hidden></section>
+  <section id="t-heli" hidden></section>
+  <section id="t-supply" hidden></section>
   <section id="t-weather" hidden></section>
   <section id="t-almanac" hidden></section>
   <section id="t-sky" hidden></section>
@@ -154,7 +161,7 @@
   </section>
 </main>
 <footer>Not for navigation: check against official charts, the Nautical Almanac and tide tables. By Victor Valdes, Master Mariner.
-  Coastlines: Natural Earth (public domain). Geodesics: GeographicLib (C. F. F. Karney, MIT). Your objects and routes stay in this browser.</footer>
+  Coastlines: Natural Earth (public domain). Airports: OurAirports (public domain). Geodesics: GeographicLib (C. F. F. Karney, MIT). Your objects and routes stay in this browser.</footer>
 <div id="fail" hidden style="position:fixed;top:0;left:0;right:0;z-index:99;background:#b3261e;color:#fff;padding:10px 16px;font:14px system-ui">
   <b>NAV47 could not start:</b> <span id="failmsg"></span>
   <button id="failreset" style="margin-left:12px">Forget this page's saved data and reload</button></div>
@@ -182,6 +189,8 @@ setTimeout(() => { if (!window.NAV47_UP) nav47fail("still loading after 30 s: na
 <script src="sealanes.js?v=1.0"></script>
 <script src="eca.js?v=1.0"></script>
 <script src="portsui.js?v=1.0"></script>
+<script src="airports.js?v=1.0"></script>
+<script src="views.js?v=1.0"></script>
 <script>
 window.Module = {
   nav47_lcd: fb => CALC.lcd(fb),
